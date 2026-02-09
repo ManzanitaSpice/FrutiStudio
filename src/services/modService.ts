@@ -2,12 +2,12 @@ export interface ModSearchFilters {
   query: string;
   loader?: string;
   gameVersion?: string;
+  tags?: string[];
 }
 
 export const searchMods = async (_filters: ModSearchFilters) => {
-  const { searchModrinthMods } = await import("./apiClients/modrinth");
-  const result = await searchModrinthMods(_filters.query);
-  return result.hits ?? [];
+  const { searchModrinth } = await import("./modrinthService");
+  return searchModrinth(_filters);
 };
 
 export const installMod = async (_modId: string) => {
