@@ -9,7 +9,10 @@
 - **Servicios**
   - `configService`: carga/guarda configuración con retry y cache.
   - `instanceService`: obtiene instancias desde fixtures y cache.
-  - `apiClients`: cliente con rate limiting y cache para APIs externas.
+  - `apiClients`: cliente con rate limiting, headers y cache para APIs externas.
+  - `curseService` / `modrinthService` / `atmlService`: integraciones con APIs
+    externas para mods y modpacks.
+  - `modpackExportService`: genera manifests para exportar instancias.
   - `downloadQueue`: cola de descargas con reintentos y verificación de hash.
 
 ## Backend (Tauri)
