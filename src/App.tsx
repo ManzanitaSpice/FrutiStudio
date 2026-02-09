@@ -1,102 +1,123 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 
 import { BaseDirProvider } from "./context/BaseDirContext";
+import { UIProvider } from "./context/UIContext";
 import { InstanceProvider } from "./context/instanceContext";
+import { NotificationProvider } from "./context/NotificationContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { NotificationCenter } from "./components/NotificationCenter";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
-import { Toolbar, type SectionKey } from "./components/Toolbar";
-import { InstancePanel } from "./components/panels/InstancePanel";
-import { ExplorerPanel } from "./components/panels/ExplorerPanel";
-import { NewsPanel } from "./components/panels/NewsPanel";
-import { ServersPanel } from "./components/panels/ServersPanel";
+import { Toolbar } from "./components/Toolbar";
+import { EmptyState } from "./components/EmptyState";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useUiZoom } from "./hooks/useUiZoom";
+import { useUI } from "./hooks/useUI";
+import { useI18n } from "./i18n/useI18n";
+import { featureFlags } from "./config/featureFlags";
+import { fetchInstances } from "./services/instanceService";
+import { loadConfig, saveConfig } from "./services/configService";
+import type { Instance } from "./types/models";
 import "./App.css";
 
-function App() {
-  const [activeSection, setActiveSection] =
-    useState<SectionKey>("mis-modpacks");
+const InstancePanel = lazy(() =>
+  import("./components/panels/InstancePanel").then((module) => ({
+    default: module.InstancePanel,
+  })),
+);
+const ExplorerPanel = lazy(() =>
+  import("./components/panels/ExplorerPanel").then((module) => ({
+    default: module.ExplorerPanel,
+  })),
+);
+const NewsPanel = lazy(() =>
+  import("./components/panels/NewsPanel").then((module) => ({
+    default: module.NewsPanel,
+  })),
+);
+const ServersPanel = lazy(() =>
+  import("./components/panels/ServersPanel").then((module) => ({
+    default: module.ServersPanel,
+  })),
+);
+const SettingsPanel = lazy(() =>
+  import("./components/panels/SettingsPanel").then((module) => ({
+    default: module.SettingsPanel,
+  })),
+);
+
+const AppShell = () => {
+  const {
+    activeSection,
+    uiScale,
+    isFocusMode,
+    setScale,
+    setSection,
+    toggleFocus,
+    setTheme,
+    theme,
+  } = useUI();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
     "vmodrit",
   );
-  const [uiScale, setUiScale] = useState(1);
-  const [isFocusMode, setIsFocusMode] = useState(false);
-
-  const instanceData = [
-    {
-      id: "vmodrit",
-      name: "vModrit - All the Mons",
-      version: "1.21.1",
-      mods: 412,
-      memory: "8 GB",
-      status: "Listo para jugar",
-      group: "No agrupado",
-      lastPlayed: "Jugado hace 2 días",
-      playtime: "13 d 5 h 10 min",
-    },
-    {
-      id: "atm10",
-      name: "All the Mods 10",
-      version: "1.21.1",
-      mods: 396,
-      memory: "10 GB",
-      status: "Actualización pendiente",
-      group: "No agrupado",
-      lastPlayed: "Jugado hoy",
-      playtime: "1 d 7 h 42 min",
-    },
-    {
-      id: "create-factory",
-      name: "Create Factory",
-      version: "1.20.1",
-      mods: 178,
-      memory: "6 GB",
-      status: "Detenida",
-      group: "Producción",
-      lastPlayed: "Jugado hace 1 semana",
-      playtime: "3 h 22 min",
-    },
-    {
-      id: "survival-friends",
-      name: "Survival Amigos",
-      version: "1.20.4",
-      mods: 42,
-      memory: "5 GB",
-      status: "Listo para jugar",
-      group: "Casual",
-      lastPlayed: "Jugado hace 4 horas",
-      playtime: "9 h 58 min",
-    },
-  ];
+  const [instances, setInstances] = useState<Instance[]>([]);
+  const { t } = useI18n();
 
   useEffect(() => {
-    const handleZoom = (event: WheelEvent) => {
-      if (!event.ctrlKey) {
-        return;
-      }
-      event.preventDefault();
-      const nextScale = Math.min(
-        1.8,
-        Math.max(0.6, uiScale + (event.deltaY > 0 ? -0.08 : 0.08)),
-      );
-      setUiScale(Number(nextScale.toFixed(2)));
+    const loadInstances = async () => {
+      const data = await fetchInstances();
+      setInstances(data);
     };
+    void loadInstances();
+  }, []);
 
-    window.addEventListener("wheel", handleZoom, { passive: false });
-    return () => window.removeEventListener("wheel", handleZoom);
-  }, [uiScale]);
+  useUiZoom({
+    scale: uiScale,
+    onChange: (nextScale) => {
+      setScale(nextScale);
+      const persist = async () => {
+        const config = await loadConfig();
+        await saveConfig({ ...config, uiScale: nextScale });
+      };
+      void persist();
+    },
+  });
 
   useEffect(() => {
     document.documentElement.style.setProperty("--ui-scale", uiScale.toString());
   }, [uiScale]);
 
   useEffect(() => {
-    if (activeSection !== "mis-modpacks") {
-      setIsFocusMode(false);
-    }
-  }, [activeSection]);
+    const applyConfig = async () => {
+      const config = await loadConfig();
+      if (config.uiScale) {
+        setScale(config.uiScale);
+      }
+      if (config.theme) {
+        setTheme(config.theme);
+      }
+    };
+    void applyConfig();
+  }, [setScale, setTheme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    const persist = async () => {
+      const config = await loadConfig();
+      await saveConfig({ ...config, theme });
+    };
+    void persist();
+  }, [theme]);
+
+  useKeyboardShortcuts({
+    onSelectSection: setSection,
+    onToggleFocus: toggleFocus,
+  });
 
   const selectedInstance = useMemo(
-    () => instanceData.find((instance) => instance.id === selectedInstanceId) ?? null,
-    [instanceData, selectedInstanceId],
+    () =>
+      instances.find((instance) => instance.id === selectedInstanceId) ?? null,
+    [instances, selectedInstanceId],
   );
 
   const handleClearSelection = () => setSelectedInstanceId(null);
@@ -105,42 +126,78 @@ function App() {
   const showToolbar = !isFocusMode;
 
   return (
-    <BaseDirProvider>
-      <InstanceProvider>
-        <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
-          {showToolbar && (
-            <Toolbar
-              current={activeSection}
-              onSelect={setActiveSection}
-              showGlobalSearch={activeSection !== "mis-modpacks"}
-            />
-          )}
-          <div
-            className={
-              showSidebar ? "app-shell__body" : "app-shell__body app-shell__body--no-sidebar"
-            }
-          >
-            {showSidebar && <Sidebar />}
-            <main className="main-panel">
+    <ErrorBoundary>
+      <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
+        <NotificationCenter />
+        {showToolbar && (
+          <Toolbar
+            current={activeSection}
+            onSelect={setSection}
+            showGlobalSearch={activeSection !== "mis-modpacks"}
+            flags={featureFlags}
+            onThemeChange={setTheme}
+            theme={theme}
+          />
+        )}
+        <div
+          className={
+            showSidebar
+              ? "app-shell__body"
+              : "app-shell__body app-shell__body--no-sidebar"
+          }
+        >
+          {showSidebar && <Sidebar />}
+          <main className="main-panel" role="main">
+            <Suspense fallback={<div className="panel-loading">Cargando…</div>}>
               {activeSection === "mis-modpacks" && (
                 <InstancePanel
-                  instances={instanceData}
+                  instances={instances}
                   selectedInstanceId={selectedInstanceId}
                   onSelectInstance={setSelectedInstanceId}
                   onClearSelection={handleClearSelection}
                   isFocusMode={isFocusMode}
-                  onToggleFocusMode={() => setIsFocusMode((prev) => !prev)}
+                  onToggleFocusMode={toggleFocus}
                 />
               )}
-              {activeSection === "novedades" && <NewsPanel />}
-              {activeSection === "explorador" && <ExplorerPanel />}
-              {activeSection === "servers" && <ServersPanel />}
-            </main>
-          </div>
-          {showStatusBar && <StatusBar selectedInstance={selectedInstance} />}
+              {activeSection === "novedades" && featureFlags.news && (
+                <NewsPanel />
+              )}
+              {activeSection === "explorador" && featureFlags.explorer && (
+                <ExplorerPanel />
+              )}
+              {activeSection === "servers" && featureFlags.servers && (
+                <ServersPanel />
+              )}
+              {activeSection === "configuracion" && featureFlags.settings && (
+                <SettingsPanel />
+              )}
+              {activeSection === "mis-modpacks" &&
+                !selectedInstanceId && (
+                  <EmptyState
+                    title={t("emptyState").title}
+                    description={t("emptyState").description}
+                  />
+                )}
+            </Suspense>
+          </main>
         </div>
-      </InstanceProvider>
-    </BaseDirProvider>
+        {showStatusBar && <StatusBar selectedInstance={selectedInstance} />}
+      </div>
+    </ErrorBoundary>
+  );
+};
+
+function App() {
+  return (
+    <UIProvider>
+      <BaseDirProvider>
+        <NotificationProvider>
+          <InstanceProvider>
+            <AppShell />
+          </InstanceProvider>
+        </NotificationProvider>
+      </BaseDirProvider>
+    </UIProvider>
   );
 }
 

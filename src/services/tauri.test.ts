@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async () => "/tmp/base"),
+  invoke: vi.fn(async () => ({ ok: true, path: "/tmp/base" })),
 }));
 
 describe("tauri service", () => {
@@ -11,7 +11,7 @@ describe("tauri service", () => {
 
     const result = await selectFolder();
 
-    expect(invoke).toHaveBeenCalledWith("select_folder");
-    expect(result).toBe("/tmp/base");
+    expect(invoke).toHaveBeenCalledWith("select_folder", undefined);
+    expect(result).toEqual({ ok: true, path: "/tmp/base" });
   });
 });

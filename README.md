@@ -6,26 +6,27 @@ extensible.
 
 ## Resumen técnico
 
-- Moderniza el flujo de selección de carpeta en Tauri, centralizando la carpeta
-  base en un contexto global (BaseDirProvider). Esto evita pasar props
-  repetidamente y permite que cualquier componente acceda a la carpeta base sin
-  acoplamiento, además de preparar la app para la gestión escalable de
-  instancias, modpacks, mods y versiones al estilo
-  MultiMC/CurseForge/Prism.
-- Actualiza `select_folder` en Tauri (`lib.rs`) a async usando
-  `tokio::sync::oneshot`, evitando bloquear el hilo principal y mejorando la
-  interoperabilidad con React.
-- Añade `BaseDirContext` y el hook `useBaseDir`, junto con `SelectFolderButton`,
-  centralizando la selección y visualización de la carpeta base.
-- Reescribe `App.tsx` y `App.css` para usar el nuevo contexto, con layout limpio
-  y estilos consistentes que mejoran la UX inicial.
-- Crea scaffolding para futuras funciones:
-  - Servicios: `tauri.ts`, `instanceService.ts`, `modpackService.ts`,
-    `modService.ts`, `versionService.ts`, `javaConfig.ts`.
-  - Contextos: `instanceContext.tsx`, `modpackContext.tsx`, `modContext.tsx`.
-  - Utilidades: `apiClients.ts`, `instanceHelpers.ts`, `modpackHelpers.ts`.
+- Se reorganizó la obtención de instancias con fixtures y un servicio dedicado,
+  junto con un contexto UI global (zoom, sección activa, modo foco, tema).
+- Se añadieron feature flags, lazy loading de paneles, error boundaries, sistema
+  de notificaciones, y un panel de configuración para la carpeta base y la
+  telemetría opcional.
+- Se implementaron utilidades compartidas (formatters, retry, semver, i18n),
+  junto con caching, rate limiting y modo offline para clientes de APIs.
+- El backend en Tauri incorpora migraciones de config, dry-run de validación,
+  verificación de espacio libre, logs con rotación, y comandos para gestionar
+  modpacks/instancias usando SQLite.
 
-## Pruebas
+## Comandos útiles
 
-El scaffolding de servicios y contextos aún no cuenta con pruebas unitarias, pero
-está preparado para agregarlas en futuras integraciones.
+- `npm run dev` inicia Vite para desarrollo.
+- `npm run build` compila el frontend.
+- `npm run lint` corre ESLint.
+- `npm run format` aplica Prettier.
+- `npm run typecheck` ejecuta TypeScript sin emitir.
+- `npm test` corre Vitest.
+
+## Arquitectura
+
+Consulta `docs/architecture.md` para la descripción de servicios, contextos y
+comandos Tauri.

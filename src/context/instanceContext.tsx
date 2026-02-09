@@ -1,10 +1,26 @@
-import { createContext, useMemo, useState } from "react";
+import { createContext, useMemo, useReducer } from "react";
 
-import { InstanceConfig } from "../services/instanceService";
+import type { Instance } from "../types/models";
+
+type InstanceAction =
+  | { type: "set"; payload: Instance[] }
+  | { type: "clear" };
+
+const reducer = (state: Instance[], action: InstanceAction): Instance[] => {
+  switch (action.type) {
+    case "set":
+      return action.payload;
+    case "clear":
+      return [];
+    default:
+      return state;
+  }
+};
 
 export interface InstanceContextValue {
-  instances: InstanceConfig[];
-  setInstances: (instances: InstanceConfig[]) => void;
+  instances: Instance[];
+  setInstances: (instances: Instance[]) => void;
+  clearInstances: () => void;
 }
 
 export const InstanceContext = createContext<InstanceContextValue | undefined>(
@@ -16,8 +32,17 @@ export const InstanceProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
-  const [instances, setInstances] = useState<InstanceConfig[]>([]);
-  const value = useMemo(() => ({ instances, setInstances }), [instances]);
+  const [instances, dispatch] = useReducer(reducer, []);
+
+  const value = useMemo(
+    () => ({
+      instances,
+      setInstances: (items: Instance[]) =>
+        dispatch({ type: "set", payload: items }),
+      clearInstances: () => dispatch({ type: "clear" }),
+    }),
+    [instances],
+  );
 
   return (
     <InstanceContext.Provider value={value}>
