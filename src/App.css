@@ -691,6 +691,9 @@ select:focus-visible {
 
 .panel-view--instances {
   background: transparent;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
 }
 
 .instances-layout {
@@ -699,6 +702,8 @@ select:focus-visible {
   gap: 16px;
   align-items: start;
   min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .instances-layout--single {
@@ -706,13 +711,19 @@ select:focus-visible {
 }
 
 .instances-layout__grid {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   min-height: 0;
   padding: 12px 0;
   border-radius: 14px;
   background: transparent;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.panel-view--instances .panel-view__header {
+  justify-content: flex-end;
 }
 
 .instance-group {

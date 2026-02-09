@@ -17,6 +17,10 @@ interface ToolbarProps {
   showGlobalSearch: boolean;
   flags: FeatureFlags;
   isFocusMode: boolean;
+  onBack: () => void;
+  onForward: () => void;
+  canGoBack: boolean;
+  canGoForward: boolean;
 }
 
 export const Toolbar = ({
@@ -25,6 +29,10 @@ export const Toolbar = ({
   showGlobalSearch,
   flags,
   isFocusMode,
+  onBack,
+  onForward,
+  canGoBack,
+  canGoForward,
 }: ToolbarProps) => {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -77,10 +85,20 @@ export const Toolbar = ({
             <span className="topbar__brand-name">FrutiLauncher</span>
           </div>
           <div className="topbar__nav-controls" role="group" aria-label="Historial">
-            <button type="button" aria-label="Volver">
+            <button
+              type="button"
+              aria-label="Volver"
+              onClick={onBack}
+              disabled={!canGoBack}
+            >
               ←
             </button>
-            <button type="button" aria-label="Avanzar">
+            <button
+              type="button"
+              aria-label="Avanzar"
+              onClick={onForward}
+              disabled={!canGoForward}
+            >
               →
             </button>
           </div>
