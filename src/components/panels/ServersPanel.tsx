@@ -33,10 +33,6 @@ export const ServersPanel = () => {
             en tiempo real.
           </p>
         </div>
-        <div className="panel-view__actions">
-          <input type="search" placeholder="Buscar por nombre o IP..." />
-          <button type="button">Filtro avanzado</button>
-        </div>
       </div>
 
       <div className="servers-toolbar">

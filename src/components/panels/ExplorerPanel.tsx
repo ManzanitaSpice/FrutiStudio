@@ -54,10 +54,6 @@ export const ExplorerPanel = () => {
             o crea una nueva automáticamente.
           </p>
         </div>
-        <div className="panel-view__actions">
-          <input type="search" placeholder="Buscar proyectos..." />
-          <button type="button">Filtros avanzados</button>
-        </div>
       </div>
 
       <div className="explorer-layout">

@@ -18,6 +18,7 @@ function App() {
     "vmodrit",
   );
   const [uiScale, setUiScale] = useState(1);
+  const [isFocusMode, setIsFocusMode] = useState(false);
 
   const instanceData = [
     {
@@ -73,8 +74,8 @@ function App() {
       }
       event.preventDefault();
       const nextScale = Math.min(
-        1.4,
-        Math.max(0.8, uiScale + (event.deltaY > 0 ? -0.05 : 0.05)),
+        1.8,
+        Math.max(0.6, uiScale + (event.deltaY > 0 ? -0.08 : 0.08)),
       );
       setUiScale(Number(nextScale.toFixed(2)));
     };
@@ -87,24 +88,39 @@ function App() {
     document.documentElement.style.setProperty("--ui-scale", uiScale.toString());
   }, [uiScale]);
 
+  useEffect(() => {
+    if (activeSection !== "mis-modpacks") {
+      setIsFocusMode(false);
+    }
+  }, [activeSection]);
+
   const selectedInstance = useMemo(
     () => instanceData.find((instance) => instance.id === selectedInstanceId) ?? null,
     [instanceData, selectedInstanceId],
   );
 
   const handleClearSelection = () => setSelectedInstanceId(null);
+  const showSidebar = activeSection === "mis-modpacks" && !isFocusMode;
+  const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
+  const showToolbar = !isFocusMode;
 
   return (
     <BaseDirProvider>
       <InstanceProvider>
-        <div className="app-shell">
-          <Toolbar current={activeSection} onSelect={setActiveSection} />
-          <div className="app-shell__body">
-            <Sidebar
-              instances={instanceData}
-              selectedInstanceId={selectedInstanceId}
-              onSelectInstance={setSelectedInstanceId}
+        <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
+          {showToolbar && (
+            <Toolbar
+              current={activeSection}
+              onSelect={setActiveSection}
+              showGlobalSearch={activeSection !== "mis-modpacks"}
             />
+          )}
+          <div
+            className={
+              showSidebar ? "app-shell__body" : "app-shell__body app-shell__body--no-sidebar"
+            }
+          >
+            {showSidebar && <Sidebar />}
             <main className="main-panel">
               {activeSection === "mis-modpacks" && (
                 <InstancePanel
@@ -112,6 +128,8 @@ function App() {
                   selectedInstanceId={selectedInstanceId}
                   onSelectInstance={setSelectedInstanceId}
                   onClearSelection={handleClearSelection}
+                  isFocusMode={isFocusMode}
+                  onToggleFocusMode={() => setIsFocusMode((prev) => !prev)}
                 />
               )}
               {activeSection === "novedades" && <NewsPanel />}
@@ -119,7 +137,7 @@ function App() {
               {activeSection === "servers" && <ServersPanel />}
             </main>
           </div>
-          <StatusBar selectedInstance={selectedInstance} />
+          {showStatusBar && <StatusBar selectedInstance={selectedInstance} />}
         </div>
       </InstanceProvider>
     </BaseDirProvider>

@@ -15,6 +15,8 @@ interface InstancePanelProps {
   selectedInstanceId: string | null;
   onSelectInstance: (id: string) => void;
   onClearSelection: () => void;
+  isFocusMode: boolean;
+  onToggleFocusMode: () => void;
 }
 
 const editorSections = [
@@ -64,6 +66,8 @@ export const InstancePanel = ({
   selectedInstanceId,
   onSelectInstance,
   onClearSelection,
+  isFocusMode,
+  onToggleFocusMode,
 }: InstancePanelProps) => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [activeEditorSection, setActiveEditorSection] = useState(
@@ -152,6 +156,29 @@ export const InstancePanel = ({
 
   return (
     <section className="panel-view panel-view--instances">
+      {isFocusMode && (
+        <div className="instance-panel__commandbar">
+          <div className="instance-panel__commandbar-left">
+            <button type="button">+ Crear</button>
+            <button type="button">Importar</button>
+            <button type="button">Crear grupo</button>
+          </div>
+          <div className="instance-panel__commandbar-right">
+            <button type="button" aria-label="Buscar">
+              🔍
+            </button>
+            <button type="button" aria-label="Descargas">
+              ⬇️
+            </button>
+            <button type="button" aria-label="Filtros">
+              ⚙️
+            </button>
+            <button type="button" aria-label="Vista">
+              ⬚
+            </button>
+          </div>
+        </div>
+      )}
       <div className="panel-view__header">
         <div>
           <h2>Instancias instaladas</h2>
@@ -164,9 +191,22 @@ export const InstancePanel = ({
           <input type="search" placeholder="Buscar instancia..." />
           <button type="button">Crear instancia</button>
           <button type="button">Importar</button>
+          <button
+            type="button"
+            className="panel-view__focus-toggle"
+            onClick={onToggleFocusMode}
+          >
+            {isFocusMode ? "Mostrar barras" : "Ocultar barras"}
+          </button>
         </div>
       </div>
-      <div className="instances-layout">
+      <div
+        className={
+          selectedInstance
+            ? "instances-layout"
+            : "instances-layout instances-layout--single"
+        }
+      >
         <div className="instances-layout__grid" onClick={onClearSelection}>
           {instances.map((instance) => (
             <article
@@ -207,8 +247,8 @@ export const InstancePanel = ({
             </article>
           ))}
         </div>
-        <aside className="instance-menu">
-          {selectedInstance ? (
+        {selectedInstance && (
+          <aside className="instance-menu">
             <>
               <div className="instance-menu__preview">
                 <div className="instance-menu__image" />
@@ -246,12 +286,8 @@ export const InstancePanel = ({
                 </div>
               </div>
             </>
-          ) : (
-            <div className="instance-menu__empty">
-              <p>Selecciona una instancia para ver sus opciones.</p>
-            </div>
-          )}
-        </aside>
+          </aside>
+        )}
       </div>
       {editorOpen && selectedInstance && (
         <div className="instance-editor__backdrop" onClick={handleBackdropClick}>
