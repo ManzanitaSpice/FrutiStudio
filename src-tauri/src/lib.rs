@@ -2,11 +2,11 @@
 
 use tauri::command;
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use std::sync::mpsc;
+use tokio::sync::oneshot;
 
 #[command]
-fn select_folder(app: tauri::AppHandle) -> Result<String, String> {
-    let (tx, rx) = mpsc::channel();
+async fn select_folder(app: tauri::AppHandle) -> Result<String, String> {
+    let (tx, rx) = oneshot::channel();
 
     app.dialog().file().pick_folder(move |folder| {
         if let Some(FilePath::Path(path)) = folder {
@@ -16,7 +16,8 @@ fn select_folder(app: tauri::AppHandle) -> Result<String, String> {
         }
     });
 
-    rx.recv().unwrap_or_else(|_| Err("Error al recibir la ruta".to_string()))
+    rx.await
+        .unwrap_or_else(|_| Err("Error al recibir la ruta".to_string()))
 }
 
 fn main() {

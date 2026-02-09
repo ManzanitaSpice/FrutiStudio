@@ -1,31 +1,21 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { BaseDirProvider } from "./context/BaseDirContext";
+import { SelectFolderButton } from "./components/SelectFolderButton";
+import "./App.css";
 
 function App() {
-  const [folder, setFolder] = useState("");
-  const [error, setError] = useState("");
-
-  const openFolderPicker = async () => {
-    setError("");
-    try {
-      const path = await invoke<string>("select_folder");
-      setFolder(path);
-    } catch {
-      setError("No se seleccionó ninguna carpeta");
-    }
-  };
-
   return (
-    <div>
-      <h1>FrutiStudio</h1>
-
-      <button onClick={openFolderPicker}>
-        Seleccionar carpeta base
-      </button>
-
-      {folder && <p>📁 {folder}</p>}
-      {error && <p>{error}</p>}
-    </div>
+    <BaseDirProvider>
+      <div className="app">
+        <header className="app__header">
+          <h1>FrutiStudio</h1>
+          <p>
+            Configura tu carpeta base para comenzar a gestionar instancias y
+            modpacks.
+          </p>
+        </header>
+        <SelectFolderButton />
+      </div>
+    </BaseDirProvider>
   );
 }
 

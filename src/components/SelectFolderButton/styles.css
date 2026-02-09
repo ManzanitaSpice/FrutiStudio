@@ -1,0 +1,19 @@
+.select-folder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.select-folder__path {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #2d2d2d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .select-folder__path {
+    color: #f6f6f6;
+  }
+}
