@@ -177,8 +177,10 @@ export const InstancePanel = ({
             type="button"
             className="panel-view__focus-toggle"
             onClick={onToggleFocusMode}
+            aria-label={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
+            title={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
           >
-            {isFocusMode ? "Mostrar barras" : "Ocultar barras"}
+            {isFocusMode ? "⤢" : "⤡"}
           </button>
         </div>
       </div>

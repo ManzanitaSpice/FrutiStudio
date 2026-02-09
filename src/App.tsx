@@ -8,11 +8,9 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { StatusBar } from "./components/StatusBar";
 import { Toolbar } from "./components/Toolbar";
-import { EmptyState } from "./components/EmptyState";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { useUI } from "./hooks/useUI";
-import { useI18n } from "./i18n/useI18n";
 import { featureFlags } from "./config/featureFlags";
 import { fetchInstances } from "./services/instanceService";
 import { loadConfig, saveConfig } from "./services/configService";
@@ -60,7 +58,6 @@ const AppShell = () => {
     "vmodrit",
   );
   const [instances, setInstances] = useState<Instance[]>([]);
-  const { t } = useI18n();
 
   useEffect(() => {
     const loadInstances = async () => {
@@ -121,20 +118,17 @@ const AppShell = () => {
 
   const handleClearSelection = () => setSelectedInstanceId(null);
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
-  const showToolbar = !isFocusMode;
-
   return (
     <ErrorBoundary>
       <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
         <NotificationCenter />
-        {showToolbar && (
-          <Toolbar
-            current={activeSection}
-            onSelect={setSection}
-            showGlobalSearch={activeSection !== "mis-modpacks"}
-            flags={featureFlags}
-          />
-        )}
+        <Toolbar
+          current={activeSection}
+          onSelect={setSection}
+          showGlobalSearch={activeSection !== "mis-modpacks"}
+          flags={featureFlags}
+          isFocusMode={isFocusMode}
+        />
         <div className="app-shell__body app-shell__body--no-sidebar">
           <main className="main-panel" role="main">
             <Suspense fallback={<div className="panel-loading">Cargando…</div>}>
@@ -160,13 +154,6 @@ const AppShell = () => {
               {activeSection === "configuracion" && featureFlags.settings && (
                 <SettingsPanel />
               )}
-              {activeSection === "mis-modpacks" &&
-                !selectedInstanceId && (
-                  <EmptyState
-                    title={t("emptyState").title}
-                    description={t("emptyState").description}
-                  />
-                )}
             </Suspense>
           </main>
         </div>

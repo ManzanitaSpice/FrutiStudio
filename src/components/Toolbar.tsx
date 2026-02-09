@@ -16,6 +16,7 @@ interface ToolbarProps {
   onSelect: (section: SectionKey) => void;
   showGlobalSearch: boolean;
   flags: FeatureFlags;
+  isFocusMode: boolean;
 }
 
 export const Toolbar = ({
@@ -23,6 +24,7 @@ export const Toolbar = ({
   onSelect,
   showGlobalSearch,
   flags,
+  isFocusMode,
 }: ToolbarProps) => {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -69,97 +71,103 @@ export const Toolbar = ({
   return (
     <header className="topbar">
       <div className="topbar__row topbar__row--utility">
-        <div className="topbar__nav-controls" role="group" aria-label="Historial">
-          <button type="button" aria-label="Volver">
-            ←
-          </button>
-          <button type="button" aria-label="Avanzar">
-            →
-          </button>
-        </div>
-      </div>
-      <div className="topbar__row topbar__row--main">
-        {showGlobalSearch && (
-          <label className="topbar__search">
-            <span>🔍</span>
-            <input
-              type="search"
-              placeholder="Buscar en novedades, explorador y servers..."
-            />
-            <button type="button" aria-label="Limpiar búsqueda">
-              ✕
+        <div className="topbar__utility-left">
+          <div className="topbar__brand" aria-label="FrutiLauncher">
+            <span className="topbar__brand-icon" aria-hidden="true" />
+            <span className="topbar__brand-name">FrutiLauncher</span>
+          </div>
+          <div className="topbar__nav-controls" role="group" aria-label="Historial">
+            <button type="button" aria-label="Volver">
+              ←
             </button>
-          </label>
-        )}
-        <div className="topbar__account" ref={menuRef}>
-          <button
-            type="button"
-            className="topbar__account-trigger"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-          >
-            <img src={skinSource} alt="Skin del jugador" />
-            <span className="topbar__account-name">{account.name}</span>
-            <span aria-hidden="true" className="topbar__account-caret">
-              ▾
-            </span>
-          </button>
-          {menuOpen && (
-            <div className="topbar__account-menu" role="menu">
-              <button
-                type="button"
-                className="topbar__account-item topbar__account-item--active"
-                role="menuitem"
-                onClick={() => setMenuOpen(false)}
-              >
-                <span className="topbar__account-check">✓</span>
-                <span>{account.name}</span>
-                <span className="topbar__account-shortcut">Ctrl + 1</span>
-              </button>
-              <button
-                type="button"
-                className="topbar__account-item"
-                role="menuitem"
-                onClick={() => setMenuOpen(false)}
-              >
-                <span className="topbar__account-check" />
-                <span>No hay cuenta por defecto</span>
-                <span className="topbar__account-shortcut">Ctrl + 0</span>
-              </button>
-              <button
-                type="button"
-                className="topbar__account-item topbar__account-item--footer"
-                role="menuitem"
-                onClick={() => setMenuOpen(false)}
-              >
-                Administrar cuentas...
-              </button>
-            </div>
-          )}
+            <button type="button" aria-label="Avanzar">
+              →
+            </button>
+          </div>
         </div>
       </div>
-      <div className="topbar__row topbar__row--nav">
-        <nav className="topbar__nav" aria-label="Navegación principal">
-          {navItems
-            .filter((item) => item.enabled)
-            .map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => onSelect(item.key)}
-                className={
-                  current === item.key
-                    ? "topbar__button topbar__button--active"
-                    : "topbar__button"
-                }
-                aria-current={current === item.key ? "page" : undefined}
-              >
-                {item.label}
+      {!isFocusMode && (
+        <div className="topbar__row topbar__row--main">
+          <nav className="topbar__nav" aria-label="Navegación principal">
+            {navItems
+              .filter((item) => item.enabled)
+              .map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => onSelect(item.key)}
+                  className={
+                    current === item.key
+                      ? "topbar__button topbar__button--active"
+                      : "topbar__button"
+                  }
+                  aria-current={current === item.key ? "page" : undefined}
+                >
+                  {item.label}
+                </button>
+              ))}
+          </nav>
+          {showGlobalSearch && (
+            <label className="topbar__search">
+              <span>🔍</span>
+              <input
+                type="search"
+                placeholder="Buscar en novedades, explorador y servers..."
+              />
+              <button type="button" aria-label="Limpiar búsqueda">
+                ✕
               </button>
-            ))}
-        </nav>
-      </div>
+            </label>
+          )}
+          <div className="topbar__account" ref={menuRef}>
+            <button
+              type="button"
+              className="topbar__account-trigger"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <img src={skinSource} alt="Skin del jugador" />
+              <span className="topbar__account-name">{account.name}</span>
+              <span aria-hidden="true" className="topbar__account-caret">
+                ▾
+              </span>
+            </button>
+            {menuOpen && (
+              <div className="topbar__account-menu" role="menu">
+                <button
+                  type="button"
+                  className="topbar__account-item topbar__account-item--active"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <span className="topbar__account-check">✓</span>
+                  <span>{account.name}</span>
+                  <span className="topbar__account-shortcut">Ctrl + 1</span>
+                </button>
+                <button
+                  type="button"
+                  className="topbar__account-item"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <span className="topbar__account-check" />
+                  <span>No hay cuenta por defecto</span>
+                  <span className="topbar__account-shortcut">Ctrl + 0</span>
+                </button>
+                <button
+                  type="button"
+                  className="topbar__account-item topbar__account-item--footer"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Administrar cuentas...
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 };
