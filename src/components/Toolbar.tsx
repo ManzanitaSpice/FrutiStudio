@@ -46,6 +46,17 @@ export const Toolbar = ({ current, onSelect }: ToolbarProps) => {
         <span>Sesión activa</span>
         <strong>ManzanitaSpace</strong>
       </div>
+      <div className="topbar__window-controls">
+        <button type="button" title="Minimizar">
+          —
+        </button>
+        <button type="button" title="Ventana">
+          ☐
+        </button>
+        <button type="button" title="Pantalla completa">
+          ⤢
+        </button>
+      </div>
     </header>
   );
 };

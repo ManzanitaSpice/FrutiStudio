@@ -38,34 +38,36 @@ export const Sidebar = ({
       </div>
       <div className="sidebar__section sidebar__section--instances">
         <div className="sidebar__section-header">
-          <h3>Instancias instaladas</h3>
+          <h3>Instancias</h3>
           <span>{instances.length} activas</span>
         </div>
-        {groups.map((group) => (
-          <div key={group} className="sidebar__group">
-            <span className="sidebar__group-title">{group}</span>
-            <ul className="sidebar__instance-list">
-              {instances
-                .filter((instance) => instance.group === group)
-                .map((instance) => (
-                  <li key={instance.id}>
-                    <button
-                      type="button"
-                      onClick={() => onSelectInstance(instance.id)}
-                      className={
-                        selectedInstanceId === instance.id
-                          ? "sidebar__instance sidebar__instance--active"
-                          : "sidebar__instance"
-                      }
-                    >
-                      <span>{instance.name}</span>
-                      <small>Minecraft {instance.version}</small>
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          </div>
-        ))}
+        <div className="sidebar__instances-scroll">
+          {groups.map((group) => (
+            <div key={group} className="sidebar__group">
+              <span className="sidebar__group-title">{group}</span>
+              <ul className="sidebar__instance-list">
+                {instances
+                  .filter((instance) => instance.group === group)
+                  .map((instance) => (
+                    <li key={instance.id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectInstance(instance.id)}
+                        className={
+                          selectedInstanceId === instance.id
+                            ? "sidebar__instance sidebar__instance--active"
+                            : "sidebar__instance"
+                        }
+                      >
+                        <span>{instance.name}</span>
+                        <small>Minecraft {instance.version}</small>
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
     </aside>
   );
