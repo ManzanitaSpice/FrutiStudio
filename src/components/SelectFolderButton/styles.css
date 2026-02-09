@@ -12,8 +12,42 @@
   color: #2d2d2d;
 }
 
+.select-folder__status {
+  margin: 0;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.select-folder__status--ok {
+  color: #1b7f3b;
+}
+
+.select-folder__status--error {
+  color: #b42318;
+  background: #fff4f1;
+  border: 1px solid #f3c2bc;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.select-folder__status--error ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  text-align: left;
+}
+
 @media (prefers-color-scheme: dark) {
   .select-folder__path {
     color: #f6f6f6;
+  }
+
+  .select-folder__status--ok {
+    color: #6fe29f;
+  }
+
+  .select-folder__status--error {
+    color: #ffb4ab;
+    background: #3b1d1a;
+    border-color: #6f2f28;
   }
 }
