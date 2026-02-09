@@ -1,0 +1,13 @@
+.empty-state {
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0.5rem;
+  height: 100%;
+  color: var(--color-muted);
+}
+
+.empty-state h2 {
+  font-size: 1.4rem;
+  color: var(--color-text);
+}

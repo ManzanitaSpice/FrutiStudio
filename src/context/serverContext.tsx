@@ -1,15 +1,11 @@
-import { createContext, useMemo, useState } from "react";
+import { createContext, useMemo, useReducer } from "react";
 
-export interface ServerSummary {
-  id: string;
-  name: string;
-  address: string;
-  lastSeen: string;
-}
+import type { Server } from "../types/models";
 
 export interface ServerContextValue {
-  servers: ServerSummary[];
-  setServers: (servers: ServerSummary[]) => void;
+  servers: Server[];
+  setServers: (servers: Server[]) => void;
+  clearServers: () => void;
 }
 
 export const ServerContext = createContext<ServerContextValue | undefined>(
@@ -17,8 +13,28 @@ export const ServerContext = createContext<ServerContextValue | undefined>(
 );
 
 export const ServerProvider = ({ children }: { children: React.ReactNode }) => {
-  const [servers, setServers] = useState<ServerSummary[]>([]);
-  const value = useMemo(() => ({ servers, setServers }), [servers]);
+  type Action = { type: "set"; payload: Server[] } | { type: "clear" };
+  const reducer = (_state: Server[], action: Action): Server[] => {
+    switch (action.type) {
+      case "set":
+        return action.payload;
+      case "clear":
+        return [];
+      default:
+        return [];
+    }
+  };
+
+  const [servers, dispatch] = useReducer(reducer, []);
+  const value = useMemo(
+    () => ({
+      servers,
+      setServers: (items: Server[]) =>
+        dispatch({ type: "set", payload: items }),
+      clearServers: () => dispatch({ type: "clear" }),
+    }),
+    [servers],
+  );
 
   return (
     <ServerContext.Provider value={value}>{children}</ServerContext.Provider>

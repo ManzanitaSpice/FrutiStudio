@@ -1,25 +1,49 @@
 import steveSkin from "../assets/steve.svg";
+import type { FeatureFlags } from "../types/models";
+import { useI18n } from "../i18n/useI18n";
+import type { ThemePreference } from "../context/UIContext";
 
 export type SectionKey =
   | "mis-modpacks"
   | "novedades"
   | "explorador"
-  | "servers";
+  | "servers"
+  | "configuracion";
 
 interface ToolbarProps {
   current: SectionKey;
   onSelect: (section: SectionKey) => void;
   showGlobalSearch: boolean;
+  flags: FeatureFlags;
+  onThemeChange: (theme: ThemePreference) => void;
+  theme: ThemePreference;
 }
 
-const navItems: Array<{ key: SectionKey; label: string }> = [
-  { key: "mis-modpacks", label: "Mis Modpacks" },
-  { key: "novedades", label: "Novedades" },
-  { key: "explorador", label: "Explorador" },
-  { key: "servers", label: "Servers" },
-];
-
-export const Toolbar = ({ current, onSelect, showGlobalSearch }: ToolbarProps) => {
+export const Toolbar = ({
+  current,
+  onSelect,
+  showGlobalSearch,
+  flags,
+  onThemeChange,
+  theme,
+}: ToolbarProps) => {
+  const { t } = useI18n();
+  const navItems: Array<{ key: SectionKey; label: string; enabled: boolean }> =
+    [
+      { key: "mis-modpacks", label: t("sections").modpacks, enabled: true },
+      { key: "novedades", label: t("sections").news, enabled: flags.news },
+      {
+        key: "explorador",
+        label: t("sections").explorer,
+        enabled: flags.explorer,
+      },
+      { key: "servers", label: t("sections").servers, enabled: flags.servers },
+      {
+        key: "configuracion",
+        label: t("sections").settings,
+        enabled: flags.settings,
+      },
+    ];
   const account = {
     name: "ManzanitaSpace",
     skinUrl: null as string | null,
@@ -69,21 +93,35 @@ export const Toolbar = ({ current, onSelect, showGlobalSearch }: ToolbarProps) =
             </button>
           </label>
         )}
-        <nav className="topbar__nav">
-          {navItems.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => onSelect(item.key)}
-              className={
-                current === item.key
-                  ? "topbar__button topbar__button--active"
-                  : "topbar__button"
-              }
-            >
-              {item.label}
-            </button>
-          ))}
+        <nav className="topbar__nav" aria-label="Navegación principal">
+          {navItems
+            .filter((item) => item.enabled)
+            .map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => onSelect(item.key)}
+                className={
+                  current === item.key
+                    ? "topbar__button topbar__button--active"
+                    : "topbar__button"
+                }
+                aria-current={current === item.key ? "page" : undefined}
+              >
+                {item.label}
+              </button>
+            ))}
+          <select
+            aria-label="Tema"
+            value={theme}
+            onChange={(event) =>
+              onThemeChange(event.target.value as ThemePreference)
+            }
+          >
+            <option value="system">Sistema</option>
+            <option value="light">Claro</option>
+            <option value="dark">Oscuro</option>
+          </select>
         </nav>
       </div>
     </header>

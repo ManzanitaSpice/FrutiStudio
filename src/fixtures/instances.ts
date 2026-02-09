@@ -1,0 +1,48 @@
+import type { Instance } from "../types/models";
+
+export const instanceFixtures: Instance[] = [
+  {
+    id: "vmodrit",
+    name: "vModrit - All the Mons",
+    version: "1.21.1",
+    mods: 412,
+    memory: "8 GB",
+    status: "ready",
+    group: "No agrupado",
+    lastPlayed: "Jugado hace 2 días",
+    playtime: "13 d 5 h 10 min",
+  },
+  {
+    id: "atm10",
+    name: "All the Mods 10",
+    version: "1.21.1",
+    mods: 396,
+    memory: "10 GB",
+    status: "pending-update",
+    group: "No agrupado",
+    lastPlayed: "Jugado hoy",
+    playtime: "1 d 7 h 42 min",
+  },
+  {
+    id: "create-factory",
+    name: "Create Factory",
+    version: "1.20.1",
+    mods: 178,
+    memory: "6 GB",
+    status: "stopped",
+    group: "Producción",
+    lastPlayed: "Jugado hace 1 semana",
+    playtime: "3 h 22 min",
+  },
+  {
+    id: "survival-friends",
+    name: "Survival Amigos",
+    version: "1.20.4",
+    mods: 42,
+    memory: "5 GB",
+    status: "ready",
+    group: "Casual",
+    lastPlayed: "Jugado hace 4 horas",
+    playtime: "9 h 58 min",
+  },
+];

@@ -11,7 +11,7 @@ import {
 
 export interface BaseDirContextValue {
   baseDir: string;
-  status: "idle" | "loading" | "valid" | "invalid";
+  status: "idle" | "validating" | "valid" | "invalid";
   validation: BaseDirValidationResult | null;
   setBaseDir: (dir: string) => Promise<void>;
 }
@@ -26,28 +26,38 @@ export const BaseDirProvider = ({
   children: React.ReactNode;
 }) => {
   const [baseDir, setBaseDir] = useState("");
-  const [status, setStatus] = useState<BaseDirContextValue["status"]>("idle");
+  const [status, setStatus] =
+    useState<BaseDirContextValue["status"]>("idle");
   const [validation, setValidation] =
     useState<BaseDirValidationResult | null>(null);
 
   const applyBaseDir = useCallback(async (dir: string) => {
-    if (!dir) {
+    if (!dir.trim()) {
       setBaseDir("");
       setValidation(null);
       setStatus("idle");
       return;
     }
 
-    setStatus("loading");
+    if (dir === baseDir) {
+      return;
+    }
+
+    setStatus("validating");
     try {
-      const result = await validateBaseDir(dir);
+      const result = await validateBaseDir(dir, true);
       setValidation(result);
 
       if (result.ok) {
-        setBaseDir(dir);
-        await saveBaseDir(dir);
-        setStatus("valid");
-        return;
+        setStatus("validating");
+        const confirm = await validateBaseDir(dir);
+        setValidation(confirm);
+        if (confirm.ok) {
+          setBaseDir(dir);
+          await saveBaseDir(dir);
+          setStatus("valid");
+          return;
+        }
       }
 
       setStatus("invalid");
@@ -59,7 +69,7 @@ export const BaseDirProvider = ({
       });
       setStatus("invalid");
     }
-  }, []);
+  }, [baseDir]);
 
   useEffect(() => {
     const loadBaseDir = async () => {
