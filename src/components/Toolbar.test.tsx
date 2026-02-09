@@ -16,8 +16,6 @@ describe("Toolbar", () => {
           servers: true,
           settings: true,
         }}
-        onThemeChange={() => undefined}
-        theme="system"
       />,
     );
 

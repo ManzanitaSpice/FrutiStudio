@@ -153,7 +153,14 @@ export const InstancePanel = ({
   };
 
   return (
-    <section className="panel-view panel-view--instances">
+    <section
+      className="panel-view panel-view--instances"
+      onClick={() => {
+        if (selectedInstance) {
+          onClearSelection();
+        }
+      }}
+    >
       <div className="panel-view__header">
         <div>
           <h2>Instancias instaladas</h2>
@@ -225,7 +232,7 @@ export const InstancePanel = ({
           ))}
         </div>
         {selectedInstance && (
-          <aside className="instance-menu">
+          <aside className="instance-menu" onClick={(event) => event.stopPropagation()}>
             <>
               <div className="instance-menu__preview">
                 <div className="instance-menu__image" />
@@ -238,28 +245,32 @@ export const InstancePanel = ({
                 </div>
               </div>
               <div className="instance-menu__section">
-                <h4>Opciones de instancia</h4>
+                <h4>Acciones rápidas</h4>
                 <div className="instance-menu__actions">
                   <button type="button">Iniciar</button>
                   <button type="button" onClick={openEditor}>
                     Editar
                   </button>
-                  <button type="button">Cambiar grupo</button>
-                  <button type="button">Exportar</button>
-                  <button type="button">Copiar</button>
-                  <button type="button">Crear atajo</button>
-                  <button type="button">Borrar</button>
                   <button type="button">Forzar cierre</button>
+                  <button type="button">Crear atajo</button>
                 </div>
               </div>
-              <div className="instance-menu__section instance-menu__section--global">
-                <h4>Ajustes globales</h4>
+              <div className="instance-menu__section">
+                <h4>Gestión de perfil</h4>
                 <div className="instance-menu__actions">
-                  <button type="button">Cuentas</button>
-                  <button type="button">Java &amp; memoria</button>
-                  <button type="button">Temas</button>
-                  <button type="button">Red y descargas</button>
-                  <button type="button">Plugins</button>
+                  <button type="button">Cambiar grupo</button>
+                  <button type="button">Exportar</button>
+                  <button type="button">Duplicar</button>
+                  <button type="button">Borrar</button>
+                </div>
+              </div>
+              <div className="instance-menu__section instance-menu__section--tools">
+                <h4>Herramientas</h4>
+                <div className="instance-menu__actions">
+                  <button type="button">Abrir carpeta</button>
+                  <button type="button">Ver logs</button>
+                  <button type="button">Reparar instancia</button>
+                  <button type="button">Limpiar cache</button>
                 </div>
               </div>
             </>

@@ -146,11 +146,28 @@ select:focus-visible {
   flex-wrap: wrap;
 }
 
-.topbar__left {
+.topbar__row--utility {
+  padding: 4px 4px 0;
+  min-height: 28px;
+}
+
+.topbar__nav-controls {
   display: flex;
+  gap: 6px;
+}
+
+.topbar__nav-controls button {
+  border-radius: 999px;
+  padding: 0.25em 0.55em;
+  font-size: 0.85rem;
+  background: #1a2030;
+  border-color: #2b313f;
+  box-shadow: none;
+}
+
+.topbar__row--main {
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 20px;
 }
 
 .topbar__row--nav {
@@ -159,42 +176,24 @@ select:focus-visible {
   justify-content: flex-start;
 }
 
-.topbar__brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.topbar__logo {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: rgba(249, 115, 22, 0.15);
-}
-
-.topbar__brand strong {
-  display: block;
-  font-size: 1.05rem;
-}
-
-.topbar__brand small {
-  color: var(--color-muted);
-}
-
 .topbar__account {
   display: flex;
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
+  margin-left: auto;
+  position: relative;
 }
 
-.topbar__account--compact {
+.topbar__account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 10px;
   border-radius: 12px;
   border: 1px solid #2b313f;
   background: #10141d;
+  box-shadow: none;
 }
 
 .topbar__account img {
@@ -205,10 +204,63 @@ select:focus-visible {
   background: #111827;
 }
 
-.topbar__session {
-  display: block;
+.topbar__account-name {
+  font-weight: 600;
+}
+
+.topbar__account-caret {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.topbar__account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 260px;
+  background: #11151f;
+  border: 1px solid #2b313f;
+  border-radius: 12px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.4);
+  z-index: 4;
+}
+
+.topbar__account-item {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  padding: 0.4em 0.5em;
+  font-size: 0.85rem;
+  color: #e6e9f0;
+}
+
+.topbar__account-item--active {
+  background: #1b2232;
+  border-color: #2b313f;
+}
+
+.topbar__account-item--footer {
+  grid-template-columns: 1fr;
+  justify-items: start;
+  font-weight: 600;
+}
+
+.topbar__account-check {
+  font-size: 0.85rem;
+  color: var(--color-accent);
+}
+
+.topbar__account-shortcut {
+  color: var(--color-muted);
   font-size: 0.75rem;
-  color: #9aa3b2;
 }
 
 .topbar__nav {
@@ -763,10 +815,62 @@ select:focus-visible {
   font-size: 0.9rem;
 }
 
-.instance-menu__section--global {
+.instance-menu__section--tools {
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid #2b313f;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.settings-grid--secondary {
+  margin-top: 16px;
+}
+
+.settings-card {
+  background: #151b26;
+  border-radius: 14px;
+  padding: 16px;
+  border: 1px solid #202638;
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+}
+
+.settings-card__header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.settings-card__header p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.settings-card__field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.settings-card__range {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-card__range input[type="range"] {
+  flex: 1;
+}
+
+.settings-card__actions {
+  display: grid;
+  gap: 8px;
 }
 
 .instance-editor__backdrop {
