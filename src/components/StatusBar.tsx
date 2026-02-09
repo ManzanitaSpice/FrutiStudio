@@ -1,6 +1,14 @@
 import { useBaseDir } from "../hooks/useBaseDir";
 
-export const StatusBar = () => {
+interface StatusBarProps {
+  selectedInstance: {
+    name: string;
+    status: string;
+    playtime: string;
+  } | null;
+}
+
+export const StatusBar = ({ selectedInstance }: StatusBarProps) => {
   const { baseDir, status } = useBaseDir();
 
   return (
@@ -17,14 +25,25 @@ export const StatusBar = () => {
       <div className="status-bar__section">
         <strong>Descargas</strong>
         <span>2 activas · 8 completadas</span>
+        <span className="status-bar__muted">Última sincronización: hace 3 min</span>
       </div>
       <div className="status-bar__section">
         <strong>Instancias</strong>
         <span>RAM 6.2 GB · TPS 19.8</span>
+        <span className="status-bar__muted">GPU 62% · CPU 48%</span>
       </div>
       <div className="status-bar__section">
-        <strong>Mensajes</strong>
+        <strong>Estado global</strong>
         <span>Todo listo para ejecutar instancias.</span>
+        {selectedInstance ? (
+          <span className="status-bar__highlight">
+            ⏱ {selectedInstance.name}: {selectedInstance.playtime}
+          </span>
+        ) : (
+          <span className="status-bar__muted">
+            Selecciona una instancia para ver el tiempo de juego.
+          </span>
+        )}
       </div>
     </footer>
   );

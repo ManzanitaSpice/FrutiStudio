@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { BaseDirProvider } from "./context/BaseDirContext";
 import { InstanceProvider } from "./context/instanceContext";
@@ -6,6 +6,9 @@ import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { Toolbar, type SectionKey } from "./components/Toolbar";
 import { InstancePanel } from "./components/panels/InstancePanel";
+import { ExplorerPanel } from "./components/panels/ExplorerPanel";
+import { NewsPanel } from "./components/panels/NewsPanel";
+import { ServersPanel } from "./components/panels/ServersPanel";
 import "./App.css";
 
 function App() {
@@ -14,6 +17,7 @@ function App() {
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
     "vmodrit",
   );
+  const [uiScale, setUiScale] = useState(1);
 
   const instanceData = [
     {
@@ -25,6 +29,7 @@ function App() {
       status: "Listo para jugar",
       group: "No agrupado",
       lastPlayed: "Jugado hace 2 días",
+      playtime: "13 d 5 h 10 min",
     },
     {
       id: "atm10",
@@ -35,6 +40,7 @@ function App() {
       status: "Actualización pendiente",
       group: "No agrupado",
       lastPlayed: "Jugado hoy",
+      playtime: "1 d 7 h 42 min",
     },
     {
       id: "create-factory",
@@ -45,6 +51,7 @@ function App() {
       status: "Detenida",
       group: "Producción",
       lastPlayed: "Jugado hace 1 semana",
+      playtime: "3 h 22 min",
     },
     {
       id: "survival-friends",
@@ -55,8 +62,37 @@ function App() {
       status: "Listo para jugar",
       group: "Casual",
       lastPlayed: "Jugado hace 4 horas",
+      playtime: "9 h 58 min",
     },
   ];
+
+  useEffect(() => {
+    const handleZoom = (event: WheelEvent) => {
+      if (!event.ctrlKey) {
+        return;
+      }
+      event.preventDefault();
+      const nextScale = Math.min(
+        1.4,
+        Math.max(0.8, uiScale + (event.deltaY > 0 ? -0.05 : 0.05)),
+      );
+      setUiScale(Number(nextScale.toFixed(2)));
+    };
+
+    window.addEventListener("wheel", handleZoom, { passive: false });
+    return () => window.removeEventListener("wheel", handleZoom);
+  }, [uiScale]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--ui-scale", uiScale.toString());
+  }, [uiScale]);
+
+  const selectedInstance = useMemo(
+    () => instanceData.find((instance) => instance.id === selectedInstanceId) ?? null,
+    [instanceData, selectedInstanceId],
+  );
+
+  const handleClearSelection = () => setSelectedInstanceId(null);
 
   return (
     <BaseDirProvider>
@@ -70,14 +106,20 @@ function App() {
               onSelectInstance={setSelectedInstanceId}
             />
             <main className="main-panel">
-              <InstancePanel
-                instances={instanceData}
-                selectedInstanceId={selectedInstanceId}
-                onSelectInstance={setSelectedInstanceId}
-              />
+              {activeSection === "mis-modpacks" && (
+                <InstancePanel
+                  instances={instanceData}
+                  selectedInstanceId={selectedInstanceId}
+                  onSelectInstance={setSelectedInstanceId}
+                  onClearSelection={handleClearSelection}
+                />
+              )}
+              {activeSection === "novedades" && <NewsPanel />}
+              {activeSection === "explorador" && <ExplorerPanel />}
+              {activeSection === "servers" && <ServersPanel />}
             </main>
           </div>
-          <StatusBar />
+          <StatusBar selectedInstance={selectedInstance} />
         </div>
       </InstanceProvider>
     </BaseDirProvider>
