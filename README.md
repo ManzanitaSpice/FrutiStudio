@@ -1,6 +1,6 @@
-# FrutiStudio
+# Fruti Launcher
 
-FrutiStudio es una app de escritorio construida con Tauri, React y TypeScript
+Fruti Launcher es una app de escritorio construida con Tauri, React y TypeScript
 para gestionar instancias, modpacks, mods y versiones con una UX moderna y
 extensible.
 

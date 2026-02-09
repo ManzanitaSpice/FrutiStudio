@@ -154,29 +154,6 @@ export const InstancePanel = ({
 
   return (
     <section className="panel-view panel-view--instances">
-      {isFocusMode && (
-        <div className="instance-panel__commandbar">
-          <div className="instance-panel__commandbar-left">
-            <button type="button">+ Crear</button>
-            <button type="button">Importar</button>
-            <button type="button">Crear grupo</button>
-          </div>
-          <div className="instance-panel__commandbar-right">
-            <button type="button" aria-label="Buscar">
-              🔍
-            </button>
-            <button type="button" aria-label="Descargas">
-              ⬇️
-            </button>
-            <button type="button" aria-label="Filtros">
-              ⚙️
-            </button>
-            <button type="button" aria-label="Vista">
-              ⬚
-            </button>
-          </div>
-        </div>
-      )}
       <div className="panel-view__header">
         <div>
           <h2>Instancias instaladas</h2>
@@ -264,15 +241,15 @@ export const InstancePanel = ({
                 <h4>Opciones de instancia</h4>
                 <div className="instance-menu__actions">
                   <button type="button">Iniciar</button>
-                  <button type="button">Forzar cierre</button>
                   <button type="button" onClick={openEditor}>
                     Editar
                   </button>
                   <button type="button">Cambiar grupo</button>
                   <button type="button">Exportar</button>
                   <button type="button">Copiar</button>
-                  <button type="button">Borrar</button>
                   <button type="button">Crear atajo</button>
+                  <button type="button">Borrar</button>
+                  <button type="button">Forzar cierre</button>
                 </div>
               </div>
               <div className="instance-menu__section instance-menu__section--global">

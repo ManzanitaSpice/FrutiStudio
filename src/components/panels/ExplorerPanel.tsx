@@ -1,48 +1,89 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-const explorerCategories = [
+import {
+  type ExplorerCategory,
+  type ExplorerItem,
+  fetchExplorerItems,
+} from "../../services/explorerService";
+
+const explorerCategories: ExplorerCategory[] = [
   "Modpacks",
   "Mods",
-  "Data Packs",
-  "Resource Packs",
   "Shaders",
+  "Resource Packs",
+  "Data Packs",
   "Worlds",
   "Addons",
 ];
 
-const explorerItems = [
+const fallbackItems: ExplorerItem[] = [
   {
     id: "all-the-mons",
     name: "All the Mons - Simple",
     author: "ATM Team",
-    downloads: "5.10M",
+    downloads: "5.10M descargas",
     type: "Modpack",
   },
   {
     id: "pam-harvest",
     name: "Pam's HarvestCraft 2",
     author: "pamharvestcraft",
-    downloads: "1.5M",
+    downloads: "1.5M descargas",
     type: "Mod",
   },
   {
     id: "bakery",
     name: "Bakeries",
     author: "Renvigesa",
-    downloads: "980K",
+    downloads: "980K descargas",
     type: "Mod",
   },
   {
     id: "fruitful",
     name: "Fruitful Fun",
     author: "Snownee",
-    downloads: "2.2M",
+    downloads: "2.2M descargas",
     type: "Mod",
   },
 ];
 
 export const ExplorerPanel = () => {
   const [selectedCategory, setSelectedCategory] = useState(explorerCategories[0]);
+  const [items, setItems] = useState<ExplorerItem[]>(fallbackItems);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadItems = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchExplorerItems(selectedCategory);
+        if (isActive) {
+          setItems(data.length ? data : fallbackItems);
+        }
+      } catch (fetchError) {
+        if (isActive) {
+          setItems(fallbackItems);
+          setError(
+            fetchError instanceof Error
+              ? fetchError.message
+              : "No se pudo cargar desde la API.",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadItems();
+    return () => {
+      isActive = false;
+    };
+  }, [selectedCategory]);
 
   return (
     <section className="panel-view panel-view--explorer">
@@ -94,6 +135,8 @@ export const ExplorerPanel = () => {
             <div>
               <h3>{selectedCategory}</h3>
               <p>Selecciona un elemento para instalar o crear instancia.</p>
+              {loading && <small>Cargando resultados...</small>}
+              {error && <small className="explorer-layout__error">{error}</small>}
             </div>
             <div className="explorer-layout__sort">
               <span>Ordenar por</span>
@@ -106,7 +149,7 @@ export const ExplorerPanel = () => {
           </div>
 
           <div className="explorer-layout__list">
-            {explorerItems.map((item) => (
+            {items.map((item) => (
               <article key={item.id} className="explorer-item">
                 <div className="explorer-item__icon" />
                 <div className="explorer-item__info">
@@ -114,7 +157,7 @@ export const ExplorerPanel = () => {
                   <p>
                     {item.type} · {item.author}
                   </p>
-                  <span>{item.downloads} descargas</span>
+                  <span>{item.downloads}</span>
                 </div>
                 <div className="explorer-item__actions">
                   <button type="button">Instalar</button>

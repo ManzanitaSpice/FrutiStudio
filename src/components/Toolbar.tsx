@@ -54,30 +54,21 @@ export const Toolbar = ({
   return (
     <header className="topbar">
       <div className="topbar__row topbar__row--main">
-        <div className="topbar__brand">
-          <span className="topbar__logo">🍓</span>
-          <div>
-            <strong>FrutiStudio</strong>
-            <small>Launcher</small>
+        <div className="topbar__left">
+          <div className="topbar__brand">
+            <span className="topbar__logo">🍓</span>
+            <div>
+              <strong>Fruti Launcher</strong>
+              <small>Launcher</small>
+            </div>
           </div>
-        </div>
-        <div className="topbar__status">
-          <span>Sesión activa</span>
-          <div className="topbar__account">
+          <div className="topbar__account topbar__account--compact">
             <img src={skinSource} alt="Skin del jugador" />
-            <strong>{account.name}</strong>
+            <div>
+              <span className="topbar__session">Sesión activa</span>
+              <strong>{account.name}</strong>
+            </div>
           </div>
-        </div>
-        <div className="topbar__window-controls">
-          <button type="button" title="Minimizar">
-            —
-          </button>
-          <button type="button" title="Ventana">
-            ☐
-          </button>
-          <button type="button" title="Pantalla completa">
-            ⤢
-          </button>
         </div>
       </div>
       <div className="topbar__row topbar__row--nav">

@@ -1,4 +1,4 @@
-# Mejoras propuestas para FrutiStudio (mínimo 50)
+# Mejoras propuestas para Fruti Launcher (mínimo 50)
 
 1. Separar los datos simulados de instancias en fixtures o JSON de desarrollo para evitar que `App.tsx` crezca y facilitar el reemplazo por datos reales.
 2. Crear un servicio de datos (por ejemplo `instanceService`) que entregue instancias desde una API/archivo local en vez de tenerlas hardcodeadas.
@@ -60,4 +60,3 @@
 58. Agregar pruebas end-to-end con Playwright para flujos críticos.
 59. Implementar un sistema de notificaciones in-app para updates, errores y estados de descarga.
 60. Añadir un sistema de cola de descargas con progreso y reintentos.
-

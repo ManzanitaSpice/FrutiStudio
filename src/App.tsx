@@ -6,7 +6,6 @@ import { InstanceProvider } from "./context/instanceContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { NotificationCenter } from "./components/NotificationCenter";
-import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { Toolbar } from "./components/Toolbar";
 import { EmptyState } from "./components/EmptyState";
@@ -121,7 +120,6 @@ const AppShell = () => {
   );
 
   const handleClearSelection = () => setSelectedInstanceId(null);
-  const showSidebar = activeSection === "mis-modpacks" && !isFocusMode;
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
   const showToolbar = !isFocusMode;
 
@@ -139,14 +137,7 @@ const AppShell = () => {
             theme={theme}
           />
         )}
-        <div
-          className={
-            showSidebar
-              ? "app-shell__body"
-              : "app-shell__body app-shell__body--no-sidebar"
-          }
-        >
-          {showSidebar && <Sidebar />}
+        <div className="app-shell__body app-shell__body--no-sidebar">
           <main className="main-panel" role="main">
             <Suspense fallback={<div className="panel-loading">Cargando…</div>}>
               {activeSection === "mis-modpacks" && (
