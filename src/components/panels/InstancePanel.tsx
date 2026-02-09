@@ -1,4 +1,4 @@
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import type { Instance } from "../../types/models";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
@@ -24,6 +24,17 @@ const editorSections = [
   "Capturas de pantalla",
   "Configuración",
   "Otros registros",
+];
+
+const creatorSections = [
+  "Personalizado",
+  "Importar",
+  "ATLauncher",
+  "CurseForge",
+  "FTB Legacy",
+  "Importar app de FTB",
+  "Modrinth",
+  "Technic",
 ];
 
 const sectionToolbars: Record<string, string[]> = {
@@ -63,10 +74,20 @@ export const InstancePanel = ({
   onToggleFocusMode,
 }: InstancePanelProps) => {
   const [editorOpen, setEditorOpen] = useState(false);
+  const [creatorOpen, setCreatorOpen] = useState(false);
   const [activeEditorSection, setActiveEditorSection] = useState(
     editorSections[1],
   );
+  const [activeCreatorSection, setActiveCreatorSection] = useState(
+    creatorSections[0],
+  );
   const [editorPosition, setEditorPosition] = useState({ x: 0, y: 0 });
+  const [creatorPosition, setCreatorPosition] = useState({ x: 0, y: 0 });
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    instance: Instance | null;
+  } | null>(null);
   const selectedInstance =
     instances.find((instance) => instance.id === selectedInstanceId) ?? null;
   const toolbarActions =
@@ -80,12 +101,36 @@ export const InstancePanel = ({
   const versionRows = [
     { name: selectedInstance?.name ?? "Perfil principal", version: "3.3.3" },
     { name: "Minecraft", version: selectedInstance?.version ?? "1.21.1" },
-    { name: "NeoForge", version: "21.1.218" },
+    {
+      name: selectedInstance?.loaderName ?? "Loader",
+      version: selectedInstance?.loaderVersion ?? "—",
+    },
   ];
+
+  const groupedInstances = useMemo(() => {
+    const groupMap = new Map<string, Instance[]>();
+    instances.forEach((instance) => {
+      const groupName =
+        instance.group && instance.group.trim().length > 0
+          ? instance.group
+          : "No agrupado";
+      if (!groupMap.has(groupName)) {
+        groupMap.set(groupName, []);
+      }
+      groupMap.get(groupName)?.push(instance);
+    });
+    return Array.from(groupMap.entries());
+  }, [instances]);
 
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       setEditorOpen(false);
+    }
+  };
+
+  const handleCreatorBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      setCreatorOpen(false);
     }
   };
 
@@ -119,6 +164,36 @@ export const InstancePanel = ({
     window.addEventListener("mouseup", handleUp);
   };
 
+  const startCreatorDrag = (event: MouseEvent<HTMLDivElement>) => {
+    if (!creatorOpen) {
+      return;
+    }
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest("button")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const startX = event.clientX - creatorPosition.x;
+    const startY = event.clientY - creatorPosition.y;
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      setCreatorPosition({
+        x: moveEvent.clientX - startX,
+        y: moveEvent.clientY - startY,
+      });
+    };
+
+    const handleUp = () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  };
+
   const openEditor = () => {
     setEditorOpen(true);
     setEditorPosition({
@@ -126,6 +201,36 @@ export const InstancePanel = ({
       y: Math.max(24, window.innerHeight / 2 - 320),
     });
   };
+
+  const openCreator = () => {
+    setCreatorOpen(true);
+    setCreatorPosition({
+      x: Math.max(32, window.innerWidth / 2 - 520),
+      y: Math.max(24, window.innerHeight / 2 - 320),
+    });
+  };
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const handleClose = () => setContextMenu(null);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener("click", handleClose);
+    window.addEventListener("contextmenu", handleClose);
+    window.addEventListener("scroll", handleClose, true);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("click", handleClose);
+      window.removeEventListener("contextmenu", handleClose);
+      window.removeEventListener("scroll", handleClose, true);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [contextMenu]);
 
   const renderEditorBody = () => {
     if (activeEditorSection === "Versión") {
@@ -147,9 +252,65 @@ export const InstancePanel = ({
 
     return (
       <div className="instance-editor__placeholder">
-        <p>Contenido de {activeEditorSection} en preparación.</p>
+        <p>No hay datos disponibles para {activeEditorSection}.</p>
       </div>
     );
+  };
+
+  const renderCreatorBody = () => {
+    if (activeCreatorSection === "Personalizado") {
+      return (
+        <div className="instance-creator__panel">
+          <div className="instance-creator__field">
+            <label htmlFor="instance-name">Nombre de la instancia</label>
+            <input id="instance-name" type="text" placeholder="Ej: Mi mundo" />
+          </div>
+          <div className="instance-creator__field">
+            <label htmlFor="instance-group">Grupo</label>
+            <input id="instance-group" type="text" placeholder="No agrupado" />
+          </div>
+          <div className="instance-creator__field">
+            <label htmlFor="instance-version">Versión de Minecraft</label>
+            <select id="instance-version" defaultValue="1.21.1">
+              <option value="1.21.1">1.21.1</option>
+              <option value="1.20.4">1.20.4</option>
+              <option value="1.19.4">1.19.4</option>
+            </select>
+          </div>
+          <div className="instance-creator__field">
+            <label htmlFor="instance-loader">Loader</label>
+            <select id="instance-loader" defaultValue="NeoForge">
+              <option value="NeoForge">NeoForge</option>
+              <option value="Forge">Forge</option>
+              <option value="Fabric">Fabric</option>
+              <option value="Quilt">Quilt</option>
+            </select>
+          </div>
+          <div className="instance-creator__hint">
+            Configura una instancia limpia y agrega recursos más tarde.
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="instance-creator__placeholder">
+        <p>No hay resultados cargados para {activeCreatorSection}.</p>
+        <span>Elige una fuente o busca para comenzar.</span>
+      </div>
+    );
+  };
+
+  const handleContextMenu = (
+    event: MouseEvent<HTMLElement>,
+    instance: Instance | null,
+  ) => {
+    event.preventDefault();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      instance,
+    });
   };
 
   return (
@@ -171,7 +332,9 @@ export const InstancePanel = ({
         </div>
         <div className="panel-view__actions">
           <input type="search" placeholder="Buscar instancia..." />
-          <button type="button">Crear instancia</button>
+          <button type="button" onClick={openCreator}>
+            Crear instancia
+          </button>
           <button type="button">Importar</button>
           <button
             type="button"
@@ -191,54 +354,75 @@ export const InstancePanel = ({
             : "instances-layout instances-layout--single"
         }
       >
-        <div className="instances-layout__grid" onClick={onClearSelection}>
-          {instances.map((instance) => (
-            <article
-              key={instance.id}
-              className={
-                selectedInstanceId === instance.id
-                  ? "instance-card instance-card--active"
-                  : "instance-card"
-              }
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelectInstance(instance.id);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelectInstance(instance.id);
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="instance-card__cover">
-                <span>{instance.group}</span>
+        <div
+          className="instances-layout__grid"
+          onClick={onClearSelection}
+          onContextMenu={(event) => handleContextMenu(event, null)}
+        >
+          {groupedInstances.map(([groupName, groupInstances]) => (
+            <section key={groupName} className="instance-group">
+              <header className="instance-group__header">
+                <h3>{groupName}</h3>
+                <span>{groupInstances.length} instancias</span>
+              </header>
+              <div className="instance-group__grid">
+                {groupInstances.map((instance) => (
+                  <article
+                    key={instance.id}
+                    className={
+                      selectedInstanceId === instance.id
+                        ? "instance-card instance-card--active"
+                        : "instance-card"
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectInstance(instance.id);
+                    }}
+                    onContextMenu={(event) =>
+                      handleContextMenu(event, instance)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelectInstance(instance.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="instance-card__cover">
+                      <span>{groupName}</span>
+                    </div>
+                    <div className="instance-card__body">
+                      <div>
+                        <h3>{instance.name}</h3>
+                        <p>Minecraft {instance.version}</p>
+                        <p>
+                          {instance.loaderName} {instance.loaderVersion}
+                        </p>
+                      </div>
+                      <span className="instance-card__status">
+                        {statusLabels[instance.status]}
+                      </span>
+                      <div className="instance-card__meta">
+                        <span>{instance.mods} mods</span>
+                        <span>{formatRelativeTime(instance.lastPlayed)}</span>
+                        <span>{formatPlaytime(instance.playtime)}</span>
+                      </div>
+                    </div>
+                  </article>
+                ))}
               </div>
-              <div className="instance-card__body">
-                <div>
-                  <h3>{instance.name}</h3>
-                  <p>Minecraft {instance.version}</p>
-                </div>
-                <span className="instance-card__status">
-                  {statusLabels[instance.status]}
-                </span>
-                <div className="instance-card__meta">
-                  <span>{instance.mods} mods</span>
-                  <span>{instance.memory}</span>
-                  <span>{formatRelativeTime(instance.lastPlayed)}</span>
-                </div>
-              </div>
-            </article>
+            </section>
           ))}
         </div>
         {selectedInstance && (
           <aside className="instance-menu" onClick={(event) => event.stopPropagation()}>
             <>
-              <div className="instance-menu__preview">
+              <div className="instance-menu__header">
                 <div className="instance-menu__image" />
                 <div>
+                  <span className="instance-menu__launcher">FrutiLauncher</span>
                   <h3>{selectedInstance.name}</h3>
                   <p>Minecraft {selectedInstance.version}</p>
                   <span className="instance-menu__playtime">
@@ -246,39 +430,131 @@ export const InstancePanel = ({
                   </span>
                 </div>
               </div>
-              <div className="instance-menu__section">
-                <h4>Acciones rápidas</h4>
-                <div className="instance-menu__actions">
-                  <button type="button">Iniciar</button>
-                  <button type="button" onClick={openEditor}>
-                    Editar
-                  </button>
-                  <button type="button">Forzar cierre</button>
-                  <button type="button">Crear atajo</button>
+              <div className="instance-menu__scroll">
+                <div className="instance-menu__section">
+                  <h4>Acciones rápidas</h4>
+                  <div className="instance-menu__actions">
+                    <button type="button">Iniciar</button>
+                    <button type="button" onClick={openEditor}>
+                      Editar
+                    </button>
+                    <button type="button">Forzar cierre</button>
+                    <button type="button">Crear atajo</button>
+                  </div>
                 </div>
-              </div>
-              <div className="instance-menu__section">
-                <h4>Gestión de perfil</h4>
-                <div className="instance-menu__actions">
-                  <button type="button">Cambiar grupo</button>
-                  <button type="button">Exportar</button>
-                  <button type="button">Duplicar</button>
-                  <button type="button">Borrar</button>
+                <div className="instance-menu__section">
+                  <h4>Gestión de perfil</h4>
+                  <div className="instance-menu__actions">
+                    <button type="button">Cambiar grupo</button>
+                    <button type="button">Exportar</button>
+                    <button type="button">Duplicar</button>
+                    <button type="button">Borrar</button>
+                  </div>
                 </div>
-              </div>
-              <div className="instance-menu__section instance-menu__section--tools">
-                <h4>Herramientas</h4>
-                <div className="instance-menu__actions">
-                  <button type="button">Abrir carpeta</button>
-                  <button type="button">Ver logs</button>
-                  <button type="button">Reparar instancia</button>
-                  <button type="button">Limpiar cache</button>
+                <div className="instance-menu__section instance-menu__section--tools">
+                  <h4>Herramientas</h4>
+                  <div className="instance-menu__actions">
+                    <button type="button">Abrir carpeta</button>
+                    <button type="button">Ver logs</button>
+                    <button type="button">Reparar instancia</button>
+                    <button type="button">Limpiar cache</button>
+                  </div>
                 </div>
               </div>
             </>
           </aside>
         )}
       </div>
+      {contextMenu && (
+        <div
+          className="instance-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {contextMenu.instance ? (
+            <>
+              <span className="instance-context-menu__title">
+                {contextMenu.instance.name}
+              </span>
+              <button type="button">Iniciar</button>
+              <button type="button" onClick={openEditor}>
+                Editar
+              </button>
+              <button type="button">Abrir carpeta</button>
+              <button type="button">Duplicar</button>
+              <button type="button">Eliminar</button>
+            </>
+          ) : (
+            <>
+              <span className="instance-context-menu__title">
+                Opciones del panel
+              </span>
+              <button type="button" onClick={openCreator}>
+                Crear instancia
+              </button>
+              <button type="button">Importar instancia</button>
+              <button type="button">Actualizar lista</button>
+            </>
+          )}
+        </div>
+      )}
+      {creatorOpen && (
+        <div className="instance-editor__backdrop" onClick={handleCreatorBackdropClick}>
+          <div
+            className="instance-creator"
+            style={{ left: creatorPosition.x, top: creatorPosition.y }}
+          >
+            <header className="instance-creator__header" onMouseDown={startCreatorDrag}>
+              <div>
+                <h3>Nueva instancia</h3>
+                <p>Elige el origen y configura tu perfil.</p>
+              </div>
+              <button type="button" onClick={() => setCreatorOpen(false)}>
+                Cerrar
+              </button>
+            </header>
+            <div className="instance-creator__body">
+              <aside className="instance-creator__sidebar">
+                {creatorSections.map((section) => (
+                  <button
+                    key={section}
+                    type="button"
+                    onClick={() => setActiveCreatorSection(section)}
+                    className={
+                      activeCreatorSection === section
+                        ? "instance-creator__tab instance-creator__tab--active"
+                        : "instance-creator__tab"
+                    }
+                  >
+                    {section}
+                  </button>
+                ))}
+              </aside>
+              <div className="instance-creator__content">
+                <div className="instance-creator__heading">
+                  <div>
+                    <h4>{activeCreatorSection}</h4>
+                    <p>Configura o importa tu nueva instancia.</p>
+                  </div>
+                  <input type="search" placeholder="Buscar..." />
+                </div>
+                <div className="instance-creator__workspace">
+                  {renderCreatorBody()}
+                  <aside className="instance-creator__rail">
+                    <h5>Acciones</h5>
+                    <div className="instance-creator__actions">
+                      <button type="button">Crear instancia</button>
+                      <button type="button">Importar archivo</button>
+                      <button type="button">Ver requisitos</button>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {editorOpen && selectedInstance && (
         <div className="instance-editor__backdrop" onClick={handleBackdropClick}>
           <div
