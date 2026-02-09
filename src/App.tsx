@@ -133,8 +133,6 @@ const AppShell = () => {
             onSelect={setSection}
             showGlobalSearch={activeSection !== "mis-modpacks"}
             flags={featureFlags}
-            onThemeChange={setTheme}
-            theme={theme}
           />
         )}
         <div className="app-shell__body app-shell__body--no-sidebar">
