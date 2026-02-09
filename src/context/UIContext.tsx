@@ -9,6 +9,8 @@ interface UIState {
   uiScale: number;
   isFocusMode: boolean;
   theme: ThemePreference;
+  history: SectionKey[];
+  historyIndex: number;
 }
 
 type UIAction =
@@ -16,24 +18,36 @@ type UIAction =
   | { type: "set-scale"; payload: number }
   | { type: "toggle-focus" }
   | { type: "set-focus"; payload: boolean }
-  | { type: "set-theme"; payload: ThemePreference };
+  | { type: "set-theme"; payload: ThemePreference }
+  | { type: "go-back" }
+  | { type: "go-forward" };
 
 const initialState: UIState = {
   activeSection: "mis-modpacks",
   uiScale: 1,
   isFocusMode: false,
   theme: "system",
+  history: ["mis-modpacks"],
+  historyIndex: 0,
 };
 
 const reducer = (state: UIState, action: UIAction): UIState => {
   switch (action.type) {
-    case "set-section":
+    case "set-section": {
+      if (action.payload === state.activeSection) {
+        return state;
+      }
+      const nextHistory = state.history.slice(0, state.historyIndex + 1);
+      nextHistory.push(action.payload);
       return {
         ...state,
         activeSection: action.payload,
         isFocusMode:
           action.payload === "mis-modpacks" ? state.isFocusMode : false,
+        history: nextHistory,
+        historyIndex: nextHistory.length - 1,
       };
+    }
     case "set-scale":
       return { ...state, uiScale: action.payload };
     case "toggle-focus":
@@ -42,6 +56,36 @@ const reducer = (state: UIState, action: UIAction): UIState => {
       return { ...state, isFocusMode: action.payload };
     case "set-theme":
       return { ...state, theme: action.payload };
+    case "go-back": {
+      if (state.historyIndex <= 0) {
+        return state;
+      }
+      const nextIndex = state.historyIndex - 1;
+      return {
+        ...state,
+        activeSection: state.history[nextIndex],
+        isFocusMode:
+          state.history[nextIndex] === "mis-modpacks"
+            ? state.isFocusMode
+            : false,
+        historyIndex: nextIndex,
+      };
+    }
+    case "go-forward": {
+      if (state.historyIndex >= state.history.length - 1) {
+        return state;
+      }
+      const nextIndex = state.historyIndex + 1;
+      return {
+        ...state,
+        activeSection: state.history[nextIndex],
+        isFocusMode:
+          state.history[nextIndex] === "mis-modpacks"
+            ? state.isFocusMode
+            : false,
+        historyIndex: nextIndex,
+      };
+    }
     default:
       return state;
   }
@@ -53,6 +97,10 @@ export interface UIContextValue extends UIState {
   toggleFocus: () => void;
   setFocus: (value: boolean) => void;
   setTheme: (value: ThemePreference) => void;
+  goBack: () => void;
+  goForward: () => void;
+  canGoBack: boolean;
+  canGoForward: boolean;
 }
 
 export const UIContext = createContext<UIContextValue | undefined>(undefined);
@@ -85,6 +133,9 @@ export const UIProvider = ({ children }: { children: React.ReactNode }) => {
     [],
   );
 
+  const goBack = useCallback(() => dispatch({ type: "go-back" }), []);
+  const goForward = useCallback(() => dispatch({ type: "go-forward" }), []);
+
   const value = useMemo(
     () => ({
       ...state,
@@ -93,8 +144,21 @@ export const UIProvider = ({ children }: { children: React.ReactNode }) => {
       toggleFocus,
       setFocus,
       setTheme,
+      goBack,
+      goForward,
+      canGoBack: state.historyIndex > 0,
+      canGoForward: state.historyIndex < state.history.length - 1,
     }),
-    [setFocus, setScale, setSection, setTheme, state, toggleFocus],
+    [
+      goBack,
+      goForward,
+      setFocus,
+      setScale,
+      setSection,
+      setTheme,
+      state,
+      toggleFocus,
+    ],
   );
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;

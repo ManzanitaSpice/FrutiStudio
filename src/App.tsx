@@ -53,6 +53,10 @@ const AppShell = () => {
     toggleFocus,
     setTheme,
     theme,
+    goBack,
+    goForward,
+    canGoBack,
+    canGoForward,
   } = useUI();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
     "vmodrit",
@@ -117,6 +121,10 @@ const AppShell = () => {
   );
 
   const handleClearSelection = () => setSelectedInstanceId(null);
+  const handleCreateInstance = (instance: Instance) => {
+    setInstances((prev) => [instance, ...prev]);
+    setSelectedInstanceId(instance.id);
+  };
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
   return (
     <ErrorBoundary>
@@ -128,6 +136,10 @@ const AppShell = () => {
           showGlobalSearch={activeSection !== "mis-modpacks"}
           flags={featureFlags}
           isFocusMode={isFocusMode}
+          onBack={goBack}
+          onForward={goForward}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
         />
         <div className="app-shell__body app-shell__body--no-sidebar">
           <main className="main-panel" role="main">
@@ -138,6 +150,7 @@ const AppShell = () => {
                   selectedInstanceId={selectedInstanceId}
                   onSelectInstance={setSelectedInstanceId}
                   onClearSelection={handleClearSelection}
+                  onCreateInstance={handleCreateInstance}
                   isFocusMode={isFocusMode}
                   onToggleFocusMode={toggleFocus}
                 />

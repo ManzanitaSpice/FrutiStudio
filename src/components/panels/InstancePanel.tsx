@@ -1,6 +1,10 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import type { Instance } from "../../types/models";
+import {
+  type MinecraftVersion,
+  fetchMinecraftVersions,
+} from "../../services/minecraftVersionService";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
 
 interface InstancePanelProps {
@@ -8,6 +12,7 @@ interface InstancePanelProps {
   selectedInstanceId: string | null;
   onSelectInstance: (id: string) => void;
   onClearSelection: () => void;
+  onCreateInstance: (instance: Instance) => void;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
 }
@@ -70,6 +75,7 @@ export const InstancePanel = ({
   selectedInstanceId,
   onSelectInstance,
   onClearSelection,
+  onCreateInstance,
   isFocusMode,
   onToggleFocusMode,
 }: InstancePanelProps) => {
@@ -83,6 +89,17 @@ export const InstancePanel = ({
   );
   const [editorPosition, setEditorPosition] = useState({ x: 0, y: 0 });
   const [creatorPosition, setCreatorPosition] = useState({ x: 0, y: 0 });
+  const [availableVersions, setAvailableVersions] = useState<
+    MinecraftVersion[]
+  >([]);
+  const [versionsStatus, setVersionsStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [versionsError, setVersionsError] = useState<string | null>(null);
+  const [instanceName, setInstanceName] = useState("");
+  const [instanceGroup, setInstanceGroup] = useState("");
+  const [instanceVersion, setInstanceVersion] = useState("");
+  const [instanceLoader, setInstanceLoader] = useState("Vanilla");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -119,7 +136,15 @@ export const InstancePanel = ({
       }
       groupMap.get(groupName)?.push(instance);
     });
-    return Array.from(groupMap.entries());
+    return Array.from(groupMap.entries()).sort(([left], [right]) => {
+      if (left === "No agrupado") {
+        return -1;
+      }
+      if (right === "No agrupado") {
+        return 1;
+      }
+      return left.localeCompare(right, "es", { sensitivity: "base" });
+    });
   }, [instances]);
 
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -211,6 +236,45 @@ export const InstancePanel = ({
   };
 
   useEffect(() => {
+    if (!creatorOpen || versionsStatus !== "idle") {
+      return;
+    }
+    const loadVersions = async () => {
+      setVersionsStatus("loading");
+      setVersionsError(null);
+      try {
+        const versions = await fetchMinecraftVersions();
+        setAvailableVersions(versions);
+        setVersionsStatus("ready");
+      } catch (error) {
+        setVersionsStatus("error");
+        setVersionsError(
+          error instanceof Error
+            ? error.message
+            : "No se pudo cargar la lista de versiones.",
+        );
+      }
+    };
+    void loadVersions();
+  }, [availableVersions.length, creatorOpen, versionsStatus]);
+
+  const preferredVersion = useMemo(() => {
+    if (!availableVersions.length) {
+      return null;
+    }
+    return (
+      availableVersions.find((version) => version.type === "release") ??
+      availableVersions[0]
+    );
+  }, [availableVersions]);
+
+  useEffect(() => {
+    if (!instanceVersion && preferredVersion) {
+      setInstanceVersion(preferredVersion.id);
+    }
+  }, [instanceVersion, preferredVersion]);
+
+  useEffect(() => {
     if (!contextMenu) {
       return;
     }
@@ -263,23 +327,52 @@ export const InstancePanel = ({
         <div className="instance-creator__panel">
           <div className="instance-creator__field">
             <label htmlFor="instance-name">Nombre de la instancia</label>
-            <input id="instance-name" type="text" placeholder="Ej: Mi mundo" />
+            <input
+              id="instance-name"
+              type="text"
+              placeholder="Ej: Mi mundo"
+              value={instanceName}
+              onChange={(event) => setInstanceName(event.target.value)}
+            />
           </div>
           <div className="instance-creator__field">
             <label htmlFor="instance-group">Grupo</label>
-            <input id="instance-group" type="text" placeholder="No agrupado" />
+            <input
+              id="instance-group"
+              type="text"
+              placeholder="No agrupado"
+              value={instanceGroup}
+              onChange={(event) => setInstanceGroup(event.target.value)}
+            />
           </div>
           <div className="instance-creator__field">
             <label htmlFor="instance-version">Versión de Minecraft</label>
-            <select id="instance-version" defaultValue="1.21.1">
-              <option value="1.21.1">1.21.1</option>
-              <option value="1.20.4">1.20.4</option>
-              <option value="1.19.4">1.19.4</option>
+            <select
+              id="instance-version"
+              value={instanceVersion}
+              onChange={(event) => setInstanceVersion(event.target.value)}
+              disabled={versionsStatus === "loading" || versionsStatus === "error"}
+            >
+              {availableVersions.length ? (
+                availableVersions.map((version) => (
+                  <option key={version.id} value={version.id}>
+                    {version.id}
+                    {version.type === "snapshot" ? " (snapshot)" : ""}
+                  </option>
+                ))
+              ) : (
+                <option value="">Sin versiones disponibles</option>
+              )}
             </select>
           </div>
           <div className="instance-creator__field">
             <label htmlFor="instance-loader">Loader</label>
-            <select id="instance-loader" defaultValue="NeoForge">
+            <select
+              id="instance-loader"
+              value={instanceLoader}
+              onChange={(event) => setInstanceLoader(event.target.value)}
+            >
+              <option value="Vanilla">Vanilla</option>
               <option value="NeoForge">NeoForge</option>
               <option value="Forge">Forge</option>
               <option value="Fabric">Fabric</option>
@@ -287,7 +380,12 @@ export const InstancePanel = ({
             </select>
           </div>
           <div className="instance-creator__hint">
-            Configura una instancia limpia y agrega recursos más tarde.
+            {versionsStatus === "loading" && "Cargando versiones oficiales..."}
+            {versionsStatus === "error" &&
+              (versionsError ??
+                "No se pudieron cargar las versiones oficiales.")}
+            {(versionsStatus === "ready" || versionsStatus === "idle") &&
+              "Configura una instancia limpia y agrega recursos más tarde."}
           </div>
         </div>
       );
@@ -313,6 +411,37 @@ export const InstancePanel = ({
     });
   };
 
+  const handleCreateInstance = () => {
+    const trimmedName = instanceName.trim();
+    const trimmedGroup = instanceGroup.trim();
+    const resolvedVersion = instanceVersion || preferredVersion?.id || "1.21.1";
+    const resolvedName =
+      trimmedName.length > 0 ? trimmedName : `Nueva instancia ${resolvedVersion}`;
+    const newInstance: Instance = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `instance-${Date.now()}`,
+      name: resolvedName,
+      version: resolvedVersion,
+      loaderName: instanceLoader,
+      loaderVersion: instanceLoader === "Vanilla" ? "—" : "latest",
+      mods: 0,
+      memory: "4 GB",
+      status: "ready",
+      group: trimmedGroup.length > 0 ? trimmedGroup : "No agrupado",
+      lastPlayed: "Nunca",
+      playtime: "0 min",
+      playtimeMinutes: 0,
+      isDownloading: false,
+      isRunning: false,
+    };
+    onCreateInstance(newInstance);
+    setInstanceName("");
+    setInstanceGroup("");
+    setCreatorOpen(false);
+  };
+
   return (
     <section
       className="panel-view panel-view--instances"
@@ -323,13 +452,6 @@ export const InstancePanel = ({
       }}
     >
       <div className="panel-view__header">
-        <div>
-          <h2>Instancias instaladas</h2>
-          <p>
-            Gestiona tus modpacks, grupos y versiones desde una sola vista
-            central.
-          </p>
-        </div>
         <div className="panel-view__actions">
           <input type="search" placeholder="Buscar instancia..." />
           <button type="button" onClick={openCreator}>
@@ -544,7 +666,13 @@ export const InstancePanel = ({
                   <aside className="instance-creator__rail">
                     <h5>Acciones</h5>
                     <div className="instance-creator__actions">
-                      <button type="button">Crear instancia</button>
+                      <button
+                        type="button"
+                        onClick={handleCreateInstance}
+                        disabled={versionsStatus === "error"}
+                      >
+                        Crear instancia
+                      </button>
                       <button type="button">Importar archivo</button>
                       <button type="button">Ver requisitos</button>
                     </div>
