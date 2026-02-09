@@ -157,7 +157,12 @@ const AppShell = () => {
             </Suspense>
           </main>
         </div>
-        {showStatusBar && <StatusBar selectedInstance={selectedInstance} />}
+        {showStatusBar && (
+          <StatusBar
+            selectedInstance={selectedInstance}
+            instances={instances}
+          />
+        )}
       </div>
     </ErrorBoundary>
   );

@@ -4,12 +4,24 @@ export interface Instance {
   id: string;
   name: string;
   version: string;
+  loaderName: string;
+  loaderVersion: string;
   mods: number;
   memory: string;
   status: InstanceStatus;
   group: string;
   lastPlayed: string;
   playtime: string;
+  playtimeMinutes: number;
+  isDownloading: boolean;
+  isRunning: boolean;
+  resources?: {
+    ramMin: string;
+    ramMax: string;
+    gpu: string;
+    cpu: string;
+  };
+  downloadLabel?: string;
 }
 
 export interface Modpack {
