@@ -1,4 +1,5 @@
 import { useBaseDir } from "../hooks/useBaseDir";
+import { useI18n } from "../i18n/useI18n";
 
 interface StatusBarProps {
   selectedInstance: {
@@ -10,16 +11,22 @@ interface StatusBarProps {
 
 export const StatusBar = ({ selectedInstance }: StatusBarProps) => {
   const { baseDir, status } = useBaseDir();
+  const { t } = useI18n();
+
+  const statusMessage =
+    status === "valid"
+      ? t("baseDir").statusValid
+      : status === "validating"
+        ? t("baseDir").statusLoading
+        : status === "invalid"
+          ? t("baseDir").statusInvalid
+          : t("baseDir").statusIdle;
 
   return (
     <footer className="status-bar">
       <div className="status-bar__section">
         <strong>Estado</strong>
-        <span>
-          {status === "valid"
-            ? "✅ Carpeta base lista"
-            : "⚠️ Falta configurar la carpeta base"}
-        </span>
+        <span>{statusMessage}</span>
         {baseDir && <span className="status-bar__path">📁 {baseDir}</span>}
       </div>
       <div className="status-bar__section">

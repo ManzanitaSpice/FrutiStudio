@@ -1,17 +1,10 @@
 import { type MouseEvent, useState } from "react";
 
+import type { Instance } from "../../types/models";
+import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
+
 interface InstancePanelProps {
-  instances: Array<{
-    id: string;
-    name: string;
-    version: string;
-    mods: number;
-    memory: string;
-    status: string;
-    group: string;
-    lastPlayed: string;
-    playtime: string;
-  }>;
+  instances: Instance[];
   selectedInstanceId: string | null;
   onSelectInstance: (id: string) => void;
   onClearSelection: () => void;
@@ -78,6 +71,11 @@ export const InstancePanel = ({
     instances.find((instance) => instance.id === selectedInstanceId) ?? null;
   const toolbarActions =
     sectionToolbars[activeEditorSection] ?? sectionToolbars["Versión"];
+  const statusLabels: Record<Instance["status"], string> = {
+    ready: "Listo para jugar",
+    "pending-update": "Actualización pendiente",
+    stopped: "Detenida",
+  };
 
   const versionRows = [
     { name: selectedInstance?.name ?? "Perfil principal", version: "3.3.3" },
@@ -156,29 +154,6 @@ export const InstancePanel = ({
 
   return (
     <section className="panel-view panel-view--instances">
-      {isFocusMode && (
-        <div className="instance-panel__commandbar">
-          <div className="instance-panel__commandbar-left">
-            <button type="button">+ Crear</button>
-            <button type="button">Importar</button>
-            <button type="button">Crear grupo</button>
-          </div>
-          <div className="instance-panel__commandbar-right">
-            <button type="button" aria-label="Buscar">
-              🔍
-            </button>
-            <button type="button" aria-label="Descargas">
-              ⬇️
-            </button>
-            <button type="button" aria-label="Filtros">
-              ⚙️
-            </button>
-            <button type="button" aria-label="Vista">
-              ⬚
-            </button>
-          </div>
-        </div>
-      )}
       <div className="panel-view__header">
         <div>
           <h2>Instancias instaladas</h2>
@@ -237,11 +212,13 @@ export const InstancePanel = ({
                   <h3>{instance.name}</h3>
                   <p>Minecraft {instance.version}</p>
                 </div>
-                <span className="instance-card__status">{instance.status}</span>
+                <span className="instance-card__status">
+                  {statusLabels[instance.status]}
+                </span>
                 <div className="instance-card__meta">
                   <span>{instance.mods} mods</span>
                   <span>{instance.memory}</span>
-                  <span>{instance.lastPlayed}</span>
+                  <span>{formatRelativeTime(instance.lastPlayed)}</span>
                 </div>
               </div>
             </article>
@@ -256,7 +233,7 @@ export const InstancePanel = ({
                   <h3>{selectedInstance.name}</h3>
                   <p>Minecraft {selectedInstance.version}</p>
                   <span className="instance-menu__playtime">
-                    Tiempo total: {selectedInstance.playtime}
+                    Tiempo total: {formatPlaytime(selectedInstance.playtime)}
                   </span>
                 </div>
               </div>
@@ -264,15 +241,15 @@ export const InstancePanel = ({
                 <h4>Opciones de instancia</h4>
                 <div className="instance-menu__actions">
                   <button type="button">Iniciar</button>
-                  <button type="button">Forzar cierre</button>
                   <button type="button" onClick={openEditor}>
                     Editar
                   </button>
                   <button type="button">Cambiar grupo</button>
                   <button type="button">Exportar</button>
                   <button type="button">Copiar</button>
-                  <button type="button">Borrar</button>
                   <button type="button">Crear atajo</button>
+                  <button type="button">Borrar</button>
+                  <button type="button">Forzar cierre</button>
                 </div>
               </div>
               <div className="instance-menu__section instance-menu__section--global">

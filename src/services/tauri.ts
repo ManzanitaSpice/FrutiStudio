@@ -1,3 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeWithHandling } from "./tauriClient";
 
-export const selectFolder = async () => invoke<string>("select_folder");
+export interface SelectFolderResult {
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
+
+export const selectFolder = async () =>
+  invokeWithHandling<SelectFolderResult>("select_folder");

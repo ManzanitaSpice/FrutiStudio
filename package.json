@@ -8,7 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest"
+    "test": "vitest",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -21,10 +24,17 @@
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.37.0",
+    "@typescript-eslint/parser": "^8.37.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^9.31.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.35.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
     "jsdom": "^26.1.0",
+    "prettier": "^3.5.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^3.2.4"

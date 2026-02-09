@@ -8,7 +8,7 @@ const sidebarActions = [
 
 export const Sidebar = () => {
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" role="complementary" aria-label="Acciones rápidas">
       <div className="sidebar__section">
         <h3>Acciones rápidas</h3>
         <p>Atajos del panel principal.</p>
