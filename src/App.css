@@ -41,6 +41,40 @@ body {
   color: #3a3a3a;
 }
 
+.app__panels {
+  width: min(960px, 100%);
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 12px;
+}
+
+.panel {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  text-align: left;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.panel p {
+  margin: 0;
+  color: #4a4a4a;
+}
+
+.panel button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 button {
   border-radius: 10px;
   border: 1px solid transparent;
@@ -73,6 +107,15 @@ button:active {
 
   .app__header p {
     color: #cfcfcf;
+  }
+
+  .panel {
+    background: #101010;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .panel p {
+    color: #bdbdbd;
   }
 
   button {
