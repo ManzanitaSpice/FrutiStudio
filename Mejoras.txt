@@ -1,0 +1,63 @@
+# Mejoras propuestas para FrutiStudio (mínimo 50)
+
+1. Separar los datos simulados de instancias en fixtures o JSON de desarrollo para evitar que `App.tsx` crezca y facilitar el reemplazo por datos reales.
+2. Crear un servicio de datos (por ejemplo `instanceService`) que entregue instancias desde una API/archivo local en vez de tenerlas hardcodeadas.
+3. Reemplazar el `useMemo` dependiente de un array literal recreado en cada render por un estado/contexto o una memoización más estable.
+4. Añadir un estado global para UI (zoom, modo foco, sección activa) con un contexto dedicado o store (Zustand/Redux) para evitar prop drilling futuro.
+5. Mover el manejo de zoom global a un hook reutilizable con cleanup centralizado y tests.
+6. Persistir `uiScale` en configuración local (Tauri) para recuperar el zoom entre sesiones.
+7. Añadir un sistema de atajos de teclado para navegación entre secciones y toggles de focus.
+8. Crear un sistema de feature flags para habilitar secciones en desarrollo (explorador, noticias, servers) de forma segura.
+9. Implementar lazy loading de paneles (React.lazy + Suspense) para reducir el bundle inicial.
+10. Añadir error boundaries en `App` y paneles críticos para evitar pantallas en blanco.
+11. Definir un esquema de tipos (TypeScript) para `Instance`, `Modpack`, `Mod`, `Server` y reutilizar en todo el código.
+12. Unificar el formato de fechas/tiempos (por ejemplo `lastPlayed`, `playtime`) usando una utilidad de formateo consistente.
+13. Incorporar un sistema de i18n para poder traducir textos de UI y mensajes de errores.
+14. Normalizar y centralizar los textos de UI en un archivo de constantes.
+15. Añadir un componente de “empty state” para cuando no haya instancias seleccionadas o disponibles.
+16. Definir un theme system con variables CSS (light/dark) y preferencia del usuario.
+17. Mejorar accesibilidad: roles ARIA, navegación por teclado y foco visible en Sidebar/Toolbar.
+18. Optimizar `App.css` con variables CSS y evitar repetición de colores y tamaños.
+19. Incluir tests de snapshot para componentes principales con Vitest/Testing Library.
+20. Añadir pruebas de integración para el flujo de selección de carpeta base.
+21. Implementar un logger frontend con niveles y salida opcional a Tauri `append_log`.
+22. Centralizar manejo de errores de `invoke` (Tauri) en un wrapper que transforme errores en mensajes amigables.
+23. Agregar un “retry” para llamadas críticas (load/save config) con backoff.
+24. Implementar cache en memoria para evitar llamadas repetidas a `loadConfig`.
+25. Añadir validaciones de baseDir en el frontend antes de invocar al backend (e.g. string vacío).
+26. Manejar cancelación en `select_folder` de forma más explícita, devolviendo un estado tipo `Result` con `ok/error`.
+27. Asegurar que el `BaseDirProvider` no realice `saveBaseDir` si el valor es idéntico al anterior.
+28. Añadir un estado “validating” con spinner visual para el usuario cuando se valida el directorio.
+29. Crear un panel de configuración donde el usuario pueda ver y cambiar la baseDir.
+30. Mejorar los contextos vacíos (`instanceContext`, `modContext`, `modpackContext`, `serverContext`) con reducers y acciones claras.
+31. Definir una capa API para modpacks/mods/versions (CurseForge/Modrinth) con un cliente robusto en `apiClients`.
+32. Agregar rate limiting y caching para llamadas a APIs externas.
+33. Implementar una estrategia de actualización de mods con comparaciones de versiones semánticas.
+34. Añadir soporte para perfiles de Java con detección automática en `javaConfig`.
+35. Persistir preferencias del usuario (tema, escala, ruta base) en `config.json`.
+36. Añadir migraciones de configuración para futuros cambios en la estructura del config.
+37. Incluir tests en Rust para validación de directorio base y config.
+38. Agregar una “dry run” del `validate_base_dir` para no crear carpetas automáticamente si el usuario aún no confirma.
+39. Mejorar el manejo de logs para incluir niveles (info/warn/error) y rotación.
+40. Usar timestamps en formato ISO-8601 en los logs para mejor legibilidad.
+41. Añadir una cola de logs con buffering para reducir el I/O cuando se escriben muchos mensajes.
+42. Mejorar el manejo de permisos en `validate_base_dir`, devolviendo códigos o tipos de error más claros para la UI.
+43. Añadir verificación de espacio libre en disco al validar la carpeta base.
+44. Crear un comando Tauri para listar instancias almacenadas localmente.
+45. Agregar un comando Tauri para gestionar modpacks (crear/duplicar/eliminar).
+46. Incluir un servicio para descargar mods con verificación de hash.
+47. Implementar un sistema de lock para evitar que dos procesos escriban la misma instancia al mismo tiempo.
+48. Añadir un sistema de backup automático al modificar configuraciones de instancias/modpacks.
+49. Crear una capa de persistencia local (por ejemplo SQLite) para almacenar metadatos de instancias y mods.
+50. Agregar un pipeline de CI que ejecute lint, tests y build de Tauri.
+51. Configurar ESLint/Prettier para mantener estilo consistente en todo el frontend.
+52. Añadir scripts npm para `lint`, `format`, y `typecheck`.
+53. Documentar en README los flujos principales y la arquitectura (servicios, contextos, Tauri).
+54. Añadir documentación de API interna (por ejemplo en `docs/`) para servicios y hooks.
+55. Incluir un modo offline con caché de datos de modpacks/mods.
+56. Añadir telemetría opcional (opt-in) para mejorar UX con métricas reales.
+57. Mejorar la seguridad revisando permisos en `tauri.conf.json` y limitando comandos expuestos.
+58. Agregar pruebas end-to-end con Playwright para flujos críticos.
+59. Implementar un sistema de notificaciones in-app para updates, errores y estados de descarga.
+60. Añadir un sistema de cola de descargas con progreso y reintentos.
+
