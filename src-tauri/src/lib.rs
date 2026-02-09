@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::command;
+use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
 use serde::{Deserialize, Serialize};
