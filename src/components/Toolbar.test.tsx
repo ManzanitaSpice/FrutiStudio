@@ -10,6 +10,7 @@ describe("Toolbar", () => {
         current="mis-modpacks"
         onSelect={() => undefined}
         showGlobalSearch
+        isFocusMode={false}
         flags={{
           explorer: true,
           news: true,

@@ -131,8 +131,8 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
-  padding: 14px 18px;
+  gap: 8px;
+  padding: 8px 14px 12px;
   border-radius: 14px;
   background: var(--color-surface);
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
@@ -147,8 +147,36 @@ select:focus-visible {
 }
 
 .topbar__row--utility {
-  padding: 4px 4px 0;
-  min-height: 28px;
+  padding: 2px 2px 6px;
+  min-height: 26px;
+  border-bottom: 1px solid #202534;
+}
+
+.topbar__utility-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.topbar__brand-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #f97316, #facc15);
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.4);
+}
+
+.topbar__brand-name {
+  letter-spacing: 0.02em;
 }
 
 .topbar__nav-controls {
@@ -168,12 +196,7 @@ select:focus-visible {
 .topbar__row--main {
   align-items: center;
   gap: 20px;
-}
-
-.topbar__row--nav {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 .topbar__account {
@@ -267,7 +290,8 @@ select:focus-visible {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 220px;
 }
 
 .topbar__button {
@@ -311,9 +335,8 @@ select:focus-visible {
   border: 1px solid #232a3a;
   padding: 8px 12px;
   border-radius: 999px;
-  width: 100%;
-  max-width: 720px;
-  flex: 1;
+  width: min(520px, 100%);
+  flex: 1 1 280px;
 }
 
 .topbar__search span {
@@ -495,6 +518,9 @@ select:focus-visible {
   background: transparent;
   border-color: #2b313f;
   box-shadow: none;
+  padding: 0.3em 0.55em;
+  font-size: 0.85rem;
+  border-radius: 8px;
 }
 
 .instance-panel__commandbar {
@@ -680,6 +706,9 @@ select:focus-visible {
   gap: 12px;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   min-height: 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(10, 13, 19, 0.65);
 }
 
 .instance-card {
@@ -760,6 +789,10 @@ select:focus-visible {
   gap: 12px;
   min-height: 320px;
   max-height: 100%;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  overflow-y: auto;
 }
 
 .instance-menu__preview {
