@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
 
 import { ProductDetailsDialog, ProductInstallDialog } from "../ProductDialogs";
 
@@ -52,6 +52,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installState, setInstallState] = useState<{ item: ExplorerItem; version?: ExplorerItemFileVersion } | null>(null);
   const [minecraftVersions, setMinecraftVersions] = useState<string[]>([""]);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: ExplorerItem } | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -179,6 +180,24 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
   ) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 0 }));
     setItems([]);
+  };
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
+
+  const handleItemContextMenu = (event: ReactMouseEvent<HTMLElement>, item: ExplorerItem) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, item });
   };
 
   useEffect(() => {
@@ -331,6 +350,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
                       <article
                         key={item.id}
                         className="explorer-item explorer-item--card"
+                        onContextMenu={(event) => handleItemContextMenu(event, item)}
                       >
                         {item.thumbnail ? (
                           <img
@@ -389,6 +409,16 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
           ) : null}
         </div>
       </div>
+
+
+      {contextMenu ? (
+        <div className="section-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <span className="section-context-menu__title">{contextMenu.item.name}</span>
+          <button type="button" onClick={() => setSelectedItem(contextMenu.item)}>Ver más</button>
+          <button type="button" onClick={() => setInstallState({ item: contextMenu.item })}>Instalar</button>
+          <button type="button" onClick={() => navigator.clipboard.writeText(contextMenu.item.url ?? contextMenu.item.name)}>Copiar enlace/nombre</button>
+        </div>
+      ) : null}
 
       {selectedItem ? (
         <ProductDetailsDialog

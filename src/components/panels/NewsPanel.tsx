@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
 
 import { ProductDetailsDialog, ProductInstallDialog } from "../ProductDialogs";
 import { type NewsOverview, fetchNewsOverview } from "../../services/newsService";
@@ -17,6 +17,7 @@ export const NewsPanel = () => {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: ExplorerItem } | null>(null);
 
   const nextCarousel = () => {
     if (!popularModpacks.length) return;
@@ -113,6 +114,24 @@ export const NewsPanel = () => {
   );
 
   useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
+
+  const handleItemContextMenu = (event: ReactMouseEvent<HTMLElement>, item: ExplorerItem) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, item });
+  };
+
+  useEffect(() => {
     if (popularModpacks.length <= 1) {
       return;
     }
@@ -168,6 +187,7 @@ export const NewsPanel = () => {
                     ? "explorer-item explorer-item--card news-carousel__item is-active"
                     : "explorer-item explorer-item--card news-carousel__item"
                 }
+                onContextMenu={(event) => handleItemContextMenu(event, item)}
               >
                 {item.thumbnail ? (
                   <img
@@ -237,7 +257,7 @@ export const NewsPanel = () => {
             </div>
             <div className="explorer-layout__cards">
               {entry.items.map((item) => (
-                <article key={item.id} className="explorer-item explorer-item--card">
+                <article key={item.id} className="explorer-item explorer-item--card" onContextMenu={(event) => handleItemContextMenu(event, item)}>
                   {item.thumbnail ? (
                     <img
                       className="explorer-item__icon"
@@ -273,6 +293,16 @@ export const NewsPanel = () => {
           </div>
         ) : null,
       )}
+
+
+      {contextMenu ? (
+        <div className="section-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <span className="section-context-menu__title">{contextMenu.item.name}</span>
+          <button type="button" onClick={() => setSelectedItem(contextMenu.item)}>Ver detalles</button>
+          <button type="button" onClick={() => setInstallItem(contextMenu.item)}>Instalar</button>
+          <button type="button" onClick={() => navigator.clipboard.writeText(contextMenu.item.name)}>Copiar nombre</button>
+        </div>
+      ) : null}
 
       {selectedItem ? (
         <ProductDetailsDialog
