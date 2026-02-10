@@ -18,6 +18,7 @@ import {
   importInstance,
   launchInstance,
   preflightInstance,
+  readInstanceRuntimeLogs,
   removeInstance,
   repairInstance,
 } from "../../services/instanceService";
@@ -957,20 +958,44 @@ export const InstancePanel = ({
   }, [selectedInstance]);
 
   useEffect(() => {
-    if (!selectedInstance?.isRunning) {
+    if (!selectedInstance) {
       return;
     }
-    const interval = window.setInterval(() => {
-      setRuntimeLogByInstance((prev) => {
-        const currentLogs = prev[selectedInstance.id] ?? [];
-        const newLine = `[${new Date().toLocaleTimeString()}] [Minecraft] Tick ${Date.now().toString().slice(-5)} · TPS estable`;
-        return {
+
+    let isActive = true;
+    const pollRuntimeLogs = async () => {
+      try {
+        const snapshot = await readInstanceRuntimeLogs(selectedInstance.id);
+        if (!isActive) {
+          return;
+        }
+        setRuntimeLogByInstance((prev) => ({
           ...prev,
-          [selectedInstance.id]: [...currentLogs.slice(-199), newLine],
-        };
-      });
-    }, 1200);
-    return () => window.clearInterval(interval);
+          [selectedInstance.id]: snapshot.lines.slice(-240),
+        }));
+      } catch {
+        if (!isActive) {
+          return;
+        }
+        setRuntimeLogByInstance((prev) => ({
+          ...prev,
+          [selectedInstance.id]: [
+            ...(prev[selectedInstance.id] ?? []).slice(-30),
+            `[${new Date().toLocaleTimeString()}] [Launcher] No se pudieron leer los logs reales de ejecución.`,
+          ],
+        }));
+      }
+    };
+
+    void pollRuntimeLogs();
+    const interval = window.setInterval(() => {
+      void pollRuntimeLogs();
+    }, selectedInstance.isRunning ? 1200 : 3500);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(interval);
+    };
   }, [selectedInstance?.id, selectedInstance?.isRunning]);
 
   useEffect(() => {

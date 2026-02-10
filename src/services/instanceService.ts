@@ -135,9 +135,27 @@ export interface InstancePreflightReport {
   checks: Record<string, boolean>;
 }
 
+export interface InstanceRuntimeLogSnapshot {
+  status?: string;
+  stateUpdatedAt?: number;
+  stdoutPath?: string;
+  stderrPath?: string;
+  command?: string;
+  lines: string[];
+}
+
 export const preflightInstance = async (instanceId: string) => {
   const validInstanceId = assertValidInstanceId(instanceId);
   return invokeWithHandling<InstancePreflightReport>("preflight_instance", {
+    args: {
+      instanceId: validInstanceId,
+    },
+  });
+};
+
+export const readInstanceRuntimeLogs = async (instanceId: string) => {
+  const validInstanceId = assertValidInstanceId(instanceId);
+  return invokeWithHandling<InstanceRuntimeLogSnapshot>("read_instance_runtime_logs", {
     args: {
       instanceId: validInstanceId,
     },
