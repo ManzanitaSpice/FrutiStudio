@@ -205,7 +205,14 @@ export const Toolbar = ({
                       rel={item.url ? "noreferrer" : undefined}
                       className="topbar__search-item"
                     >
-                      <div>
+                      <div className="topbar__search-item-main">
+                        <div className="topbar__search-item-icon">
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt={item.label} loading="lazy" />
+                          ) : (
+                            <span>{item.label.slice(0, 2).toUpperCase()}</span>
+                          )}
+                        </div>
                         <strong>{item.label}</strong>
                         <span>{item.description}</span>
                       </div>

@@ -12,6 +12,7 @@ interface ModrinthSearchHit {
   downloads: number;
   project_type: string;
   slug: string;
+  icon_url?: string;
 }
 
 interface ModrinthSearchResponse {
@@ -26,6 +27,8 @@ export interface NewsHeroItem {
   cta: string;
   source: string;
   url?: string;
+  imageUrl?: string;
+  category?: string;
 }
 
 export interface NewsTrendingItem {
@@ -34,6 +37,8 @@ export interface NewsTrendingItem {
   type: string;
   source: string;
   url?: string;
+  imageUrl?: string;
+  category?: string;
 }
 
 export interface NewsLatestItem {
@@ -43,6 +48,8 @@ export interface NewsLatestItem {
   type: string;
   source: string;
   url?: string;
+  imageUrl?: string;
+  category?: string;
 }
 
 export interface NewsCuratedList {
@@ -59,6 +66,8 @@ export interface NewsCarouselItem {
   subtitle: string;
   source: string;
   url?: string;
+  imageUrl?: string;
+  category?: string;
 }
 
 export interface NewsCarouselSection {
@@ -89,7 +98,7 @@ const fetchModrinthSearch = async (query: string, projectType: string) => {
   const facets = JSON.stringify([[`project_type:${projectType}`]]);
   const url = `${MODRINTH_BASE}/search?query=${encodeURIComponent(
     query,
-  )}&facets=${encodeURIComponent(facets)}&limit=6`;
+  )}&facets=${encodeURIComponent(facets)}&limit=8`;
   const data = await apiFetch<ModrinthSearchResponse>(url, { ttl: 120_000 });
   return data.hits ?? [];
 };
@@ -102,7 +111,7 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
 
   const safeExplorer = async (category: ExplorerCategory, label: string) => {
     try {
-      return await fetchExplorerItems(category);
+      return await fetchExplorerItems(category, { limit: 16 });
     } catch (error) {
       warnings.push(
         error instanceof Error
@@ -121,7 +130,7 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
       safeExplorer("Worlds", "Worlds"),
     ]);
 
-  const featuredItems = modrinthModpacks.slice(0, 3).map((item) => ({
+  const featuredItems = modrinthModpacks.slice(0, 4).map((item) => ({
     id: item.project_id,
     title: item.title,
     subtitle: `Modpack · ${formatDownloads(item.downloads)} descargas`,
@@ -129,23 +138,28 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
     cta: "Ver detalles",
     source: "Modrinth",
     url: `https://modrinth.com/modpack/${item.slug}`,
+    imageUrl: item.icon_url,
+    category: "Modpacks",
   }));
 
-  const trendingItems = modrinthMods.slice(0, 8).map((item) => ({
+  const trendingItems = modrinthMods.slice(0, 10).map((item) => ({
     id: item.project_id,
     title: item.title,
     type: `Mod · ${formatDownloads(item.downloads)} descargas`,
     source: "Modrinth",
     url: `https://modrinth.com/mod/${item.slug}`,
+    imageUrl: item.icon_url,
+    category: "Mods",
   }));
 
-  const latestItems = planetModpacks.slice(0, 6).map((item) => ({
+  const latestItems = planetModpacks.slice(0, 8).map((item) => ({
     id: item.id,
     name: item.title,
     author: item.author,
     type: item.category,
     source: "PlanetMinecraft",
     url: item.link,
+    category: item.category,
   }));
 
   const curatedLists: NewsCuratedList[] = [];
@@ -188,45 +202,53 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
     {
       id: "modpacks",
       title: "Modpacks destacados",
-      items: explorerModpacks.slice(0, 10).map((item) => ({
+      items: explorerModpacks.slice(0, 12).map((item) => ({
         id: item.id,
         title: item.name,
         subtitle: `${item.type} · ${item.downloads}`,
         source: item.source,
         url: item.url,
+        imageUrl: item.imageUrl,
+        category: "Modpacks",
       })),
     },
     {
       id: "mods",
       title: "Mods recomendados",
-      items: explorerMods.slice(0, 10).map((item) => ({
+      items: explorerMods.slice(0, 12).map((item) => ({
         id: item.id,
         title: item.name,
         subtitle: `${item.type} · ${item.downloads}`,
         source: item.source,
         url: item.url,
+        imageUrl: item.imageUrl,
+        category: "Mods",
       })),
     },
     {
       id: "datapacks",
       title: "Data packs y utilidades",
-      items: explorerDataPacks.slice(0, 10).map((item) => ({
+      items: explorerDataPacks.slice(0, 12).map((item) => ({
         id: item.id,
         title: item.name,
         subtitle: `${item.type} · ${item.downloads}`,
         source: item.source,
         url: item.url,
+        imageUrl: item.imageUrl,
+        category: "Data Packs",
       })),
     },
     {
       id: "worlds",
       title: "Mapas y mundos nuevos",
-      items: explorerWorlds.slice(0, 10).map((item) => ({
+      items: explorerWorlds.slice(0, 12).map((item) => ({
         id: item.id,
         title: item.name,
         subtitle: `${item.type} · ${item.downloads}`,
         source: item.source,
         url: item.url,
+        imageUrl: item.imageUrl,
+        category: "Worlds",
       })),
     },
   ].filter((section) => section.items.length > 0);

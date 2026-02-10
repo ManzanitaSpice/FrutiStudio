@@ -835,9 +835,12 @@ export const InstancePanel = ({
             <div className="instance-import__header">
               <h6>Instancias detectadas en otros launchers</h6>
               <button type="button" onClick={handleExternalScan}>
-                Buscar instancias
+                Seleccionar carpeta
               </button>
             </div>
+            <p className="instance-import__path">
+              Elige la unidad o carpeta base desde donde quieres iniciar la búsqueda.
+            </p>
             {externalScanPath ? (
               <p className="instance-import__path">
                 Buscando desde: {externalScanPath}
@@ -907,11 +910,20 @@ export const InstancePanel = ({
           <div className="instance-import__list">
             {creatorItems.map((item) => (
               <div key={item.id} className="instance-import__item">
-                <div>
+                <div className="instance-import__meta">
+                  <div className="instance-import__icon">
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.name} loading="lazy" />
+                    ) : (
+                      <span>{item.name.slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div>
                   <strong>{item.name}</strong>
                   <span>
                     {item.type} · {item.source}
                   </span>
+                  </div>
                 </div>
                 <div className="instance-import__actions">
                   {item.url ? (
@@ -937,11 +949,20 @@ export const InstancePanel = ({
           <div className="instance-import__list">
             {creatorItems.map((item) => (
               <div key={item.id} className="instance-import__item">
-                <div>
+                <div className="instance-import__meta">
+                  <div className="instance-import__icon">
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.name} loading="lazy" />
+                    ) : (
+                      <span>{item.name.slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div>
                   <strong>{item.name}</strong>
                   <span>
                     {item.type} · {item.source}
                   </span>
+                  </div>
                 </div>
                 <div className="instance-import__actions">
                   {item.url ? (
@@ -1256,7 +1277,6 @@ export const InstancePanel = ({
               <button type="button" onClick={openCreator}>
                 Crear instancia
               </button>
-              <button type="button">Importar instancia</button>
               <button type="button">Actualizar lista</button>
             </>
           )}

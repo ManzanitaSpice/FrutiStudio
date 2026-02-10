@@ -25,6 +25,7 @@ export interface ExplorerItem {
   type: string;
   source: string;
   url?: string;
+  imageUrl?: string;
 }
 
 interface ModrinthSearchHit {
@@ -34,6 +35,7 @@ interface ModrinthSearchHit {
   downloads: number;
   project_type: string;
   slug: string;
+  icon_url?: string;
 }
 
 interface ModrinthSearchResponse {
@@ -57,23 +59,54 @@ const formatDownloads = (downloads: number) =>
     maximumFractionDigits: 1,
   }).format(downloads);
 
-const buildSearchUrl = (category: ExplorerCategory) => {
+const buildSearchUrl = (
+  category: ExplorerCategory,
+  options?: {
+    query?: string;
+    limit?: number;
+    loader?: string;
+    gameVersion?: string;
+    sort?: "popular" | "downloads" | "recent";
+  },
+) => {
   const projectType = categoryProjectTypes[category];
-  const query = category === "Mods" ? "mod" : "minecraft";
-  const facets = projectType
-    ? `&facets=${encodeURIComponent(
-        JSON.stringify([[`project_type:${projectType}`]]),
-      )}`
+  const query = options?.query ?? (category === "Mods" ? "mod" : "minecraft");
+  const facets: string[][] = [];
+  if (projectType) {
+    facets.push([`project_type:${projectType}`]);
+  }
+  if (options?.loader && options.loader !== "Todos") {
+    facets.push([`categories:${options.loader.toLowerCase()}`]);
+  }
+  if (options?.gameVersion && options.gameVersion !== "Todas") {
+    facets.push([`versions:${options.gameVersion}`]);
+  }
+  const facetsParam = facets.length
+    ? `&facets=${encodeURIComponent(JSON.stringify(facets))}`
     : "";
+  const limit = options?.limit ?? 24;
+  const index =
+    options?.sort === "downloads"
+      ? "downloads"
+      : options?.sort === "recent"
+        ? "newest"
+        : "relevance";
   return `${MODRINTH_BASE}/search?query=${encodeURIComponent(
     query,
-  )}${facets}&limit=6`;
+  )}${facetsParam}&limit=${limit}&index=${index}`;
 };
 
 const fetchModrinthItems = async (
   category: ExplorerCategory,
+  options?: {
+    query?: string;
+    limit?: number;
+    loader?: string;
+    gameVersion?: string;
+    sort?: "popular" | "downloads" | "recent";
+  },
 ): Promise<ExplorerItem[]> => {
-  const url = buildSearchUrl(category);
+  const url = buildSearchUrl(category, options);
   const data = await apiFetch<ModrinthSearchResponse>(url, { ttl: 120_000 });
   return (data.hits ?? []).map((hit) => ({
     id: hit.project_id,
@@ -83,6 +116,7 @@ const fetchModrinthItems = async (
     type: hit.project_type,
     source: "Modrinth",
     url: `https://modrinth.com/${hit.project_type}/${hit.slug}`,
+    imageUrl: hit.icon_url,
   }));
 };
 
@@ -95,6 +129,7 @@ const curseforgeClassIds: Partial<Record<ExplorerCategory, number>> = {
 const fetchCurseforgeItems = async (
   category: ExplorerCategory,
   apiKey: string,
+  options?: { query?: string; limit?: number },
 ): Promise<ExplorerItem[]> => {
   const classId = curseforgeClassIds[category];
   if (!classId) {
@@ -102,9 +137,9 @@ const fetchCurseforgeItems = async (
   }
   const results = await searchCurseforge({
     apiKey,
-    query: "minecraft",
+    query: options?.query ?? "minecraft",
     classId,
-    pageSize: 6,
+    pageSize: options?.limit ?? 24,
   });
   return results.map((item) => ({
     id: String(item.id),
@@ -116,16 +151,18 @@ const fetchCurseforgeItems = async (
     type: category,
     source: "CurseForge",
     url: item.websiteUrl,
+    imageUrl: item.logoUrl,
   }));
 };
 
 const fetchPlanetMinecraftItems = async (
   category: ExplorerCategory,
+  options?: { limit?: number },
 ): Promise<ExplorerItem[]> => {
   switch (category) {
     case "Modpacks": {
       const items = await fetchPlanetMinecraftModpacks();
-      return items.map((item) => ({
+      return items.slice(0, options?.limit ?? 12).map((item) => ({
         id: item.id,
         name: item.title,
         author: item.author,
@@ -137,7 +174,7 @@ const fetchPlanetMinecraftItems = async (
     }
     case "Resource Packs": {
       const items = await fetchPlanetMinecraftResources();
-      return items.map((item) => ({
+      return items.slice(0, options?.limit ?? 12).map((item) => ({
         id: item.id,
         name: item.title,
         author: item.author,
@@ -149,7 +186,7 @@ const fetchPlanetMinecraftItems = async (
     }
     case "Worlds": {
       const items = await fetchPlanetMinecraftWorlds();
-      return items.map((item) => ({
+      return items.slice(0, options?.limit ?? 12).map((item) => ({
         id: item.id,
         name: item.title,
         author: item.author,
@@ -161,7 +198,7 @@ const fetchPlanetMinecraftItems = async (
     }
     case "Data Packs": {
       const items = await fetchPlanetMinecraftDataPacks();
-      return items.map((item) => ({
+      return items.slice(0, options?.limit ?? 12).map((item) => ({
         id: item.id,
         name: item.title,
         author: item.author,
@@ -178,13 +215,22 @@ const fetchPlanetMinecraftItems = async (
 
 export const fetchExplorerItems = async (
   category: ExplorerCategory,
+  options?: {
+    query?: string;
+    limit?: number;
+    loader?: string;
+    gameVersion?: string;
+    sort?: "popular" | "downloads" | "recent";
+  },
 ): Promise<ExplorerItem[]> => {
-  const tasks: Array<Promise<ExplorerItem[]>> = [fetchModrinthItems(category)];
+  const tasks: Array<Promise<ExplorerItem[]>> = [
+    fetchModrinthItems(category, options),
+  ];
   const curseforgeApiKey = getCurseforgeApiKey();
   if (curseforgeApiKey) {
-    tasks.push(fetchCurseforgeItems(category, curseforgeApiKey));
+    tasks.push(fetchCurseforgeItems(category, curseforgeApiKey, options));
   }
-  tasks.push(fetchPlanetMinecraftItems(category));
+  tasks.push(fetchPlanetMinecraftItems(category, options));
 
   const results = await Promise.allSettled(tasks);
   const items = results.flatMap((result) =>

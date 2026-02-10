@@ -27,6 +27,13 @@ const loadQuiltVersions = async (mcVersion: string) => {
 };
 
 const loadForgeVersions = async (mcVersion: string) => {
+  const normalized = mcVersion.replace(/^1\./, "");
+  const matchesMcVersion = (version: string, entryMc?: unknown) => {
+    if (typeof entryMc === "string" && entryMc.length > 0) {
+      return entryMc === mcVersion;
+    }
+    return version.includes(mcVersion) || version.startsWith(normalized);
+  };
   const endpoints = [
     `https://bmclapi2.bangbang93.com/forge/minecraft/${mcVersion}`,
     "https://bmclapi2.bangbang93.com/forge/list",
@@ -47,13 +54,13 @@ const loadForgeVersions = async (mcVersion: string) => {
               if (!entryVersion || typeof entryVersion !== "string") {
                 return [];
               }
-              if (!entryMc || entryMc === mcVersion) {
+              if (matchesMcVersion(entryVersion, entryMc)) {
                 return [entryVersion];
               }
             }
             return [];
           })
-          .filter((version) => version.includes(mcVersion));
+          .filter((version) => matchesMcVersion(version));
         if (versions.length) {
           return versions;
         }
@@ -66,6 +73,13 @@ const loadForgeVersions = async (mcVersion: string) => {
 };
 
 const loadNeoForgeVersions = async (mcVersion: string) => {
+  const normalized = mcVersion.replace(/^1\./, "");
+  const matchesMcVersion = (version: string, entryMc?: unknown) => {
+    if (typeof entryMc === "string" && entryMc.length > 0) {
+      return entryMc === mcVersion;
+    }
+    return version.includes(mcVersion) || version.startsWith(normalized);
+  };
   const endpoints = [
     `https://bmclapi2.bangbang93.com/neoforge/${mcVersion}`,
     "https://bmclapi2.bangbang93.com/neoforge/list",
@@ -86,13 +100,13 @@ const loadNeoForgeVersions = async (mcVersion: string) => {
               if (!entryVersion || typeof entryVersion !== "string") {
                 return [];
               }
-              if (!entryMc || entryMc === mcVersion) {
+              if (matchesMcVersion(entryVersion, entryMc)) {
                 return [entryVersion];
               }
             }
             return [];
           })
-          .filter((version) => version.includes(mcVersion));
+          .filter((version) => matchesMcVersion(version));
         if (versions.length) {
           return versions;
         }
