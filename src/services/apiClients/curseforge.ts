@@ -82,3 +82,13 @@ export const fetchCurseforgeGameVersions = async (apiKey?: string) => {
 export const fetchCurseforgeModLoaders = async (apiKey?: string) => {
   return requestCurseforgeV1<{ data: unknown[] }>("/games/432/modloaders", apiKey);
 };
+
+export const fetchCurseforgeCategories = async (
+  classId: number,
+  apiKey?: string,
+) => {
+  return requestCurseforgeV1<{ data: unknown[] }>("/categories", apiKey, {
+    gameId: "432",
+    classId: String(classId),
+  });
+};

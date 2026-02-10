@@ -95,6 +95,7 @@ const AppShell = () => {
   const [bootStep, setBootStep] = useState(0);
   const [bootEvents, setBootEvents] = useState<string[]>([]);
   const bootStartedAt = useRef<number>(Date.now());
+  const bootHydrated = useRef(false);
 
   useEffect(() => {
     const runBoot = async () => {
@@ -117,6 +118,14 @@ const AppShell = () => {
       if (config.theme) {
         setTheme(config.theme);
       }
+      if (config.activeSection) {
+        setSection(config.activeSection);
+      }
+      if (typeof config.focusMode === "boolean") {
+        if (config.focusMode !== isFocusMode) {
+          toggleFocus();
+        }
+      }
       if (config.customTheme) {
         Object.entries(config.customTheme).forEach(([key, value]) => {
           document.documentElement.style.setProperty(`--custom-${key}`, value);
@@ -136,9 +145,10 @@ const AppShell = () => {
       const minimumBootDuration = 4_500;
       const remaining = Math.max(0, minimumBootDuration - elapsed);
       window.setTimeout(() => setBootReady(true), remaining);
+      bootHydrated.current = true;
     };
     void runBoot();
-  }, [setScale, setTheme]);
+  }, [setScale, setTheme, setSection, isFocusMode, toggleFocus]);
 
   useUiZoom({
     scale: uiScale,
@@ -164,6 +174,17 @@ const AppShell = () => {
     };
     void persist();
   }, [theme]);
+
+  useEffect(() => {
+    if (!bootHydrated.current) {
+      return;
+    }
+    const persist = async () => {
+      const config = await loadConfig();
+      await saveConfig({ ...config, activeSection, focusMode: isFocusMode });
+    };
+    void persist();
+  }, [activeSection, isFocusMode]);
 
   useKeyboardShortcuts({
     onSelectSection: setSection,

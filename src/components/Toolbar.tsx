@@ -215,7 +215,7 @@ export const Toolbar = ({
           {showGlobalSearch && (
             <div className="topbar__search-wrap">
               <label className="topbar__search">
-                <span>🔍</span>
+                <span className="topbar__search-icon">🔍</span>
                 <input
                   type="search"
                   placeholder="Buscar modpacks, mods e instancias..."
@@ -227,6 +227,18 @@ export const Toolbar = ({
                     }
                   }}
                 />
+                <button
+                  type="button"
+                  className="topbar__search-submit"
+                  disabled={!query.trim()}
+                  onClick={() => {
+                    if (query.trim()) {
+                      onSearchSubmit(query.trim());
+                    }
+                  }}
+                >
+                  Buscar
+                </button>
                 <button type="button" aria-label="Limpiar búsqueda" onClick={() => setQuery("")}>
                   ✕
                 </button>
@@ -259,6 +271,8 @@ export const Toolbar = ({
             </button>
             {menuOpen && (
               <div className="topbar__account-menu" role="menu">
+                <div className="topbar__account-group">
+                  <p className="topbar__account-group-title">Cambiar perfil</p>
                 {accounts.slice(0, 4).map((account, index) => (
                   <button
                     key={account.id}
@@ -275,6 +289,9 @@ export const Toolbar = ({
                     <span className="topbar__account-shortcut">Ctrl + {index + 1}</span>
                   </button>
                 ))}
+                </div>
+                <div className="topbar__account-group">
+                  <p className="topbar__account-group-title">Gestión</p>
                 <button
                   type="button"
                   className="topbar__account-item"
@@ -297,6 +314,7 @@ export const Toolbar = ({
                 >
                   Administrar skins
                 </button>
+                </div>
                 <button
                   type="button"
                   className="topbar__account-item topbar__account-item--footer"

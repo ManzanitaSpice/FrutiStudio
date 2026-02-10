@@ -15,6 +15,7 @@ export const NewsPanel = () => {
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
+  const [spotlightIndex, setSpotlightIndex] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -85,6 +86,21 @@ export const NewsPanel = () => {
     [catalog, categories],
   );
 
+  useEffect(() => {
+    if ((news?.trendingItems?.length ?? 0) <= 1) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setSpotlightIndex((prev) =>
+        news?.trendingItems?.length ? (prev + 1) % news.trendingItems.length : 0,
+      );
+    }, 4200);
+    return () => window.clearInterval(timer);
+  }, [news?.trendingItems?.length]);
+
+  const spotlight = news?.trendingItems?.[spotlightIndex];
+  const spotlightProject = catalog.find((entry) => entry.id === spotlight?.id);
+
   return (
     <section className="panel-view panel-view--news">
       <div className="panel-view__header">
@@ -103,6 +119,31 @@ export const NewsPanel = () => {
           {warnings.map((warning) => (
             <p key={warning}>{warning}</p>
           ))}
+        </div>
+      ) : null}
+
+      {spotlight && spotlightProject ? (
+        <div className="news-section">
+          <div className="news-section__header">
+            <h3>Destacado del momento</h3>
+            <span className="news-section__meta">Actualización automática</span>
+          </div>
+          <article className="explorer-item explorer-item--card">
+            {spotlight.thumbnail ? <img className="explorer-item__icon" src={spotlight.thumbnail} alt={spotlight.title} /> : <div className="explorer-item__icon" />}
+            <div className="explorer-item__info">
+              <h4>{spotlight.title}</h4>
+              <p>{spotlightProject.description}</p>
+              <div className="explorer-item__meta">
+                <span>{spotlightProject.source}</span>
+                <span>{spotlightProject.type}</span>
+                <span>{spotlightProject.downloads}</span>
+              </div>
+            </div>
+            <div className="explorer-item__actions">
+              <button type="button" onClick={() => setSelectedItem(spotlightProject)}>Ver más</button>
+              <button type="button" className="explorer-item__secondary" onClick={() => setInstallItem(spotlightProject)}>Instalar</button>
+            </div>
+          </article>
         </div>
       ) : null}
 

@@ -27,6 +27,11 @@ struct AppConfig {
     theme: Option<String>,
     version: Option<u32>,
     telemetry_opt_in: Option<bool>,
+    auto_updates: Option<bool>,
+    background_downloads: Option<bool>,
+    active_section: Option<String>,
+    focus_mode: Option<bool>,
+    explorer_filters: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -881,6 +886,10 @@ pub fn run() {
         .setup(|app| {
             if let Err(error) = init_database(app.handle()) {
                 eprintln!("Error al inicializar la base de datos: {error}");
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.maximize();
+                let _ = window.set_fullscreen(true);
             }
             Ok(())
         })

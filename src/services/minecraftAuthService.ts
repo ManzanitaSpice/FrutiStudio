@@ -130,11 +130,23 @@ const loginMinecraft = async (xstsToken: string, uhs: string) => {
 
 const fetchMinecraftProfile = async (mcToken: string) => {
   const response = await fetch("https://api.minecraftservices.com/minecraft/profile", {
-    headers: { Authorization: `Bearer ${mcToken}`, accept: "application/json" },
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${mcToken}`,
+      accept: "application/json",
+      "cache-control": "no-cache",
+      pragma: "no-cache",
+    },
   });
 
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 404) {
+      throw new Error("La cuenta autenticada no tiene perfil de Minecraft Java activo.");
+    }
+    if (response.status === 401) {
+      throw new Error("Token de Minecraft inválido o expirado al consultar /minecraft/profile.");
+    }
     throw new Error(`No se pudo obtener perfil Minecraft (${response.status}): ${body}`);
   }
   return response.json() as Promise<{ id: string; name: string }>;

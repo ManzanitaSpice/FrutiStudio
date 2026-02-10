@@ -11,6 +11,7 @@ import {
   fetchExplorerItemDetails,
   fetchUnifiedCatalog,
 } from "../../services/explorerService";
+import { loadConfig, saveConfig } from "../../services/configService";
 
 const explorerCategories: ExplorerCategory[] = [
   "Modpacks",
@@ -50,6 +51,22 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installState, setInstallState] = useState<{ item: ExplorerItem; version?: ExplorerItemFileVersion } | null>(null);
+
+  useEffect(() => {
+    const hydrate = async () => {
+      const config = await loadConfig();
+      if (!config.explorerFilters) {
+        return;
+      }
+      setFilters((prev) => ({
+        ...prev,
+        ...config.explorerFilters,
+        page: 0,
+      }));
+      setItems([]);
+    };
+    void hydrate();
+  }, []);
 
   useEffect(() => {
     if (!externalQueryToken || !externalQuery?.trim()) {
@@ -139,6 +156,31 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
     setItems([]);
   };
 
+  useEffect(() => {
+    const persist = async () => {
+      const config = await loadConfig();
+      await saveConfig({
+        ...config,
+        explorerFilters: {
+          category: filters.category,
+          query: filters.query,
+          gameVersion: filters.gameVersion,
+          loader: filters.loader,
+          platform: filters.platform,
+          sort: filters.sort,
+        },
+      });
+    };
+    void persist();
+  }, [
+    filters.category,
+    filters.gameVersion,
+    filters.loader,
+    filters.platform,
+    filters.query,
+    filters.sort,
+  ]);
+
 
   return (
     <section className="panel-view panel-view--explorer">
@@ -155,14 +197,19 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
       <div className="explorer-layout">
         <aside className="explorer-layout__sidebar">
           <div className="explorer-layout__filters">
-            <h4>Filtro avanzado</h4>
+            <div className="explorer-layout__filters-header">
+              <h4>Filtro avanzado</h4>
+              <button type="button" onClick={() => setFilters({ category: "Modpacks", sort: "popular", platform: "all", query: "", gameVersion: "", loader: "", page: 0, pageSize: 16 })}>
+                Restablecer
+              </button>
+            </div>
             <input
               type="search"
               placeholder="Buscar por nombre..."
               value={filters.query}
               onChange={(event) => updateFilter("query", event.target.value)}
             />
-            <label>
+            <label className="explorer-layout__field">
               Minecraft
               <select
                 value={filters.gameVersion}
@@ -175,7 +222,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
                 ))}
               </select>
             </label>
-            <label>
+            <label className="explorer-layout__field">
               Loader
               <select
                 value={filters.loader}
@@ -188,7 +235,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
                 ))}
               </select>
             </label>
-            <label>
+            <label className="explorer-layout__field">
               Plataforma
               <select
                 value={filters.platform}
