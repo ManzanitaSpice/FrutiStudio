@@ -923,77 +923,434 @@ impl JavaManager {
     }
 }
 
-fn build_launch_command(
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstanceMemoryConfig {
+    min: u32,
+    max: u32,
+}
+
+fn current_minecraft_os() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "osx"
+    } else {
+        "linux"
+    }
+}
+
+fn library_allowed_for_current_os(library: &Value) -> bool {
+    let Some(rules) = library.get("rules").and_then(|v| v.as_array()) else {
+        return true;
+    };
+
+    let mut allowed = false;
+    for rule in rules {
+        let action = rule
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("allow");
+        let os = rule
+            .get("os")
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str());
+        let applies = os
+            .map(|name| name == current_minecraft_os())
+            .unwrap_or(true);
+        if applies {
+            allowed = action == "allow";
+        }
+    }
+    allowed
+}
+
+fn maven_path(name: &str) -> Option<PathBuf> {
+    let mut parts = name.split(':');
+    let group = parts.next()?;
+    let artifact = parts.next()?;
+    let version = parts.next()?;
+    let ext = parts.next().unwrap_or("jar");
+    let mut path = PathBuf::new();
+    for piece in group.split('.') {
+        path.push(piece);
+    }
+    path.push(artifact);
+    path.push(version);
+    path.push(format!("{artifact}-{version}.{ext}"));
+    Some(path)
+}
+
+async fn download_to(url: &str, path: &Path) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("No se pudo crear carpeta para descarga: {error}"))?;
+    }
+    let bytes = reqwest::get(url)
+        .await
+        .map_err(|error| format!("No se pudo descargar {url}: {error}"))?
+        .bytes()
+        .await
+        .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
+    fs::write(path, bytes)
+        .map_err(|error| format!("No se pudo guardar archivo {}: {error}", path.display()))
+}
+
+fn extract_native_library(_jar_path: &Path, _natives_dir: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+fn resolve_memory_config(instance_root: &Path) -> InstanceMemoryConfig {
+    let path = instance_root.join("instance.json");
+    let Ok(content) = fs::read_to_string(path) else {
+        return InstanceMemoryConfig {
+            min: 2048,
+            max: 4096,
+        };
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&content) else {
+        return InstanceMemoryConfig {
+            min: 2048,
+            max: 4096,
+        };
+    };
+    let mem = value.get("memory").cloned().unwrap_or(Value::Null);
+    let min = mem.get("min").and_then(|v| v.as_u64()).unwrap_or(2048) as u32;
+    let max = mem.get("max").and_then(|v| v.as_u64()).unwrap_or(4096) as u32;
+    InstanceMemoryConfig {
+        min,
+        max: max.max(min),
+    }
+}
+
+async fn bootstrap_instance_runtime(
     app: &tauri::AppHandle,
     instance_root: &Path,
     instance: &InstanceRecord,
-) -> Result<String, String> {
+) -> Result<(), String> {
+    let minecraft_root = instance_root.join("minecraft");
+    let version = instance.version.trim();
     let loader = instance
         .loader_name
         .as_deref()
         .unwrap_or("vanilla")
         .trim()
         .to_lowercase();
-    let version = instance.version.trim();
 
-    if version.is_empty() {
-        return Err("La instancia no tiene versión de Minecraft definida.".to_string());
+    let manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
+    let manifest = reqwest::get(manifest_url)
+        .await
+        .map_err(|error| format!("No se pudo descargar el manifiesto de versiones: {error}"))?
+        .json::<MojangVersionManifest>()
+        .await
+        .map_err(|error| format!("No se pudo parsear el manifiesto de versiones: {error}"))?;
+
+    let Some(version_entry) = manifest
+        .versions
+        .into_iter()
+        .find(|entry| entry.id == version)
+    else {
+        return Err(format!(
+            "La versión {version} no existe en el manifiesto oficial."
+        ));
+    };
+
+    let base_version_json = reqwest::get(&version_entry.url)
+        .await
+        .map_err(|error| format!("No se pudo descargar metadata de la versión: {error}"))?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("No se pudo parsear metadata de la versión: {error}"))?;
+
+    let version_dir = minecraft_root.join("versions").join(version);
+    fs::create_dir_all(&version_dir)
+        .map_err(|error| format!("No se pudo crear carpeta versions: {error}"))?;
+    fs::write(
+        version_dir.join(format!("{version}.json")),
+        serde_json::to_string_pretty(&base_version_json)
+            .map_err(|error| format!("No se pudo serializar version.json: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo guardar version.json: {error}"))?;
+
+    let client_url = base_version_json
+        .get("downloads")
+        .and_then(|v| v.get("client"))
+        .and_then(|v| v.get("url"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "La metadata de Minecraft no trae URL de client.jar".to_string())?;
+    let client_jar = version_dir.join(format!("{version}.jar"));
+    download_to(client_url, &client_jar).await?;
+
+    let asset_index_url = base_version_json
+        .get("assetIndex")
+        .and_then(|v| v.get("url"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "La metadata de Minecraft no trae assetIndex.url".to_string())?;
+    let asset_index_id = base_version_json
+        .get("assetIndex")
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("legacy");
+    let asset_index_json = reqwest::get(asset_index_url)
+        .await
+        .map_err(|error| format!("No se pudo descargar asset index: {error}"))?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("No se pudo parsear asset index: {error}"))?;
+    let indexes_dir = minecraft_root.join("assets").join("indexes");
+    fs::create_dir_all(&indexes_dir)
+        .map_err(|error| format!("No se pudo crear indexes dir: {error}"))?;
+    fs::write(
+        indexes_dir.join(format!("{asset_index_id}.json")),
+        serde_json::to_string_pretty(&asset_index_json)
+            .map_err(|error| format!("No se pudo serializar asset index: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo guardar asset index: {error}"))?;
+
+    if let Some(objects) = asset_index_json.get("objects").and_then(|v| v.as_object()) {
+        for value in objects.values() {
+            let Some(hash) = value.get("hash").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if hash.len() < 2 {
+                continue;
+            }
+            let sub = &hash[0..2];
+            let target = minecraft_root
+                .join("assets")
+                .join("objects")
+                .join(sub)
+                .join(hash);
+            let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
+            download_to(&url, &target).await?;
+        }
     }
 
-    if loader == "vanilla" || loader.is_empty() {
-        let runtime_jar = instance_root
-            .join(".fruti-runtime")
-            .join(format!("minecraft-{version}.jar"));
+    let mut libraries: Vec<Value> = base_version_json
+        .get("libraries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut main_class = base_version_json
+        .get("mainClass")
+        .and_then(|v| v.as_str())
+        .unwrap_or("net.minecraft.client.main.Main")
+        .to_string();
+    let mut game_arguments = base_version_json
+        .get("arguments")
+        .and_then(|v| v.get("game"))
+        .cloned()
+        .unwrap_or(Value::Array(Vec::new()));
+    let mut jvm_arguments = base_version_json
+        .get("arguments")
+        .and_then(|v| v.get("jvm"))
+        .cloned()
+        .unwrap_or(Value::Array(Vec::new()));
 
-        if !runtime_jar.exists() {
-            return Err(
-                "No se encontró el client.jar local. Repara la instancia para volver a descargar runtime."
-                    .to_string(),
-            );
+    if loader == "fabric" {
+        let fabric_loader_version = instance
+            .loader_version
+            .as_deref()
+            .unwrap_or("latest")
+            .trim();
+        let profile_url = format!(
+            "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+            version,
+            if fabric_loader_version.is_empty() {
+                "latest"
+            } else {
+                fabric_loader_version
+            }
+        );
+        let profile = reqwest::get(&profile_url)
+            .await
+            .map_err(|error| format!("No se pudo descargar perfil Fabric: {error}"))?
+            .json::<Value>()
+            .await
+            .map_err(|error| format!("No se pudo parsear perfil Fabric: {error}"))?;
+        if let Some(extra) = profile.get("libraries").and_then(|v| v.as_array()) {
+            libraries.extend(extra.clone());
+        }
+        if let Some(class) = profile.get("mainClass").and_then(|v| v.as_str()) {
+            main_class = class.to_string();
+        }
+        if let Some(args) = profile.get("arguments").and_then(|v| v.get("game")) {
+            game_arguments = args.clone();
+        }
+        if let Some(args) = profile.get("arguments").and_then(|v| v.get("jvm")) {
+            jvm_arguments = args.clone();
+        }
+    }
+
+    let mut classpath_entries = Vec::new();
+    let natives_dir = minecraft_root.join("natives");
+    fs::create_dir_all(&natives_dir)
+        .map_err(|error| format!("No se pudo crear natives dir: {error}"))?;
+    let os_native_key = match current_minecraft_os() {
+        "windows" => "natives-windows",
+        "osx" => "natives-osx",
+        _ => "natives-linux",
+    };
+
+    for library in libraries {
+        if !library_allowed_for_current_os(&library) {
+            continue;
+        }
+        let Some(downloads) = library.get("downloads") else {
+            continue;
+        };
+
+        if let Some(artifact) = downloads.get("artifact") {
+            let url = artifact.get("url").and_then(|v| v.as_str());
+            let path = artifact
+                .get("path")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from)
+                .or_else(|| {
+                    library
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .and_then(maven_path)
+                });
+            if let (Some(url), Some(rel)) = (url, path) {
+                let target = minecraft_root.join("libraries").join(rel);
+                download_to(url, &target).await?;
+                classpath_entries.push(target);
+            }
         }
 
-        let manager = JavaManager::new(app)?;
-        let resolution = manager.resolve_for_minecraft(version);
-        let Some(runtime) = resolution.selected else {
-            return Err(format!(
-                "No se encontró Java compatible para Minecraft {version}. Requerido Java {}.",
-                resolution.required_major
-            ));
-        };
-        let java_path = PathBuf::from(runtime.path);
-
-        return Ok(format!(
-            "{} -jar {} --gameDir {}",
-            shell_escape(&java_path.to_string_lossy()),
-            shell_escape(&runtime_jar.to_string_lossy()),
-            shell_escape(&instance_root.to_string_lossy())
-        ));
+        if let Some(classifiers) = downloads.get("classifiers") {
+            if let Some(native) = classifiers
+                .get(os_native_key)
+                .or_else(|| classifiers.get("natives-windows-64"))
+            {
+                if let (Some(url), Some(path)) = (
+                    native.get("url").and_then(|v| v.as_str()),
+                    native.get("path").and_then(|v| v.as_str()),
+                ) {
+                    let native_jar = minecraft_root.join("libraries").join(path);
+                    download_to(url, &native_jar).await?;
+                    extract_native_library(&native_jar, &natives_dir)?;
+                }
+            }
+        }
     }
 
-    if !command_available("portablemc") {
-        return Err(
-            "Para instancias con modloader (Forge/Fabric/Quilt/NeoForge) instala portablemc o define start-instance.sh manual."
-                .to_string(),
-        );
+    classpath_entries.push(client_jar.clone());
+
+    let java_major = base_version_json
+        .get("javaVersion")
+        .and_then(|v| v.get("majorVersion"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(17) as u32;
+    let manager = JavaManager::new(app)?;
+    let mut resolution = manager.resolve_for_minecraft(version);
+    resolution.required_major = java_major;
+    let selected = resolution
+        .runtimes
+        .iter()
+        .find(|r| r.major == java_major)
+        .cloned()
+        .or_else(|| {
+            resolution
+                .runtimes
+                .iter()
+                .find(|r| r.major > java_major)
+                .cloned()
+        })
+        .ok_or_else(|| format!("No se encontró Java compatible. Requerido Java {java_major}."))?;
+
+    let memory = resolve_memory_config(instance_root);
+    let cp_separator = if cfg!(target_os = "windows") {
+        ';'
+    } else {
+        ':'
+    };
+    let cp = classpath_entries
+        .iter()
+        .map(|path| shell_escape(&path.to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join(&cp_separator.to_string());
+
+    let game_dir = shell_escape(&minecraft_root.to_string_lossy());
+    let assets_dir = shell_escape(&minecraft_root.join("assets").to_string_lossy());
+    let natives = shell_escape(&natives_dir.to_string_lossy());
+    let user = "Player";
+    let uuid = format!(
+        "offline-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default()
+    );
+
+    let game_args = vec![
+        format!("--username {}", shell_escape(user)),
+        format!("--version {}", shell_escape(version)),
+        format!("--gameDir {game_dir}"),
+        format!("--assetsDir {assets_dir}"),
+        format!("--assetIndex {}", shell_escape(asset_index_id)),
+        format!("--uuid {}", shell_escape(&uuid)),
+        "--accessToken offline".to_string(),
+        "--userType offline".to_string(),
+        "--versionType FrutiStudio".to_string(),
+    ];
+
+    let mut command = vec![
+        shell_escape(&selected.path),
+        format!("-Xms{}M", memory.min),
+        format!("-Xmx{}M", memory.max),
+        format!("-Djava.library.path={natives}"),
+        "-cp".to_string(),
+        cp,
+        main_class,
+    ];
+
+    if let Some(values) = jvm_arguments.as_array() {
+        for value in values {
+            if let Some(arg) = value.as_str() {
+                command.insert(
+                    1,
+                    arg.replace("${natives_directory}", &natives_dir.to_string_lossy()),
+                );
+            }
+        }
     }
 
-    let mut target = format!("{loader}:{version}");
-    let loader_version = instance
-        .loader_version
-        .as_deref()
-        .unwrap_or("latest")
-        .trim()
-        .to_string();
-
-    if !loader_version.is_empty() && loader_version != "latest" {
-        target = format!("{target}:{loader_version}");
+    command.extend(game_args);
+    if let Some(values) = game_arguments.as_array() {
+        for value in values {
+            if let Some(arg) = value.as_str() {
+                command.push(arg.to_string());
+            }
+        }
     }
 
-    Ok(format!(
-        "portablemc start {} --work-dir {}",
-        shell_escape(&target),
-        shell_escape(&instance_root.to_string_lossy())
-    ))
+    fs::write(
+        instance_root.join("launch-command.txt"),
+        format!(
+            "{}
+",
+            command.join(" ")
+        ),
+    )
+    .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
+
+    Ok(())
+}
+
+fn build_launch_command(
+    _app: &tauri::AppHandle,
+    instance_root: &Path,
+    _instance: &InstanceRecord,
+) -> Result<String, String> {
+    let launch_command = instance_root.join("launch-command.txt");
+    fs::read_to_string(launch_command)
+        .map(|cmd| cmd.trim().to_string())
+        .map_err(|error| format!("No se pudo leer launch-command.txt: {error}"))
 }
 
 #[command]
@@ -1037,81 +1394,24 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
     Ok(instances)
 }
 
-async fn bootstrap_instance_runtime(instance_root: &Path, version: &str) -> Result<(), String> {
-    let runtime_dir = instance_root.join(".fruti-runtime");
-    fs::create_dir_all(&runtime_dir)
-        .map_err(|error| format!("No se pudo crear runtime de instancia: {error}"))?;
-
-    let manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
-    let manifest = reqwest::get(manifest_url)
-        .await
-        .map_err(|error| format!("No se pudo descargar el manifiesto de versiones: {error}"))?
-        .json::<MojangVersionManifest>()
-        .await
-        .map_err(|error| format!("No se pudo parsear el manifiesto de versiones: {error}"))?;
-
-    let Some(version_entry) = manifest
-        .versions
-        .into_iter()
-        .find(|entry| entry.id == version)
-    else {
-        return Err(format!(
-            "La versión {version} no existe en el manifiesto oficial."
-        ));
-    };
-
-    let detail = reqwest::get(&version_entry.url)
-        .await
-        .map_err(|error| format!("No se pudo descargar metadata de la versión: {error}"))?
-        .json::<MojangVersionDetail>()
-        .await
-        .map_err(|error| format!("No se pudo parsear metadata de la versión: {error}"))?;
-
-    let version_json_path = runtime_dir.join(format!("{version}.json"));
-    let version_json = reqwest::get(&version_entry.url)
-        .await
-        .map_err(|error| format!("No se pudo volver a descargar metadata: {error}"))?
-        .text()
-        .await
-        .map_err(|error| format!("No se pudo leer metadata: {error}"))?;
-
-    fs::write(&version_json_path, version_json)
-        .map_err(|error| format!("No se pudo guardar metadata local de versión: {error}"))?;
-
-    let client_jar_path = runtime_dir.join(format!("minecraft-{version}.jar"));
-    let client_bytes = reqwest::get(&detail.downloads.client.url)
-        .await
-        .map_err(|error| format!("No se pudo descargar client.jar: {error}"))?
-        .bytes()
-        .await
-        .map_err(|error| format!("No se pudo leer client.jar: {error}"))?;
-
-    fs::write(&client_jar_path, client_bytes)
-        .map_err(|error| format!("No se pudo guardar client.jar: {error}"))?;
-
-    let launch_hint = format!(
-        "# FrutiStudio bootstrap
-# Esta instancia descargó runtime base.
-# Si usas PrismLauncher, crea/importa esta instancia o define launch-command.txt
-",
-    );
-    fs::write(instance_root.join("launch-readme.txt"), launch_hint)
-        .map_err(|error| format!("No se pudo escribir launch-readme.txt: {error}"))?;
-
-    Ok(())
-}
-
 fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
-    fs::create_dir_all(instance_root.join("mods"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta mods: {error}"))?;
-    fs::create_dir_all(instance_root.join("config"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta config: {error}"))?;
+    let minecraft_root = instance_root.join("minecraft");
+    fs::create_dir_all(minecraft_root.join("versions"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/versions: {error}"))?;
+    fs::create_dir_all(minecraft_root.join("libraries"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/libraries: {error}"))?;
+    fs::create_dir_all(minecraft_root.join("assets").join("objects"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/assets/objects: {error}"))?;
+    fs::create_dir_all(minecraft_root.join("assets").join("indexes"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/assets/indexes: {error}"))?;
+    fs::create_dir_all(minecraft_root.join("mods"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/mods: {error}"))?;
+    fs::create_dir_all(minecraft_root.join("config"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/config: {error}"))?;
+    fs::create_dir_all(minecraft_root.join("saves"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/saves: {error}"))?;
     fs::create_dir_all(instance_root.join("logs"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta logs: {error}"))?;
-    fs::create_dir_all(instance_root.join("resourcepacks"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta resourcepacks: {error}"))?;
-    fs::create_dir_all(instance_root.join("shaderpacks"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta shaderpacks: {error}"))?;
+        .map_err(|error| format!("No se pudo asegurar logs: {error}"))?;
     Ok(())
 }
 
@@ -1153,14 +1453,14 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
     ensure_instance_layout(&instance_root)?;
 
-    bootstrap_instance_runtime(&instance_root, &instance.version).await?;
-
     let meta = serde_json::json!({
         "id": instance.id,
         "name": instance.name,
-        "version": instance.version,
-        "loaderName": instance.loader_name.unwrap_or_else(|| "Vanilla".to_string()),
-        "loaderVersion": instance.loader_version.unwrap_or_else(|| "latest".to_string()),
+        "minecraft_version": instance.version,
+        "loader": instance.loader_name.unwrap_or_else(|| "vanilla".to_string()).to_lowercase(),
+        "loader_version": instance.loader_version.unwrap_or_else(|| "latest".to_string()),
+        "java": Value::Null,
+        "memory": {"min": 2048, "max": 4096},
         "createdAt": SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
     });
     fs::write(
@@ -1185,12 +1485,9 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
     ensure_instance_layout(&instance_root)?;
 
     let instance = read_instance_record(&app, &instance_id)?;
-    bootstrap_instance_runtime(&instance_root, &instance.version).await?;
+    bootstrap_instance_runtime(&app, &instance_root, &instance).await?;
 
-    let launch_command = instance_root.join("launch-command.txt");
-    let launch_line = build_launch_command(&app, &instance_root, &instance)?;
-    fs::write(&launch_command, format!("{launch_line}\n"))
-        .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
+    let _ = build_launch_command(&app, &instance_root, &instance)?;
 
     Ok(())
 }
