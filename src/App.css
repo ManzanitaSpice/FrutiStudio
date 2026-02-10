@@ -1731,6 +1731,54 @@ select:focus-visible {
   border-radius: 12px;
   padding: 16px;
   color: var(--color-muted);
+  display: grid;
+  gap: 16px;
+}
+
+.status-bar__news-section {
+  display: grid;
+  gap: 12px;
+}
+
+.status-bar__news-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  align-items: center;
+}
+
+.status-bar__news-row button {
+  justify-self: start;
+}
+
+.status-bar__news-error {
+  color: #f87171;
+  margin: 0;
+}
+
+.status-bar__news-hint {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.status-bar__news-history {
+  display: grid;
+  gap: 12px;
+}
+
+.status-bar__news-card {
+  background: var(--color-surface);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.status-bar__news-card > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text);
 }
 
 @keyframes statusPulse {
