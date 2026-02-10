@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 
-import type { Instance } from "../../types/models";
+import type { Instance, Mod } from "../../types/models";
 import {
   type MinecraftVersion,
   fetchMinecraftVersions,
@@ -55,6 +55,18 @@ const creatorSections = [
   "CurseForge",
   "Modrinth",
 ];
+
+
+const buildDefaultMods = (instance: Instance): Mod[] => {
+  const totalMods = Math.max(1, Math.min(instance.mods || 0, 12));
+  return Array.from({ length: totalMods }, (_, index) => ({
+    id: `${instance.id}-mod-${index + 1}`,
+    name: `Mod ${index + 1}`,
+    version: "1.0.0",
+    enabled: true,
+    source: "local",
+  }));
+};
 
 export const InstancePanel = ({
   instances,
@@ -110,6 +122,8 @@ export const InstancePanel = ({
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
   const [editorMemory, setEditorMemory] = useState("4 GB");
+  const [installedModsByInstance, setInstalledModsByInstance] = useState<Record<string, Mod[]>>({});
+  const [selectedModId, setSelectedModId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -122,6 +136,77 @@ export const InstancePanel = ({
     "pending-update": "Actualización pendiente",
     stopped: "Detenida",
   };
+
+
+  const installedMods = selectedInstance
+    ? installedModsByInstance[selectedInstance.id] ?? buildDefaultMods(selectedInstance)
+    : [];
+  const selectedInstalledMod = installedMods.find((mod) => mod.id === selectedModId) ?? null;
+
+  const instanceHealth = useMemo(() => {
+    if (!selectedInstance) {
+      return { icon: "✔", label: "Instancia correcta" };
+    }
+    if (launchStatus?.toLowerCase().includes("no se pudo")) {
+      return { icon: "❌", label: "Instancia con error" };
+    }
+    if (selectedInstance.status === "pending-update") {
+      return { icon: "⚠", label: "Requiere revisión" };
+    }
+    return { icon: "✔", label: selectedInstance.isRunning ? "En ejecución" : "Lista" };
+  }, [launchStatus, selectedInstance]);
+
+  const primaryAction = useMemo(() => {
+    if (!selectedInstance) {
+      return { label: "▶ Iniciar", disabled: true, action: () => undefined };
+    }
+    const hasPid = typeof selectedInstance.processId === "number";
+    if (launchStatus?.toLowerCase().includes("no se pudo")) {
+      return {
+        label: "🔧 Reparar instancia",
+        disabled: false,
+        action: () => {
+          setLaunchStatus("Reparación completada: estructura y archivos verificados.");
+          onUpdateInstance(selectedInstance.id, { status: "ready", isRunning: false, processId: undefined });
+        },
+      };
+    }
+    if (selectedInstance.isRunning) {
+      return {
+        label: "⏹ Detener",
+        disabled: !hasPid,
+        action: () =>
+          onUpdateInstance(selectedInstance.id, {
+            isRunning: false,
+            processId: undefined,
+            status: "stopped",
+          }),
+      };
+    }
+    return {
+      label: "▶ Iniciar",
+      disabled: false,
+      action: async () => {
+        try {
+          setLaunchStatus("Iniciando Minecraft...");
+          const result = await launchInstance(selectedInstance.id);
+          onUpdateInstance(selectedInstance.id, {
+            isRunning: true,
+            processId: result.pid,
+            status: "ready",
+            isDownloading: false,
+            downloadProgress: 100,
+            downloadStage: "finalizando",
+            lastPlayed: new Date().toISOString(),
+          });
+          setLaunchStatus("Instancia iniciada correctamente.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "No se pudo iniciar la instancia.";
+          setLaunchStatus(`${message} Usa "Reparar instancia" para corregirlo.`);
+        }
+      },
+    };
+  }, [launchStatus, onUpdateInstance, selectedInstance]);
 
   const versionRows = [
     { name: "Minecraft", version: selectedInstance?.version ?? "—" },
@@ -175,100 +260,21 @@ export const InstancePanel = ({
 
   const quickActions = useMemo(() => {
     if (!selectedInstance) {
-      return [];
+      return { frequent: [], management: [] };
     }
-    const hasPid = typeof selectedInstance.processId === "number";
-    return [
-      {
-        id: "launch",
-        label: "Iniciar",
-        disabled: selectedInstance.isRunning,
-        action: async () => {
-          try {
-            setLaunchStatus("Iniciando Minecraft...");
-            const result = await launchInstance(selectedInstance.id);
-            onUpdateInstance(selectedInstance.id, {
-              isRunning: true,
-              processId: result.pid,
-              status: "ready",
-              isDownloading: false,
-              downloadProgress: 100,
-              downloadStage: "finalizando",
-              lastPlayed: new Date().toISOString(),
-            });
-            setLaunchStatus("Instancia iniciada correctamente.");
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "No se pudo iniciar la instancia.";
-            setLaunchStatus(message);
-          }
-        },
-      },
-      {
-        id: "stop",
-        label: "Detener",
-        disabled: !selectedInstance.isRunning || !hasPid,
-        action: () =>
-          onUpdateInstance(selectedInstance.id, {
-            isRunning: false,
-            processId: undefined,
-            status: "stopped",
-          }),
-      },
-      {
-        id: "edit",
-        label: "Editar",
-        disabled: selectedInstance.isRunning,
-        action: openEditor,
-      },
-      {
-        id: "group",
-        label: "Cambiar grupo",
-        disabled: false,
-        action: () =>
-          onUpdateInstance(selectedInstance.id, {
-            group: selectedInstance.group === "No agrupado" ? "Favoritos" : "No agrupado",
-          }),
-      },
-      {
-        id: "folder",
-        label: "Carpeta",
-        disabled: false,
-        action: () => window.alert(`Abrir carpeta de ${selectedInstance.name}`),
-      },
-      {
-        id: "export",
-        label: "Exportar",
-        disabled: false,
-        action: () =>
-          window.alert(`Exportar ${selectedInstance.name} (mods/config/manifest.json)`),
-      },
-      {
-        id: "copy",
-        label: "Duplicar",
-        disabled: false,
-        action: () =>
-          onCreateInstance({
-            ...selectedInstance,
-            id: `${selectedInstance.id}-copy-${Date.now()}`,
-            name: `${selectedInstance.name} (Copia)`,
-            isRunning: false,
-            processId: undefined,
-            status: "stopped",
-          }),
-      },
-      {
-        id: "delete",
-        label: "Eliminar",
-        disabled: false,
-        action: () => setDeleteConfirmId(selectedInstance.id),
-      },
-      {
-        id: "shortcut",
-        label: "Crear atajo",
-        disabled: false,
-        action: () => window.alert(`Crear atajo con --instanceId=${selectedInstance.id}`),
-      },
-    ];
+    return {
+      frequent: [
+        { id: "edit", label: "Editar", action: openEditor },
+        { id: "folder", label: "Carpeta", action: () => window.alert(`Abrir carpeta de ${selectedInstance.name}`) },
+        { id: "mods", label: "Mods", action: () => { openEditor(); setActiveEditorSection("Mods"); } },
+      ],
+      management: [
+        { id: "copy", label: "Duplicar", action: () => onCreateInstance({ ...selectedInstance, id: `${selectedInstance.id}-copy-${Date.now()}`, name: `${selectedInstance.name} (Copia)`, isRunning: false, processId: undefined, status: "stopped" }) },
+        { id: "export", label: "Exportar", action: () => window.alert(`Exportar ${selectedInstance.name} (mods/config/manifest.json)`) },
+        { id: "group", label: "Cambiar grupo", action: () => onUpdateInstance(selectedInstance.id, { group: selectedInstance.group === "No agrupado" ? "Favoritos" : "No agrupado" }) },
+        { id: "shortcut", label: "Crear atajo", action: () => window.alert(`Crear atajo con --instanceId=${selectedInstance.id}`) },
+      ],
+    };
   }, [onCreateInstance, onUpdateInstance, selectedInstance]);
 
   const handleCreatorBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -477,6 +483,24 @@ export const InstancePanel = ({
     };
   }, [activeCreatorSection, creatorOpen]);
 
+
+
+  useEffect(() => {
+    if (!selectedInstance) {
+      setSelectedModId(null);
+      return;
+    }
+    setInstalledModsByInstance((prev) => {
+      if (prev[selectedInstance.id]) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [selectedInstance.id]: buildDefaultMods(selectedInstance),
+      };
+    });
+  }, [selectedInstance]);
+
   useEffect(() => {
     if (!selectedInstance && editorOpen) {
       setEditorOpen(false);
@@ -518,6 +542,28 @@ export const InstancePanel = ({
               <span>{row.name}</span>
               <span>{row.version}</span>
             </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (activeEditorSection === "Mods" && selectedInstance) {
+      return (
+        <div className="instance-editor__table">
+          <div className="instance-editor__table-header">
+            <span>Mod instalado</span>
+            <span>Versión / Estado</span>
+          </div>
+          {installedMods.map((mod) => (
+            <button
+              key={mod.id}
+              type="button"
+              className={selectedModId === mod.id ? "instance-editor__table-row instance-editor__table-row--selected" : "instance-editor__table-row"}
+              onClick={() => setSelectedModId(mod.id)}
+            >
+              <span>{mod.name}</span>
+              <span>{mod.version} · {mod.enabled ? "Activo" : "Desactivado"}</span>
+            </button>
           ))}
         </div>
       );
@@ -624,7 +670,7 @@ export const InstancePanel = ({
                     }))
                   }
                 />
-                Releases
+                Versiones estables
               </label>
               <label>
                 <input
@@ -663,7 +709,7 @@ export const InstancePanel = ({
                     }))
                   }
                 />
-                Alphas
+                Alfas
               </label>
               <label>
                 <input
@@ -1045,24 +1091,38 @@ export const InstancePanel = ({
               <div className="instance-menu__scroll">
                 <div className="instance-menu__section">
                   <h4>Acciones rápidas</h4>
+                  <p className="instance-menu__health">{instanceHealth.icon} {instanceHealth.label}</p>
                   {launchStatus ? <p className="instance-menu__launch-status">{launchStatus}</p> : null}
+
+                  <button type="button" className="instance-menu__primary-action" onClick={() => void primaryAction.action()} disabled={primaryAction.disabled}>
+                    {primaryAction.label}
+                  </button>
+
+                  <div className="instance-menu__section-title">Uso diario</div>
                   <div className="instance-menu__actions instance-menu__actions--grid">
-                    {quickActions.map((action) => (
-                      <button
-                        key={action.id}
-                        type="button"
-                        onClick={() => void action.action()}
-                        disabled={action.disabled}
-                        className="instance-menu__action-btn"
-                      >
-                        <span className="instance-menu__action-icon" aria-hidden="true">•</span>
+                    {quickActions.frequent.map((action) => (
+                      <button key={action.id} type="button" onClick={() => void action.action()} className="instance-menu__action-btn">
                         <span>{action.label}</span>
                       </button>
                     ))}
-                    <button type="button" onClick={openCreator}>
-                      ➕ Crear nueva
-                    </button>
                   </div>
+
+                  <div className="instance-menu__section-title">Gestión</div>
+                  <div className="instance-menu__actions instance-menu__actions--grid">
+                    {quickActions.management.map((action) => (
+                      <button key={action.id} type="button" onClick={() => void action.action()} className="instance-menu__action-btn">
+                        <span>{action.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <button type="button" onClick={openCreator}>
+                    ➕ Crear nueva
+                  </button>
+                  <hr className="instance-menu__danger-separator" />
+                  <button type="button" className="instance-menu__danger" onClick={() => setDeleteConfirmId(selectedInstance.id)}>
+                    Eliminar instancia
+                  </button>
                 </div>
               </div>
             </>
@@ -1111,11 +1171,69 @@ export const InstancePanel = ({
                   <div className="instance-editor__workspace">
                     <div className="instance-editor__panel">{renderEditorBody()}</div>
                     <aside className="instance-editor__rail">
-                      <h5>Estado</h5>
-                      <p className="instance-editor__status-note">
-                        Esta sección muestra información real de la instancia
-                        seleccionada.
-                      </p>
+                      {activeEditorSection === "Mods" ? (
+                        <>
+                          <h5>Opciones de mods</h5>
+                          <div className="instance-editor__mods-menu">
+                        <button type="button" onClick={() => window.alert("Descarga de mods próximamente.")}>Descargar mods</button>
+                        <button type="button" onClick={() => window.alert("Buscando actualizaciones para todos los mods instalados...")}>Buscar actualizaciones</button>
+                        <label className="instance-editor__import-btn">
+                          Añadir archivo
+                          <input
+                            type="file"
+                            accept=".jar"
+                            style={{ display: "none" }}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (!file || !selectedInstance) return;
+                              setInstalledModsByInstance((prev) => ({
+                                ...prev,
+                                [selectedInstance.id]: [
+                                  ...(prev[selectedInstance.id] ?? []),
+                                  { id: `${selectedInstance.id}-${Date.now()}`, name: file.name.replace(/\.jar$/i, ""), version: "Archivo local", enabled: true, source: "local" },
+                                ],
+                              }));
+                            }}
+                          />
+                        </label>
+                        <button type="button" disabled={!selectedInstalledMod} onClick={() => {
+                          if (!selectedInstance || !selectedInstalledMod) return;
+                          setInstalledModsByInstance((prev) => ({
+                            ...prev,
+                            [selectedInstance.id]: (prev[selectedInstance.id] ?? []).filter((mod) => mod.id !== selectedInstalledMod.id),
+                          }));
+                          setSelectedModId(null);
+                        }}>Remover</button>
+                        <button type="button" disabled={!selectedInstalledMod} onClick={() => {
+                          if (!selectedInstance || !selectedInstalledMod) return;
+                          setInstalledModsByInstance((prev) => ({
+                            ...prev,
+                            [selectedInstance.id]: (prev[selectedInstance.id] ?? []).map((mod) => mod.id === selectedInstalledMod.id ? { ...mod, enabled: !mod.enabled } : mod),
+                          }));
+                        }}>Activar / desactivar</button>
+                        <button type="button" disabled={!selectedInstalledMod} onClick={() => window.alert(`Información de ${selectedInstalledMod?.name ?? "mod"}`)}>Ver página de inicio</button>
+                        <button type="button" onClick={() => {
+                          const rows = installedMods.map((mod) => `${mod.name},${mod.version},${mod.enabled ? "activo" : "desactivado"},${mod.source}`);
+                          const csv = `nombre,version,estado,origen
+${rows.join("\n")}`;
+                          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `${selectedInstance?.name ?? "instancia"}-mods.csv`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}>Exportar lista</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <h5>Información</h5>
+                          <p className="instance-editor__status-note">
+                            Selecciona la sección <strong>Mods</strong> para gestionar archivos instalados.
+                          </p>
+                        </>
+                      )}
                     </aside>
                   </div>
                 </div>

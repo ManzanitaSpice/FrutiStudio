@@ -12,6 +12,7 @@ import {
   fetchUnifiedCatalog,
 } from "../../services/explorerService";
 import { loadConfig, saveConfig } from "../../services/configService";
+import { fetchMinecraftVersions } from "../../services/minecraftVersionService";
 
 const explorerCategories: ExplorerCategory[] = [
   "Modpacks",
@@ -23,7 +24,6 @@ const explorerCategories: ExplorerCategory[] = [
   "Addons",
 ];
 
-const minecraftVersions = ["", "1.21.1", "1.21", "1.20.1", "1.19.2"];
 const loaders = ["", "forge", "fabric", "quilt", "neoforge"];
 
 interface ExplorerPanelProps {
@@ -51,6 +51,31 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installState, setInstallState] = useState<{ item: ExplorerItem; version?: ExplorerItemFileVersion } | null>(null);
+  const [minecraftVersions, setMinecraftVersions] = useState<string[]>([""]);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadMinecraftVersions = async () => {
+      try {
+        const versions = await fetchMinecraftVersions();
+        if (!isActive) {
+          return;
+        }
+        const realReleaseVersions = versions
+          .filter((version) => version.type === "release")
+          .map((version) => version.id);
+        setMinecraftVersions(["", ...Array.from(new Set(realReleaseVersions))]);
+      } catch {
+        if (isActive) {
+          setMinecraftVersions(["", "1.21.4", "1.21.1", "1.20.6", "1.20.1", "1.19.4"]);
+        }
+      }
+    };
+    void loadMinecraftVersions();
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const hydrate = async () => {
@@ -188,7 +213,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
         <div>
           <h2>Explorador unificado</h2>
           <p>
-            Catálogo unificado con filtros avanzados y resultados listos para instalar.
+            Descubre contenido de Modrinth y CurseForge con filtros avanzados e instalación rápida.
           </p>
         </div>
       </div>
@@ -318,7 +343,6 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
                         )}
                         <div className="explorer-item__info">
                           <h4>{item.name}</h4>
-                          <p>{item.description}</p>
                           <div className="explorer-item__meta">
                             <span>{item.type}</span>
                             <span>{item.author}</span>
@@ -328,7 +352,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
                         </div>
                         <div className="explorer-item__actions">
                           <button type="button" onClick={() => setSelectedItem(item)}>
-                            Ver detalle
+                            Ver más
                           </button>
                           <button
                             type="button"

@@ -3250,3 +3250,86 @@ textarea {
 
 .news-carousel__nav--prev { left: 4px; }
 .news-carousel__nav--next { right: 4px; }
+
+/* Explorer and dialog improvements */
+.explorer-layout__categories {
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.product-dialog__tabs {
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+
+.product-dialog__tabs button {
+  flex: 0 0 auto;
+}
+
+/* Instance quick actions redesign */
+.instance-menu__primary-action {
+  width: 100%;
+  min-height: 44px;
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 8px 0 12px;
+}
+
+.instance-menu__section-title {
+  margin: 10px 0 8px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+}
+
+.instance-menu__health {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.instance-menu__danger-separator {
+  margin: 12px 0;
+  border-color: var(--color-border);
+}
+
+.instance-menu__danger {
+  width: 100%;
+  border-color: color-mix(in srgb, #ef4444 50%, var(--color-border));
+}
+
+.instance-editor__mods-menu {
+  display: grid;
+  gap: 8px;
+}
+
+.instance-editor__mods-menu button,
+.instance-editor__import-btn {
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface-strong) 70%, transparent);
+  padding: 8px 10px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.instance-editor__import-btn {
+  display: block;
+}
+
+.instance-editor__table-row {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.instance-editor__table-row--selected {
+  border-color: var(--color-accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
