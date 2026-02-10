@@ -1,5 +1,6 @@
 import { ContentProviderRegistry } from "../core/content/registry";
 import type { ModSource } from "../core/content/types";
+import { invokeWithHandling } from "./tauriClient";
 
 export interface ModSearchFilters {
   query: string;
@@ -38,4 +39,16 @@ export const resolveModDependencies = async (
 export const needsModUpdate = async (current: string, latest: string) => {
   const { shouldUpdate } = await import("../utils/semver");
   return shouldUpdate(current, latest);
+};
+
+export const installModFileToInstance = async (
+  instanceId: string,
+  downloadUrl: string,
+  fileName: string,
+) => {
+  return invokeWithHandling<string>("install_mod_file", {
+    instanceId,
+    url: downloadUrl,
+    fileName,
+  });
 };

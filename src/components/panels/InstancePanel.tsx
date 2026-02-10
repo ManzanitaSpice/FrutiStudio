@@ -11,14 +11,24 @@ import {
   type MinecraftVersion,
   fetchMinecraftVersions,
 } from "../../services/minecraftVersionService";
-import { createInstance, launchInstance, removeInstance, repairInstance } from "../../services/instanceService";
+import {
+  createInstance,
+  launchInstance,
+  removeInstance,
+  repairInstance,
+} from "../../services/instanceService";
 import {
   type ExternalInstance,
   fetchExternalInstances,
 } from "../../services/externalInstanceService";
 import { fetchATLauncherPacks } from "../../services/atmlService";
-import { type ExplorerItem, fetchUnifiedCatalog } from "../../services/explorerService";
+import {
+  type ExplorerItem,
+  fetchExplorerItemDetails,
+  fetchUnifiedCatalog,
+} from "../../services/explorerService";
 import { fetchLoaderVersions } from "../../services/loaderVersionService";
+import { installModFileToInstance } from "../../services/modService";
 import { buildJvmRecommendation } from "../../services/jvmTuningService";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
 import importGuide from "../../assets/import-guide.svg";
@@ -132,6 +142,9 @@ interface CatalogMod {
   provider: "modrinth" | "curseforge";
   type: "Mods" | "Shaders" | "Resource Packs";
   sourceLabel?: string;
+  thumbnail?: string;
+  gameVersions: string[];
+  loaders: string[];
 }
 
 export const InstancePanel = ({
@@ -194,14 +207,19 @@ export const InstancePanel = ({
   const [selectedModId, setSelectedModId] = useState<string | null>(null);
   const [modQuery, setModQuery] = useState("");
   const [modDownloadOpen, setModDownloadOpen] = useState(false);
-  const [modDownloadTarget, setModDownloadTarget] = useState<"Mods" | "Shaders" | "Resource Packs">("Mods");
+  const [modDownloadTarget, setModDownloadTarget] = useState<
+    "Mods" | "Shaders" | "Resource Packs"
+  >("Mods");
   const [modReviewOpen, setModReviewOpen] = useState(false);
   const [modProvider, setModProvider] = useState<"modrinth" | "curseforge">("modrinth");
-  const [catalogType, setCatalogType] = useState<"Mods" | "Shaders" | "Resource Packs">("Mods");
+  const [catalogType, setCatalogType] = useState<"Mods" | "Shaders" | "Resource Packs">(
+    "Mods",
+  );
   const [catalogMods, setCatalogMods] = useState<CatalogMod[]>([]);
   const [selectedCatalogMods, setSelectedCatalogMods] = useState<CatalogMod[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [installingMods, setInstallingMods] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -217,8 +235,11 @@ export const InstancePanel = ({
   const [javaAdvisorNotes, setJavaAdvisorNotes] = useState<string[]>([]);
   const selectedInstance =
     instances.find((instance) => instance.id === selectedInstanceId) ?? null;
-  const selectedInstanceHasValidId =
-    Boolean(selectedInstance && typeof selectedInstance.id === "string" && selectedInstance.id.trim().length > 0);
+  const selectedInstanceHasValidId = Boolean(
+    selectedInstance &&
+    typeof selectedInstance.id === "string" &&
+    selectedInstance.id.trim().length > 0,
+  );
   const statusLabels: Record<Instance["status"], string> = {
     ready: "Listo para jugar",
     "pending-update": "Actualización pendiente",
@@ -304,7 +325,9 @@ export const InstancePanel = ({
           void (async () => {
             try {
               await repairInstance(selectedInstance.id);
-              setLaunchStatus("Reparación completada: estructura de instancia validada sin reinstalar todo.");
+              setLaunchStatus(
+                "Reparación completada: estructura de instancia validada sin reinstalar todo.",
+              );
               onUpdateInstance(selectedInstance.id, {
                 status: "ready",
                 isRunning: false,
@@ -782,6 +805,9 @@ export const InstancePanel = ({
           provider: item.source === "CurseForge" ? "curseforge" : "modrinth",
           type: catalogType,
           sourceLabel: item.source,
+          thumbnail: item.thumbnail,
+          gameVersions: item.versions,
+          loaders: item.loaders,
         })),
       );
     } catch (error) {
@@ -794,7 +820,103 @@ export const InstancePanel = ({
     }
   };
 
+  const installSelectedCatalogMods = async () => {
+    if (!selectedInstance || selectedCatalogMods.length === 0) {
+      return;
+    }
 
+    setInstallingMods(true);
+    setCatalogError(null);
+    try {
+      const queue = [...selectedCatalogMods];
+      const seen = new Set(queue.map((mod) => `${mod.provider}:${mod.id}`));
+
+      for (let index = 0; index < queue.length; index += 1) {
+        const mod = queue[index];
+        const detailItem: ExplorerItem = {
+          id: `${mod.provider}-${mod.id}`,
+          projectId: mod.id,
+          name: mod.name,
+          author: mod.sourceLabel ?? mod.provider,
+          downloads: "0",
+          rawDownloads: 0,
+          description: mod.name,
+          type: mod.type,
+          source: mod.provider === "curseforge" ? "CurseForge" : "Modrinth",
+          versions: mod.gameVersions,
+          loaders: mod.loaders,
+          thumbnail: mod.thumbnail,
+        };
+        const details = await fetchExplorerItemDetails(detailItem);
+
+        const preferred =
+          details.versions.find((version) =>
+            version.gameVersions.includes(selectedInstance.version),
+          ) ?? details.versions[0];
+
+        if (!preferred?.downloadUrl) {
+          throw new Error(`No hay descarga disponible para ${mod.name}.`);
+        }
+
+        await installModFileToInstance(
+          selectedInstance.id,
+          preferred.downloadUrl,
+          `${mod.name}-${preferred.id}.jar`,
+        );
+
+        if (mod.provider === "modrinth") {
+          for (const dependency of details.dependencies) {
+            const key = `modrinth:${dependency}`;
+            if (seen.has(key)) {
+              continue;
+            }
+            seen.add(key);
+            queue.push({
+              id: dependency,
+              name: `Dependencia ${dependency}`,
+              version: selectedInstance.version,
+              provider: "modrinth",
+              type: "Mods",
+              sourceLabel: "Modrinth",
+              gameVersions: [selectedInstance.version],
+              loaders: [selectedInstance.loaderName.toLowerCase()],
+            });
+          }
+        }
+      }
+
+      const nextMods = [
+        ...(installedModsByInstance[selectedInstance.id] ?? []),
+        ...queue.map((mod) => ({
+          id: `${selectedInstance.id}-${mod.provider}-${mod.id}`,
+          name: mod.name,
+          version: selectedInstance.version,
+          enabled: true,
+          source: mod.provider,
+        })),
+      ];
+
+      setInstalledModsByInstance((prev) => ({
+        ...prev,
+        [selectedInstance.id]: nextMods,
+      }));
+      onUpdateInstance(selectedInstance.id, { mods: nextMods.length });
+      setSelectedCatalogMods([]);
+      setModReviewOpen(false);
+      setModDownloadOpen(false);
+      setLaunchStatus(
+        `${queue.length} ${modDownloadTarget.toLowerCase()} instalados correctamente.`,
+      );
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error
+          ? error.message
+          : "No se pudieron instalar los elementos seleccionados.",
+      );
+    } finally {
+      setInstallingMods(false);
+    }
+  };
   useEffect(() => {
     if (!modDownloadOpen) {
       return;
@@ -835,11 +957,21 @@ export const InstancePanel = ({
                 value={selectedInstance?.version ?? instanceVersion}
                 onChange={(event) =>
                   selectedInstance
-                    ? onUpdateInstance(selectedInstance.id, { version: event.target.value })
+                    ? onUpdateInstance(selectedInstance.id, {
+                        version: event.target.value,
+                      })
                     : setInstanceVersion(event.target.value)
                 }
               >
-                {(filteredVersions.length ? filteredVersions : [{ id: selectedInstance?.version ?? instanceVersion ?? "Sin datos", type: "release" as const }]).map((version) => (
+                {(filteredVersions.length
+                  ? filteredVersions
+                  : [
+                      {
+                        id: selectedInstance?.version ?? instanceVersion ?? "Sin datos",
+                        type: "release" as const,
+                      },
+                    ]
+                ).map((version) => (
                   <option key={version.id} value={version.id}>
                     {version.id}
                   </option>
@@ -852,7 +984,9 @@ export const InstancePanel = ({
                 value={selectedInstance?.loaderName ?? instanceLoader}
                 onChange={(event) =>
                   selectedInstance
-                    ? onUpdateInstance(selectedInstance.id, { loaderName: event.target.value })
+                    ? onUpdateInstance(selectedInstance.id, {
+                        loaderName: event.target.value,
+                      })
                     : setInstanceLoader(event.target.value)
                 }
               >
@@ -869,11 +1003,19 @@ export const InstancePanel = ({
                 value={selectedInstance?.loaderVersion ?? instanceLoaderVersion}
                 onChange={(event) =>
                   selectedInstance
-                    ? onUpdateInstance(selectedInstance.id, { loaderVersion: event.target.value })
+                    ? onUpdateInstance(selectedInstance.id, {
+                        loaderVersion: event.target.value,
+                      })
                     : setInstanceLoaderVersion(event.target.value)
                 }
               >
-                {(loaderVersions.length ? loaderVersions : [(selectedInstance?.loaderVersion ?? instanceLoaderVersion) || "latest"]).map((version) => (
+                {(loaderVersions.length
+                  ? loaderVersions
+                  : [
+                      (selectedInstance?.loaderVersion ?? instanceLoaderVersion) ||
+                        "latest",
+                    ]
+                ).map((version) => (
                   <option key={version} value={version}>
                     {version}
                   </option>
@@ -902,7 +1044,9 @@ export const InstancePanel = ({
             <span>Estado · Mod · Versión</span>
             <span>Proveedor</span>
           </div>
-          {installedMods.length === 0 ? <p>No hay mods instalados en esta instancia.</p> : null}
+          {installedMods.length === 0 ? (
+            <p>No hay mods instalados en esta instancia.</p>
+          ) : null}
           {installedMods.map((mod) => (
             <button
               key={mod.id}
@@ -914,9 +1058,15 @@ export const InstancePanel = ({
               }
               onClick={() => setSelectedModId(mod.id)}
             >
-              <span>{mod.enabled ? "✔️" : "⏸️"} {mod.name} · {mod.version}</span>
               <span>
-                {mod.source === "modrinth" ? "Modrinth" : mod.source === "curseforge" ? "CurseForge" : "Desconocido"}
+                {mod.enabled ? "✔️" : "⏸️"} {mod.name} · {mod.version}
+              </span>
+              <span>
+                {mod.source === "modrinth"
+                  ? "Modrinth"
+                  : mod.source === "curseforge"
+                    ? "CurseForge"
+                    : "Desconocido"}
               </span>
             </button>
           ))}
@@ -1633,7 +1783,22 @@ export const InstancePanel = ({
                       Ver
                     </a>
                   ) : null}
-                  <button type="button">Instalar</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInstanceName(item.name);
+                      setInstanceVersion(item.versions[0] ?? instanceVersion);
+                      const loader = item.loaders[0]?.toLowerCase();
+                      if (loader === "forge") setInstanceLoader("Forge");
+                      else if (loader === "fabric") setInstanceLoader("Fabric");
+                      else if (loader === "quilt") setInstanceLoader("Quilt");
+                      else if (loader === "neoforge") setInstanceLoader("NeoForge");
+                      else setInstanceLoader("Vanilla");
+                      setActiveCreatorSection("Personalizado");
+                    }}
+                  >
+                    Instalar
+                  </button>
                 </div>
               </div>
             ))}
@@ -1949,7 +2114,11 @@ export const InstancePanel = ({
                           <div className="instance-editor__mods-menu">
                             <button
                               type="button"
-                              onClick={() => { setModDownloadTarget("Mods"); setCatalogType("Mods"); setModDownloadOpen(true); }}
+                              onClick={() => {
+                                setModDownloadTarget("Mods");
+                                setCatalogType("Mods");
+                                setModDownloadOpen(true);
+                              }}
                             >
                               Descargar mods
                             </button>
@@ -1967,7 +2136,9 @@ export const InstancePanel = ({
                               type="button"
                               disabled={!selectedInstalledMod}
                               onClick={() =>
-                                window.alert("Selecciona versión del mod en su proveedor.")
+                                window.alert(
+                                  "Selecciona versión del mod en su proveedor.",
+                                )
                               }
                             >
                               Cambiar versión
@@ -2046,7 +2217,9 @@ export const InstancePanel = ({
                             <button
                               type="button"
                               onClick={() =>
-                                window.alert(`Abrir carpeta de mods de ${selectedInstance?.name ?? "instancia"}`)
+                                window.alert(
+                                  `Abrir carpeta de mods de ${selectedInstance?.name ?? "instancia"}`,
+                                )
                               }
                             >
                               Ver carpeta
@@ -2097,7 +2270,12 @@ ${rows.join("\n")}`;
                             >
                               Descargar shaders
                             </button>
-                            <button type="button" onClick={() => window.alert("Abrir carpeta shaderpacks")}>Ver carpeta</button>
+                            <button
+                              type="button"
+                              onClick={() => window.alert("Abrir carpeta shaderpacks")}
+                            >
+                              Ver carpeta
+                            </button>
                           </div>
                         </>
                       ) : activeEditorSection === "Resource Packs" ? (
@@ -2114,14 +2292,21 @@ ${rows.join("\n")}`;
                             >
                               Descargar resource packs
                             </button>
-                            <button type="button" onClick={() => window.alert("Abrir carpeta resourcepacks")}>Ver carpeta</button>
+                            <button
+                              type="button"
+                              onClick={() => window.alert("Abrir carpeta resourcepacks")}
+                            >
+                              Ver carpeta
+                            </button>
                           </div>
                         </>
                       ) : (
                         <>
                           <h5>Información</h5>
                           <p className="instance-editor__status-note">
-                            Selecciona la sección <strong>Mods</strong>, <strong>Shader Packs</strong> o <strong>Resource Packs</strong> para gestionar descargas.
+                            Selecciona la sección <strong>Mods</strong>,{" "}
+                            <strong>Shader Packs</strong> o{" "}
+                            <strong>Resource Packs</strong> para gestionar descargas.
                           </p>
                         </>
                       )}
@@ -2241,34 +2426,96 @@ ${rows.join("\n")}`;
       )}
 
       {modDownloadOpen && selectedInstance ? (
-        <div className="instance-editor__backdrop" onClick={() => setModDownloadOpen(false)}>
-          <article className="product-dialog product-dialog--install product-dialog--download" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="instance-editor__backdrop"
+          onClick={() => setModDownloadOpen(false)}
+        >
+          <article
+            className="product-dialog product-dialog--install product-dialog--download"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header>
               <h3>Descargar {modDownloadTarget}</h3>
-              <button type="button" onClick={() => setModDownloadOpen(false)}>Cancelar</button>
+              <button type="button" onClick={() => setModDownloadOpen(false)}>
+                Cancelar
+              </button>
             </header>
             <div className="product-dialog__install-body">
-              <p>Busca contenido compatible con {selectedInstance.loaderName} en Minecraft {selectedInstance.version}.</p>
+              <p>
+                Busca contenido compatible con {selectedInstance.loaderName} en Minecraft{" "}
+                {selectedInstance.version}.
+              </p>
               <div className="instance-catalog__filters">
-                <select value={catalogType} onChange={(event) => setCatalogType(event.target.value as "Mods" | "Shaders" | "Resource Packs")}>
+                <select
+                  value={catalogType}
+                  onChange={(event) =>
+                    setCatalogType(
+                      event.target.value as "Mods" | "Shaders" | "Resource Packs",
+                    )
+                  }
+                >
                   <option value="Mods">Mods</option>
                   <option value="Shaders">Shaders</option>
                   <option value="Resource Packs">Resource Packs</option>
                 </select>
-                <button type="button" onClick={() => setModProvider("curseforge")}>CurseForge</button>
-                <button type="button" onClick={() => setModProvider("modrinth")}>Modrinth</button>
-                <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder={`Buscar ${modDownloadTarget.toLowerCase()} por nombre...`} />
-                <button type="button" onClick={() => void loadCatalogMods()} disabled={catalogLoading}>Buscar</button>
+                <button type="button" onClick={() => setModProvider("curseforge")}>
+                  CurseForge
+                </button>
+                <button type="button" onClick={() => setModProvider("modrinth")}>
+                  Modrinth
+                </button>
+                <input
+                  value={modQuery}
+                  onChange={(event) => setModQuery(event.target.value)}
+                  placeholder={`Buscar ${modDownloadTarget.toLowerCase()} por nombre...`}
+                />
+                <button
+                  type="button"
+                  onClick={() => void loadCatalogMods()}
+                  disabled={catalogLoading}
+                >
+                  Buscar
+                </button>
               </div>
               {catalogError ? <p>{catalogError}</p> : null}
               {catalogLoading ? <p>Buscando contenido compatible...</p> : null}
               <div className="instance-catalog__results">
                 {catalogMods.map((mod) => {
-                  const alreadySelected = selectedCatalogMods.some((item) => item.id === mod.id && item.provider === mod.provider);
+                  const alreadySelected = selectedCatalogMods.some(
+                    (item) => item.id === mod.id && item.provider === mod.provider,
+                  );
                   return (
-                    <div key={`${mod.provider}-${mod.id}`} className="instance-editor__table-row">
-                      <span>{mod.name}<br /><small className="instance-catalog__meta">{mod.type} · {mod.sourceLabel ?? mod.provider}</small></span>
-                      <button type="button" disabled={alreadySelected} onClick={() => setSelectedCatalogMods((prev) => [...prev, mod])}>
+                    <div
+                      key={`${mod.provider}-${mod.id}`}
+                      className="instance-editor__table-row"
+                    >
+                      <span>
+                        {mod.thumbnail ? (
+                          <img
+                            src={mod.thumbnail}
+                            alt={mod.name}
+                            width={40}
+                            height={40}
+                            style={{
+                              borderRadius: 8,
+                              marginRight: 8,
+                              verticalAlign: "middle",
+                            }}
+                          />
+                        ) : null}
+                        {mod.name}
+                        <br />
+                        <small className="instance-catalog__meta">
+                          {mod.type} · {mod.sourceLabel ?? mod.provider} · MC{" "}
+                          {mod.gameVersions[0] ?? selectedInstance.version} ·{" "}
+                          {mod.loaders[0] ?? selectedInstance.loaderName}
+                        </small>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={alreadySelected}
+                        onClick={() => setSelectedCatalogMods((prev) => [...prev, mod])}
+                      >
                         {alreadySelected ? "Seleccionado" : "Agregar"}
                       </button>
                     </div>
@@ -2276,8 +2523,16 @@ ${rows.join("\n")}`;
                 })}
               </div>
               <div className="instance-import__actions">
-                <button type="button" disabled={!selectedCatalogMods.length} onClick={() => setModReviewOpen(true)}>Revisar y continuar</button>
-                <button type="button" onClick={() => setModDownloadOpen(false)}>Cancelar</button>
+                <button
+                  type="button"
+                  disabled={!selectedCatalogMods.length}
+                  onClick={() => setModReviewOpen(true)}
+                >
+                  Revisar y continuar
+                </button>
+                <button type="button" onClick={() => setModDownloadOpen(false)}>
+                  Cancelar
+                </button>
               </div>
             </div>
           </article>
@@ -2285,51 +2540,41 @@ ${rows.join("\n")}`;
       ) : null}
 
       {modReviewOpen && selectedInstance ? (
-        <div className="instance-editor__backdrop" onClick={() => setModReviewOpen(false)}>
-          <article className="product-dialog product-dialog--install" onClick={(event) => event.stopPropagation()}>
-            <header><h3>Revisar mods seleccionados</h3></header>
+        <div
+          className="instance-editor__backdrop"
+          onClick={() => setModReviewOpen(false)}
+        >
+          <article
+            className="product-dialog product-dialog--install"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h3>Revisar mods seleccionados</h3>
+            </header>
             <div className="product-dialog__install-body">
               <ul>
                 {selectedCatalogMods.map((mod) => (
-                  <li key={`${mod.provider}-${mod.id}`}>{mod.name} · {mod.type} · {mod.provider}</li>
+                  <li key={`${mod.provider}-${mod.id}`}>
+                    {mod.name} · {mod.type} · {mod.provider}
+                  </li>
                 ))}
               </ul>
               <div className="instance-import__actions">
                 <button
                   type="button"
-                  onClick={() => {
-                    const nextMods = [
-                      ...(installedModsByInstance[selectedInstance.id] ?? []),
-                      ...selectedCatalogMods.map((mod) => ({
-                        id: `${selectedInstance.id}-${mod.provider}-${mod.id}`,
-                        name: mod.name,
-                        version: mod.version,
-                        enabled: true,
-                        source: mod.provider,
-                      })),
-                    ];
-                    setInstalledModsByInstance((prev) => ({
-                      ...prev,
-                      [selectedInstance.id]: nextMods,
-                    }));
-                    onUpdateInstance(selectedInstance.id, {
-                      mods: nextMods.length,
-                    });
-                    setModReviewOpen(false);
-                    setModDownloadOpen(false);
-                    setSelectedCatalogMods([]);
-                    setLaunchStatus(`${modDownloadTarget} descargados e instalados en la instancia.`);
-                  }}
+                  onClick={() => void installSelectedCatalogMods()}
+                  disabled={installingMods}
                 >
-                  OK / Instalar
+                  {installingMods ? "Instalando..." : "OK / Instalar"}
                 </button>
-                <button type="button" onClick={() => setModReviewOpen(false)}>Cancelar</button>
+                <button type="button" onClick={() => setModReviewOpen(false)}>
+                  Cancelar
+                </button>
               </div>
             </div>
           </article>
         </div>
       ) : null}
-
 
       {creatorOpen && (
         <div className="instance-editor__backdrop" onClick={handleCreatorBackdropClick}>

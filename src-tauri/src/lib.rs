@@ -1126,6 +1126,34 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
         .map_err(|error| format!("No se pudo guardar archivo {}: {error}", path.display()))
 }
 
+async fn fetch_json_with_fallback(urls: &[String], context: &str) -> Result<Value, String> {
+    let mut last_error = None;
+    for url in urls {
+        match reqwest::get(url).await {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    last_error = Some(format!("{url} respondió {}", response.status()));
+                    continue;
+                }
+                match response.json::<Value>().await {
+                    Ok(json) => return Ok(json),
+                    Err(error) => {
+                        last_error = Some(format!("JSON inválido en {url}: {error}"));
+                    }
+                }
+            }
+            Err(error) => {
+                last_error = Some(format!("No se pudo descargar {url}: {error}"));
+            }
+        }
+    }
+
+    Err(format!(
+        "No se pudo descargar {context}. Último error: {}",
+        last_error.unwrap_or_else(|| "desconocido".to_string())
+    ))
+}
+
 fn extract_native_library(jar_path: &Path, natives_dir: &Path) -> Result<(), String> {
     let file = fs::File::open(jar_path)
         .map_err(|error| format!("No se pudo abrir nativo {}: {error}", jar_path.display()))?;
@@ -1250,12 +1278,12 @@ async fn bootstrap_instance_runtime(
         .trim()
         .to_lowercase();
 
-    let manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
-    let manifest = reqwest::get(manifest_url)
-        .await
-        .map_err(|error| format!("No se pudo descargar el manifiesto de versiones: {error}"))?
-        .json::<MojangVersionManifest>()
-        .await
+    let manifest_urls = vec![
+        "https://launchermeta.mojang.com/mc/game/version_manifest.json".to_string(),
+        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json".to_string(),
+    ];
+    let manifest_json = fetch_json_with_fallback(&manifest_urls, "manifiesto de versiones").await?;
+    let manifest = serde_json::from_value::<MojangVersionManifest>(manifest_json)
         .map_err(|error| format!("No se pudo parsear el manifiesto de versiones: {error}"))?;
 
     let Some(version_entry) = manifest
@@ -1268,12 +1296,14 @@ async fn bootstrap_instance_runtime(
         ));
     };
 
-    let base_version_json = reqwest::get(&version_entry.url)
-        .await
-        .map_err(|error| format!("No se pudo descargar metadata de la versión: {error}"))?
-        .json::<Value>()
-        .await
-        .map_err(|error| format!("No se pudo parsear metadata de la versión: {error}"))?;
+    let version_json_urls = vec![
+        version_entry.url.clone(),
+        version_entry
+            .url
+            .replace("piston-meta.mojang.com", "launchermeta.mojang.com"),
+    ];
+    let base_version_json =
+        fetch_json_with_fallback(&version_json_urls, "metadata de versión").await?;
 
     let version_dir = minecraft_root.join("versions").join(version);
     fs::create_dir_all(&version_dir)
@@ -1360,27 +1390,35 @@ async fn bootstrap_instance_runtime(
         .cloned()
         .unwrap_or(Value::Array(Vec::new()));
 
-    if loader == "fabric" {
+    if loader == "fabric" || loader == "quilt" {
         let fabric_loader_version = instance
             .loader_version
             .as_deref()
             .unwrap_or("latest")
             .trim();
-        let profile_url = format!(
-            "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
-            version,
-            if fabric_loader_version.is_empty() {
-                "latest"
-            } else {
-                fabric_loader_version
-            }
-        );
-        let profile = reqwest::get(&profile_url)
-            .await
-            .map_err(|error| format!("No se pudo descargar perfil Fabric: {error}"))?
-            .json::<Value>()
-            .await
-            .map_err(|error| format!("No se pudo parsear perfil Fabric: {error}"))?;
+        let loader_version = if fabric_loader_version.is_empty() {
+            "latest"
+        } else {
+            fabric_loader_version
+        };
+        let profile_urls = if loader == "quilt" {
+            vec![
+                format!(
+                    "https://meta.quiltmc.org/v3/versions/loader/{}/{}/profile/json",
+                    version, loader_version
+                ),
+                format!(
+                    "https://meta.quiltmc.org/v3/versions/loader/{}/latest/profile/json",
+                    version
+                ),
+            ]
+        } else {
+            vec![format!(
+                "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+                version, loader_version
+            )]
+        };
+        let profile = fetch_json_with_fallback(&profile_urls, "perfil del loader").await?;
         if let Some(extra) = profile.get("libraries").and_then(|v| v.as_array()) {
             libraries.extend(extra.clone());
         }
@@ -1493,6 +1531,22 @@ async fn bootstrap_instance_runtime(
                 .iter()
                 .find(|r| r.major > java_major)
                 .cloned()
+        })
+        .or_else(|| {
+            if command_available("java") {
+                Some(JavaRuntime {
+                    id: "path-java".to_string(),
+                    name: "Java del PATH".to_string(),
+                    path: "java".to_string(),
+                    version: "desconocida".to_string(),
+                    major: java_major,
+                    architecture: std::env::consts::ARCH.to_string(),
+                    source: "path".to_string(),
+                    recommended: true,
+                })
+            } else {
+                None
+            }
         })
         .ok_or_else(|| format!("No se encontró Java compatible. Requerido Java {java_major}."))?;
 
@@ -2354,6 +2408,38 @@ async fn curseforge_resolve_download(
 }
 
 #[command]
+async fn install_mod_file(
+    app: tauri::AppHandle,
+    instance_id: String,
+    url: String,
+    file_name: String,
+) -> Result<String, String> {
+    let id = instance_id.trim();
+    if id.is_empty() {
+        return Err("instance_id es requerido".to_string());
+    }
+
+    let safe_name = file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("mod.jar")
+        .trim();
+    if safe_name.is_empty() {
+        return Err("Nombre de archivo inválido".to_string());
+    }
+
+    let instance_root = launcher_root(&app)?.join("instances").join(id);
+    let mods_dir = instance_root.join("minecraft").join("mods");
+    fs::create_dir_all(&mods_dir)
+        .map_err(|error| format!("No se pudo crear carpeta mods: {error}"))?;
+
+    let target = mods_dir.join(safe_name);
+    download_to(url.trim(), &target).await?;
+
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[command]
 async fn curseforge_v1_get(
     path: String,
     query: Option<std::collections::HashMap<String, String>>,
@@ -2417,6 +2503,7 @@ pub fn run() {
             manage_modpack,
             curseforge_scan_fingerprints,
             curseforge_resolve_download,
+            install_mod_file,
             curseforge_v1_get
         ])
         .setup(|app| {
