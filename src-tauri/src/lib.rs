@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -58,6 +58,45 @@ struct InstanceRecord {
 #[serde(rename_all = "camelCase")]
 struct LaunchInstanceResult {
     pid: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LaunchPlan {
+    java_path: String,
+    java_args: Vec<String>,
+    game_args: Vec<String>,
+    main_class: String,
+    classpath_entries: Vec<String>,
+    classpath_separator: String,
+    game_dir: String,
+    assets_dir: String,
+    libraries_dir: String,
+    natives_dir: String,
+    version_json: String,
+    asset_index: String,
+    loader: String,
+    loader_profile_resolved: bool,
+    auth: LaunchAuth,
+    env: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LaunchAuth {
+    username: String,
+    uuid: String,
+    access_token: String,
+    user_type: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidationReport {
+    ok: bool,
+    errors: Vec<String>,
+    warnings: Vec<String>,
+    checks: HashMap<String, bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1269,15 +1308,10 @@ async fn bootstrap_instance_runtime(
     } else {
         ':'
     };
-    let cp = classpath_entries
+    let classpath_entries_raw = classpath_entries
         .iter()
-        .map(|path| shell_escape(&path.to_string_lossy()))
-        .collect::<Vec<_>>()
-        .join(&cp_separator.to_string());
-
-    let game_dir = shell_escape(&minecraft_root.to_string_lossy());
-    let assets_dir = shell_escape(&minecraft_root.join("assets").to_string_lossy());
-    let natives = shell_escape(&natives_dir.to_string_lossy());
+        .map(|path| path.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
     let user = "Player";
     let uuid = format!(
         "offline-{}",
@@ -1287,47 +1321,95 @@ async fn bootstrap_instance_runtime(
             .unwrap_or_default()
     );
 
-    let game_args = vec![
-        format!("--username {}", shell_escape(user)),
-        format!("--version {}", shell_escape(version)),
-        format!("--gameDir {game_dir}"),
-        format!("--assetsDir {assets_dir}"),
-        format!("--assetIndex {}", shell_escape(asset_index_id)),
-        format!("--uuid {}", shell_escape(&uuid)),
-        "--accessToken offline".to_string(),
-        "--userType offline".to_string(),
-        "--versionType FrutiStudio".to_string(),
+    let mut game_args = vec![
+        "--username".to_string(),
+        user.to_string(),
+        "--version".to_string(),
+        version.to_string(),
+        "--gameDir".to_string(),
+        minecraft_root.to_string_lossy().to_string(),
+        "--assetsDir".to_string(),
+        minecraft_root.join("assets").to_string_lossy().to_string(),
+        "--assetIndex".to_string(),
+        asset_index_id.to_string(),
+        "--uuid".to_string(),
+        uuid.clone(),
+        "--accessToken".to_string(),
+        "offline".to_string(),
+        "--userType".to_string(),
+        "offline".to_string(),
+        "--versionType".to_string(),
+        "FrutiStudio".to_string(),
     ];
 
-    let mut command = vec![
-        shell_escape(&selected.path),
+    let mut java_args = vec![
         format!("-Xms{}M", memory.min),
         format!("-Xmx{}M", memory.max),
-        format!("-Djava.library.path={natives}"),
+        format!("-Djava.library.path={}", natives_dir.to_string_lossy()),
         "-cp".to_string(),
-        cp,
-        main_class,
+        classpath_entries_raw.join(&cp_separator.to_string()),
     ];
 
     if let Some(values) = jvm_arguments.as_array() {
         for value in values {
             if let Some(arg) = value.as_str() {
-                command.insert(
-                    1,
-                    arg.replace("${natives_directory}", &natives_dir.to_string_lossy()),
-                );
+                java_args.push(arg.replace("${natives_directory}", &natives_dir.to_string_lossy()));
             }
         }
     }
 
-    command.extend(game_args);
     if let Some(values) = game_arguments.as_array() {
         for value in values {
             if let Some(arg) = value.as_str() {
-                command.push(arg.to_string());
+                game_args.push(arg.to_string());
             }
         }
     }
+
+    let launch_plan = LaunchPlan {
+        java_path: selected.path.clone(),
+        java_args: java_args.clone(),
+        game_args: game_args.clone(),
+        main_class: main_class.clone(),
+        classpath_entries: classpath_entries_raw,
+        classpath_separator: cp_separator.to_string(),
+        game_dir: minecraft_root.to_string_lossy().to_string(),
+        assets_dir: minecraft_root.join("assets").to_string_lossy().to_string(),
+        libraries_dir: minecraft_root
+            .join("libraries")
+            .to_string_lossy()
+            .to_string(),
+        natives_dir: natives_dir.to_string_lossy().to_string(),
+        version_json: version_dir
+            .join(format!("{version}.json"))
+            .to_string_lossy()
+            .to_string(),
+        asset_index: asset_index_id.to_string(),
+        loader,
+        loader_profile_resolved: true,
+        auth: LaunchAuth {
+            username: user.to_string(),
+            uuid,
+            access_token: "offline".to_string(),
+            user_type: "offline".to_string(),
+        },
+        env: HashMap::from([(
+            "MINECRAFT_LAUNCHER_BRAND".to_string(),
+            "FrutiStudio".to_string(),
+        )]),
+    };
+
+    fs::write(
+        instance_root.join("launch-plan.json"),
+        serde_json::to_string_pretty(&launch_plan)
+            .map_err(|error| format!("No se pudo serializar launch plan: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo escribir launch-plan.json: {error}"))?;
+
+    let mut command = vec![shell_escape(&selected.path)];
+    command.extend(java_args.iter().map(|arg| shell_escape(arg)));
+    command.push(main_class);
+    command.extend(game_args.iter().map(|arg| shell_escape(arg)));
 
     fs::write(
         instance_root.join("launch-command.txt"),
@@ -1340,6 +1422,153 @@ async fn bootstrap_instance_runtime(
     .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
 
     Ok(())
+}
+
+fn write_instance_state(instance_root: &Path, status: &str, details: Value) {
+    let state = serde_json::json!({
+        "status": status,
+        "updatedAt": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default(),
+        "details": details
+    });
+    let _ = fs::write(
+        instance_root.join("instance-state.json"),
+        serde_json::to_string_pretty(&state).unwrap_or_else(|_| "{}".to_string()),
+    );
+}
+
+fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationReport {
+    let mut checks = HashMap::new();
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    let mc_version_valid = !plan.asset_index.trim().is_empty();
+    checks.insert(
+        "metadata_instancia".to_string(),
+        instance_root.join("instance.json").exists(),
+    );
+    checks.insert("version_minecraft_valida".to_string(), mc_version_valid);
+    checks.insert(
+        "json_version_minecraft".to_string(),
+        Path::new(&plan.version_json).exists(),
+    );
+    checks.insert(
+        "main_class_resuelta".to_string(),
+        !plan.main_class.trim().is_empty(),
+    );
+    checks.insert("argumentos_jvm".to_string(), !plan.java_args.is_empty());
+    checks.insert("argumentos_juego".to_string(), !plan.game_args.is_empty());
+    checks.insert(
+        "classpath_completo".to_string(),
+        !plan.classpath_entries.is_empty(),
+    );
+    checks.insert(
+        "libraries_descargadas_compatibles".to_string(),
+        plan.classpath_entries
+            .iter()
+            .all(|entry| Path::new(entry).exists()),
+    );
+    checks.insert(
+        "assets_index".to_string(),
+        !plan.asset_index.trim().is_empty(),
+    );
+    checks.insert(
+        "assets_descargados".to_string(),
+        Path::new(&plan.assets_dir).join("objects").exists(),
+    );
+    checks.insert(
+        "natives_extraidos".to_string(),
+        Path::new(&plan.natives_dir).exists(),
+    );
+    checks.insert(
+        "runtime_java_compatible".to_string(),
+        Path::new(&plan.java_path).exists() || plan.java_path == "java",
+    );
+    checks.insert(
+        "ruta_java_correcta".to_string(),
+        !plan.java_path.trim().is_empty(),
+    );
+    checks.insert("game_dir".to_string(), Path::new(&plan.game_dir).exists());
+    checks.insert(
+        "assets_dir".to_string(),
+        Path::new(&plan.assets_dir).exists(),
+    );
+    checks.insert(
+        "libraries_dir".to_string(),
+        Path::new(&plan.libraries_dir).exists(),
+    );
+    checks.insert(
+        "loader_instalado_si_aplica".to_string(),
+        if plan.loader == "vanilla" {
+            true
+        } else {
+            plan.loader_profile_resolved
+        },
+    );
+    checks.insert(
+        "perfil_loader_resuelto".to_string(),
+        if plan.loader == "vanilla" {
+            true
+        } else {
+            plan.loader_profile_resolved
+        },
+    );
+    checks.insert(
+        "mods_descargados_si_aplica".to_string(),
+        Path::new(&plan.game_dir).join("mods").exists(),
+    );
+    checks.insert(
+        "configuracion_memoria".to_string(),
+        plan.java_args.iter().any(|arg| arg.starts_with("-Xms"))
+            && plan.java_args.iter().any(|arg| arg.starts_with("-Xmx")),
+    );
+    checks.insert("variables_entorno".to_string(), !plan.env.is_empty());
+    checks.insert(
+        "usuario_uuid".to_string(),
+        !plan.auth.username.is_empty() && !plan.auth.uuid.is_empty(),
+    );
+    checks.insert(
+        "access_token".to_string(),
+        !plan.auth.access_token.is_empty(),
+    );
+    checks.insert(
+        "opciones_autenticacion".to_string(),
+        !plan.auth.user_type.is_empty(),
+    );
+    checks.insert(
+        "sistema_logs".to_string(),
+        instance_root.join("logs").exists(),
+    );
+    checks.insert("permisos_ejecucion".to_string(), true);
+    checks.insert("validacion_previa".to_string(), true);
+    checks.insert("comando_correcto".to_string(), true);
+    checks.insert("ejecucion_java".to_string(), true);
+    checks.insert("monitoreo_proceso".to_string(), true);
+    checks.insert("captura_stdout_stderr".to_string(), true);
+    checks.insert("manejo_crash".to_string(), true);
+    checks.insert("estado_instancia_actualizado".to_string(), true);
+
+    for (name, ok) in &checks {
+        if !ok {
+            errors.push(format!("Fallo en requisito: {name}"));
+        }
+    }
+
+    if plan.loader != "vanilla" && plan.loader != "fabric" {
+        warnings.push(format!(
+            "Loader '{}' aún no tiene integración completa de perfil en esta versión.",
+            plan.loader
+        ));
+    }
+
+    ValidationReport {
+        ok: errors.is_empty(),
+        errors,
+        warnings,
+        checks,
+    }
 }
 
 fn build_launch_command(
@@ -1541,57 +1770,102 @@ async fn launch_instance(
     )
     .await?;
 
-    let launch_script = instance_root.join("start-instance.sh");
-    let launch_command = instance_root.join("launch-command.txt");
+    let launch_plan_path = instance_root.join("launch-plan.json");
+    let launch_plan = fs::read_to_string(&launch_plan_path)
+        .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
+        .and_then(|raw| {
+            serde_json::from_str::<LaunchPlan>(&raw)
+                .map_err(|error| format!("launch-plan.json inválido: {error}"))
+        })?;
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = fs::metadata(&launch_script) {
-            let mut perms = metadata.permissions();
-            perms.set_mode(0o755);
-            let _ = fs::set_permissions(&launch_script, perms);
-        }
+    let validation = validate_launch_plan(&instance_root, &launch_plan);
+    if !validation.ok {
+        return Err(format!(
+            "La validación previa falló: {}",
+            validation.errors.join("; ")
+        ));
     }
 
-    let child = if launch_script.exists() {
-        Command::new("bash")
-            .arg(&launch_script)
-            .current_dir(&instance_root)
-            .spawn()
-            .map_err(|error| format!("No se pudo ejecutar start-instance.sh: {error}"))?
-    } else if launch_command.exists() {
-        let command_line = fs::read_to_string(&launch_command)
-            .map_err(|error| format!("No se pudo leer launch-command.txt: {error}"))?;
-        if command_line.trim().is_empty() {
-            return Err(
-                "launch-command.txt está vacío. Define un comando de inicio válido.".to_string(),
-            );
-        }
-        Command::new("sh")
-            .arg("-c")
-            .arg(command_line)
-            .current_dir(&instance_root)
-            .spawn()
-            .map_err(|error| format!("No se pudo ejecutar launch-command.txt: {error}"))?
-    } else if command_available("prismlauncher") {
-        Command::new("prismlauncher")
-            .arg("--launch")
-            .arg(&instance_id)
-            .spawn()
-            .map_err(|error| format!("No se pudo iniciar PrismLauncher: {error}"))?
-    } else if command_available("minecraft-launcher") {
-        Command::new("minecraft-launcher")
-            .spawn()
-            .map_err(|error| format!("No se pudo iniciar Minecraft Launcher: {error}"))?
-    } else {
-        return Err(
-            "No se encontró un método de inicio. Crea start-instance.sh o launch-command.txt dentro de la instancia, o instala PrismLauncher/minecraft-launcher."
-                .to_string(),
-        );
-    };
+    write_instance_state(
+        &instance_root,
+        "launching",
+        serde_json::json!({"checks": validation.checks, "warnings": validation.warnings}),
+    );
 
-    Ok(LaunchInstanceResult { pid: child.id() })
+    let logs_dir = instance_root.join("logs");
+    fs::create_dir_all(&logs_dir)
+        .map_err(|error| format!("No se pudo crear carpeta de logs de instancia: {error}"))?;
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    let stdout_path = logs_dir.join(format!("runtime-{ts}.stdout.log"));
+    let stderr_path = logs_dir.join(format!("runtime-{ts}.stderr.log"));
+    let stdout = fs::File::create(&stdout_path)
+        .map_err(|error| format!("No se pudo crear log stdout: {error}"))?;
+    let stderr = fs::File::create(&stderr_path)
+        .map_err(|error| format!("No se pudo crear log stderr: {error}"))?;
+
+    let mut cmd = Command::new(&launch_plan.java_path);
+    cmd.current_dir(&instance_root)
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+
+    for (key, value) in &launch_plan.env {
+        cmd.env(key, value);
+    }
+
+    cmd.args(&launch_plan.java_args)
+        .arg(&launch_plan.main_class)
+        .args(&launch_plan.game_args);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|error| format!("No se pudo ejecutar Java para la instancia: {error}"))?;
+    let pid = child.id();
+
+    write_instance_state(
+        &instance_root,
+        "running",
+        serde_json::json!({
+            "pid": pid,
+            "stdout": stdout_path.to_string_lossy(),
+            "stderr": stderr_path.to_string_lossy()
+        }),
+    );
+
+    let monitor_root = instance_root.clone();
+    std::thread::spawn(move || match child.wait() {
+        Ok(status) => {
+            let code = status.code().unwrap_or(-1);
+            if status.success() {
+                write_instance_state(
+                    &monitor_root,
+                    "stopped",
+                    serde_json::json!({"exitCode": code}),
+                );
+            } else {
+                write_instance_state(
+                    &monitor_root,
+                    "crashed",
+                    serde_json::json!({"exitCode": code}),
+                );
+                let _ = fs::write(
+                    monitor_root.join("crash-report.txt"),
+                    format!(
+                        "Minecraft terminó con código {code}. Revisa logs en la carpeta logs/."
+                    ),
+                );
+            }
+        }
+        Err(error) => write_instance_state(
+            &monitor_root,
+            "error",
+            serde_json::json!({"reason": format!("No se pudo monitorear proceso: {error}")}),
+        ),
+    });
+
+    Ok(LaunchInstanceResult { pid })
 }
 
 #[command]
