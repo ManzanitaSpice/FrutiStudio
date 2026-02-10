@@ -361,7 +361,7 @@ export const InstancePanel = ({
         let page = 0;
         let keepLoading = true;
 
-        while (keepLoading && page < 8) {
+        while (keepLoading) {
           const pageResult = await fetchUnifiedCatalog({
             category: "Modpacks",
             platform: targetPlatform,
