@@ -85,6 +85,17 @@ struct LaunchInstanceResult {
     pid: u32,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeLogSnapshot {
+    status: Option<String>,
+    state_updated_at: Option<u64>,
+    stdout_path: Option<String>,
+    stderr_path: Option<String>,
+    command: Option<String>,
+    lines: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct LaunchPlan {
@@ -807,6 +818,47 @@ fn rotate_log_if_needed(path: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn read_last_lines(path: &Path, max_lines: usize) -> Vec<String> {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+
+    let mut lines: Vec<String> = raw.lines().map(|line| line.to_string()).collect();
+    if lines.len() > max_lines {
+        let start = lines.len().saturating_sub(max_lines);
+        lines = lines.split_off(start);
+    }
+    lines
+}
+
+fn latest_runtime_log(logs_dir: &Path, suffix: &str) -> Option<PathBuf> {
+    let Ok(entries) = fs::read_dir(logs_dir) else {
+        return None;
+    };
+
+    let mut candidates = Vec::<(u64, PathBuf)>::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("runtime-") || !name.ends_with(suffix) {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default();
+        candidates.push((modified, path));
+    }
+
+    candidates.sort_by_key(|(modified, _)| *modified);
+    candidates.pop().map(|(_, path)| path)
 }
 
 fn with_instance_lock<T>(id: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
@@ -2636,6 +2688,41 @@ async fn launch_instance(
         .map_err(|error| format!("No se pudo ejecutar Java para la instancia: {error}"))?;
     let pid = child.id();
 
+    for _ in 0..6 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("No se pudo comprobar el proceso de Minecraft: {error}"))?
+        {
+            let code = status.code().unwrap_or(-1);
+            let stderr_lines = read_last_lines(&stderr_path, 40);
+            let stderr_excerpt = stderr_lines
+                .iter()
+                .rev()
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n");
+            write_instance_state(
+                &instance_root,
+                "crashed",
+                serde_json::json!({"exitCode": code, "stderr": stderr_excerpt}),
+            );
+            return Err(if stderr_excerpt.is_empty() {
+                format!(
+                    "Minecraft cerró durante el arranque (código {code}). Revisa logs/runtime*.stderr.log"
+                )
+            } else {
+                format!(
+                    "Minecraft cerró durante el arranque (código {code}). Últimas líneas:\n{stderr_excerpt}"
+                )
+            });
+        }
+    }
+
     write_instance_state(
         &instance_root,
         "running",
@@ -2678,6 +2765,68 @@ async fn launch_instance(
     });
 
     Ok(LaunchInstanceResult { pid })
+}
+
+#[command]
+async fn read_instance_runtime_logs(
+    app: tauri::AppHandle,
+    args: InstanceCommandArgs,
+) -> Result<RuntimeLogSnapshot, String> {
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
+    if instance_id.is_empty() {
+        return Err("No hay una instancia válida seleccionada para leer logs.".to_string());
+    }
+
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+    if !instance_root.exists() {
+        return Err("La carpeta de la instancia no existe.".to_string());
+    }
+
+    let state_raw = fs::read_to_string(instance_root.join("instance-state.json")).ok();
+    let state_value = state_raw
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+    let status = state_value
+        .as_ref()
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let state_updated_at = state_value
+        .as_ref()
+        .and_then(|value| value.get("updatedAt"))
+        .and_then(Value::as_u64);
+
+    let logs_dir = instance_root.join("logs");
+    let stdout_path = latest_runtime_log(&logs_dir, ".stdout.log");
+    let stderr_path = latest_runtime_log(&logs_dir, ".stderr.log");
+    let launch_command = fs::read_to_string(instance_root.join("launch-command.txt"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let mut lines = vec![format!("[Launcher] Instancia: {instance_id}")];
+    if let Some(command) = &launch_command {
+        lines.push(format!("[Launcher] Comando de arranque: {command}"));
+    }
+    if let Some(path) = &stdout_path {
+        for line in read_last_lines(path, 180) {
+            lines.push(format!("[STDOUT] {line}"));
+        }
+    }
+    if let Some(path) = &stderr_path {
+        for line in read_last_lines(path, 180) {
+            lines.push(format!("[STDERR] {line}"));
+        }
+    }
+
+    Ok(RuntimeLogSnapshot {
+        status,
+        state_updated_at,
+        stdout_path: stdout_path.map(|p| p.to_string_lossy().to_string()),
+        stderr_path: stderr_path.map(|p| p.to_string_lossy().to_string()),
+        command: launch_command,
+        lines,
+    })
 }
 
 #[command]
@@ -3105,6 +3254,7 @@ pub fn run() {
             repair_instance,
             preflight_instance,
             launch_instance,
+            read_instance_runtime_logs,
             manage_modpack,
             curseforge_scan_fingerprints,
             curseforge_resolve_download,
