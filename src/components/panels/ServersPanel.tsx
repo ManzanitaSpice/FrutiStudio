@@ -1,12 +1,43 @@
-const serverList: Array<{
-  id: string;
-  name: string;
-  ip: string;
-  players: string;
-  tags: string[];
-}> = [];
+import { useEffect, useState } from "react";
+
+import { fetchServerListings, type ServerListing } from "../../services/serverService";
 
 export const ServersPanel = () => {
+  const [servers, setServers] = useState<ServerListing[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadServers = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchServerListings();
+        if (isActive) {
+          setServers(data);
+        }
+      } catch (loadError) {
+        if (isActive) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "No se pudo conectar con los servidores oficiales.",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadServers();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   return (
     <section className="panel-view panel-view--servers">
       <div className="panel-view__header">
@@ -38,8 +69,10 @@ export const ServersPanel = () => {
       </div>
 
       <div className="servers-list">
-        {serverList.length ? (
-          serverList.map((server) => (
+        {loading ? <div className="servers-list__empty">Conectando...</div> : null}
+        {error ? <div className="servers-list__empty">{error}</div> : null}
+        {servers.length ? (
+          servers.map((server) => (
             <article key={server.id} className="server-card">
               <div className="server-card__info">
                 <div className="server-card__logo" />
@@ -55,10 +88,13 @@ export const ServersPanel = () => {
               </div>
               <div className="server-card__meta">
                 <span className="server-card__players">
-                  {server.players} jugando
+                  {server.players} jugadores
                 </span>
+                <span className="server-card__status">{server.status}</span>
                 <div className="server-card__actions">
-                  <button type="button">Ver</button>
+                  <a href={server.website} target="_blank" rel="noreferrer">
+                    Sitio oficial
+                  </a>
                   <button type="button" className="server-card__copy">
                     Copiar IP
                   </button>
@@ -66,11 +102,11 @@ export const ServersPanel = () => {
               </div>
             </article>
           ))
-        ) : (
+        ) : !loading && !error ? (
           <div className="servers-list__empty">
             <p>No hay servidores reales cargados.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );

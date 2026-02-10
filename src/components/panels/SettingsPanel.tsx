@@ -4,6 +4,10 @@ import { useUI } from "../../hooks/useUI";
 import { useBaseDir } from "../../hooks/useBaseDir";
 import { useI18n } from "../../i18n/useI18n";
 import { loadConfig, saveConfig } from "../../services/configService";
+import {
+  getCurseforgeApiKey,
+  saveCurseforgeApiKey,
+} from "../../services/curseforgeKeyService";
 import { SelectFolderButton } from "../SelectFolderButton";
 
 export const SettingsPanel = () => {
@@ -13,11 +17,13 @@ export const SettingsPanel = () => {
   const [telemetryOptIn, setTelemetryOptIn] = useState(false);
   const [autoUpdates, setAutoUpdates] = useState(true);
   const [backgroundDownloads, setBackgroundDownloads] = useState(true);
+  const [curseforgeKey, setCurseforgeKey] = useState("");
 
   useEffect(() => {
     const load = async () => {
       const config = await loadConfig();
       setTelemetryOptIn(Boolean(config.telemetryOptIn));
+      setCurseforgeKey(getCurseforgeApiKey());
     };
     void load();
   }, []);
@@ -33,6 +39,11 @@ export const SettingsPanel = () => {
     setScale(nextScale);
     const config = await loadConfig();
     await saveConfig({ ...config, uiScale: nextScale });
+  };
+
+  const handleCurseforgeKeyChange = (value: string) => {
+    setCurseforgeKey(value);
+    saveCurseforgeApiKey(value);
   };
 
   return (
@@ -123,6 +134,15 @@ export const SettingsPanel = () => {
               <h3>Red y descargas</h3>
               <p>Controla mirrors, ancho de banda y modo offline.</p>
             </div>
+            <label className="settings-card__field">
+              <span>API key de CurseForge</span>
+              <input
+                type="password"
+                placeholder="Pega tu key para conectar CurseForge"
+                value={curseforgeKey}
+                onChange={(event) => handleCurseforgeKeyChange(event.target.value)}
+              />
+            </label>
             <label className="panel-view__toggle">
               <input
                 type="checkbox"

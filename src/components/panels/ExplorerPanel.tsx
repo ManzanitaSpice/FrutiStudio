@@ -128,9 +128,16 @@ export const ExplorerPanel = () => {
                       {item.type} · {item.author}
                     </p>
                     <span>{item.downloads}</span>
+                    <span className="explorer-item__source">{item.source}</span>
                   </div>
                   <div className="explorer-item__actions">
-                    <button type="button">Instalar</button>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        Ver
+                      </a>
+                    ) : (
+                      <button type="button">Instalar</button>
+                    )}
                     <button type="button" className="explorer-item__secondary">
                       Crear instancia
                     </button>
@@ -143,7 +150,7 @@ export const ExplorerPanel = () => {
               </div>
             ) : (
               <div className="explorer-layout__empty">
-                <p>No hay resultados reales para esta categoría.</p>
+                <p>No se encontraron resultados en las fuentes conectadas.</p>
               </div>
             )}
           </div>

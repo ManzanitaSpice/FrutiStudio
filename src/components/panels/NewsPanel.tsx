@@ -1,25 +1,53 @@
-const featuredItems: Array<{
-  id: string;
-  title: string;
-  subtitle: string;
-  description: string;
-  cta: string;
-}> = [];
+import { useEffect, useState } from "react";
 
-const categories: string[] = [];
-
-const latestItems: Array<{
-  id: string;
-  name: string;
-  author: string;
-  type: string;
-}> = [];
-
-const trendingItems: Array<{ id: string; title: string; type: string }> = [];
-
-const curatedLists: Array<{ id: string; title: string; items: string[] }> = [];
+import {
+  type NewsOverview,
+  fetchNewsOverview,
+} from "../../services/newsService";
 
 export const NewsPanel = () => {
+  const [news, setNews] = useState<NewsOverview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchNewsOverview();
+        if (isActive) {
+          setNews(data);
+        }
+      } catch (loadError) {
+        if (isActive) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "No se pudieron cargar las novedades.",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const featuredItems = news?.featuredItems ?? [];
+  const trendingItems = news?.trendingItems ?? [];
+  const latestItems = news?.latestItems ?? [];
+  const curatedLists = news?.curatedLists ?? [];
+  const categories = news?.categories ?? [];
+  const warnings = news?.warnings ?? [];
+
   return (
     <section className="panel-view panel-view--news">
       <div className="panel-view__header">
@@ -32,6 +60,18 @@ export const NewsPanel = () => {
         </div>
       </div>
 
+      {loading && !news ? (
+        <div className="panel-view__hint">Conectando a las fuentes...</div>
+      ) : null}
+      {error ? <div className="panel-view__error">{error}</div> : null}
+      {warnings.length ? (
+        <div className="panel-view__warning">
+          {warnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      ) : null}
+
       {featuredItems.length ? (
         <div className="news-hero news-hero--carousel">
           {featuredItems.map((item) => (
@@ -41,14 +81,23 @@ export const NewsPanel = () => {
                 <span className="news-hero__subtitle">{item.subtitle}</span>
                 <h3>{item.title}</h3>
                 <p>{item.description}</p>
-                <button type="button">{item.cta}</button>
+                <div className="news-hero__actions">
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      {item.cta}
+                    </a>
+                  ) : (
+                    <button type="button">{item.cta}</button>
+                  )}
+                  <span className="news-hero__source">{item.source}</span>
+                </div>
               </div>
             </article>
           ))}
         </div>
       ) : (
         <div className="panel-view__hint">
-          Sin novedades aún. Cuando se conecten fuentes reales se mostrarán aquí.
+          No hay destacados disponibles en este momento.
         </div>
       )}
 
@@ -68,7 +117,14 @@ export const NewsPanel = () => {
                   <div className="news-carousel__icon" />
                   <div>
                     <h4>{item.title}</h4>
-                    <p>{item.type}</p>
+                    <p>
+                      {item.type} · {item.source}
+                    </p>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        Abrir
+                      </a>
+                    ) : null}
                   </div>
                 </article>
               ))}
@@ -108,8 +164,15 @@ export const NewsPanel = () => {
                   <p>
                     {item.type} · {item.author}
                   </p>
+                  <span className="news-latest__source">{item.source}</span>
                 </div>
-                <button type="button">Instalar</button>
+                {item.url ? (
+                  <a href={item.url} target="_blank" rel="noreferrer">
+                    Abrir
+                  </a>
+                ) : (
+                  <button type="button">Instalar</button>
+                )}
               </article>
             ))}
           </div>
@@ -131,7 +194,10 @@ export const NewsPanel = () => {
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
-                <button type="button">Abrir lista</button>
+                <div className="news-list-card__footer">
+                  <span>{list.source}</span>
+                  <button type="button">Abrir lista</button>
+                </div>
               </article>
             ))}
           </div>
