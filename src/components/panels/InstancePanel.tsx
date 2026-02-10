@@ -893,7 +893,7 @@ export const InstancePanel = ({
                         </p>
                       </div>
                       <span className="instance-card__status">
-                        {statusLabels[instance.status]}
+                        {statusLabels[instance.status] ?? "Estado desconocido"}
                       </span>
                       <div className="instance-card__meta">
                         <span>{instance.mods} mods</span>

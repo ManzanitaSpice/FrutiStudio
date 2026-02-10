@@ -242,7 +242,7 @@ select:focus-visible {
   width: 18px;
   height: 18px;
   border-radius: 6px;
-  background: linear-gradient(135deg, #f97316, #facc15);
+  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, #ffffff));
   box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.4);
 }
 
@@ -474,7 +474,7 @@ select:focus-visible {
 .sidebar__action {
   width: 100%;
   text-align: left;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
 }
 
 .sidebar__section-header {
@@ -523,7 +523,7 @@ select:focus-visible {
   text-align: left;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border: 1px solid transparent;
   display: flex;
   flex-direction: column;
@@ -536,7 +536,7 @@ select:focus-visible {
 }
 
 .sidebar__instance--active {
-  border-color: #f97316;
+  border-color: var(--color-accent);
   background: #232a38;
 }
 
@@ -617,7 +617,7 @@ select:focus-visible {
   height: 34px;
   padding: 0;
   border-radius: 10px;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border: 1px solid var(--color-border);
   box-shadow: none;
 }
@@ -832,7 +832,7 @@ select:focus-visible {
 
 .instance-group__header h3 {
   margin: 0;
-  color: #f97316;
+  color: var(--color-accent);
   font-size: 0.75rem;
 }
 
@@ -844,7 +844,7 @@ select:focus-visible {
 
 .instance-card {
   border-radius: 14px;
-  background: rgba(26, 31, 42, 0.88);
+  background: color-mix(in srgb, var(--color-surface-strong) 85%, transparent);
   border: 1px solid transparent;
   overflow: hidden;
   cursor: pointer;
@@ -854,18 +854,18 @@ select:focus-visible {
 }
 
 .instance-card:hover {
-  border-color: #f97316;
+  border-color: var(--color-accent);
   transform: translateY(-2px);
 }
 
 .instance-card--active {
-  border-color: #f97316;
-  background: rgba(34, 40, 54, 0.95);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
 }
 
 .instance-card__cover {
   height: 88px;
-  background: linear-gradient(135deg, #f97316, #facc15);
+  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, #ffffff));
   display: flex;
   align-items: flex-end;
   padding: 8px 10px;
@@ -900,8 +900,8 @@ select:focus-visible {
   justify-self: flex-start;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(249, 115, 22, 0.15);
-  color: #f9a85f;
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text));
   font-size: 0.7rem;
   font-weight: 600;
 }
@@ -945,7 +945,7 @@ select:focus-visible {
   display: flex;
   gap: 12px;
   align-items: center;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   padding: 12px;
   border-radius: 14px;
 }
@@ -954,7 +954,7 @@ select:focus-visible {
   width: 52px;
   height: 52px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #f97316, #fb7185);
+  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 35%, #ec4899));
 }
 
 .instance-menu__header h3 {
@@ -970,14 +970,14 @@ select:focus-visible {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #facc15;
+  color: color-mix(in srgb, var(--color-accent) 70%, #fde68a);
 }
 
 .instance-menu__playtime {
   display: block;
   margin-top: 6px;
   font-size: 0.8rem;
-  color: #f9a85f;
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text));
 }
 
 .instance-menu__scroll {
@@ -989,7 +989,7 @@ select:focus-visible {
 }
 
 .instance-menu__section {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 12px;
   padding: 12px;
 }
@@ -1008,7 +1008,7 @@ select:focus-visible {
 
 .instance-menu__actions button {
   text-align: left;
-  background: #202634;
+  background: color-mix(in srgb, var(--color-surface) 80%, var(--color-surface-strong));
   padding: 0.45em 0.75em;
   font-size: 0.85rem;
 }
@@ -1028,7 +1028,7 @@ select:focus-visible {
   position: fixed;
   z-index: 12;
   min-width: 190px;
-  background: #11161f;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 10px;
@@ -1047,7 +1047,7 @@ select:focus-visible {
 
 .instance-context-menu button {
   text-align: left;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 8px;
   padding: 0.4em 0.6em;
 }
@@ -1183,7 +1183,7 @@ select:focus-visible {
 
 .instance-creator__tab--active {
   background: #1f2432;
-  border-color: #f97316;
+  border-color: var(--color-accent);
 }
 
 .instance-creator__content {
@@ -1220,7 +1220,7 @@ select:focus-visible {
 }
 
 .instance-creator__panel {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 14px;
   padding: 16px;
   display: grid;
@@ -1252,7 +1252,7 @@ select:focus-visible {
 }
 
 .instance-creator__placeholder {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 14px;
   padding: 16px;
   display: grid;
@@ -1339,7 +1339,7 @@ select:focus-visible {
 
 .instance-editor__tab--active {
   background: #1f2432;
-  border-color: #f97316;
+  border-color: var(--color-accent);
 }
 
 .instance-editor__content {
@@ -1376,7 +1376,7 @@ select:focus-visible {
 }
 
 .instance-editor__panel {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 14px;
   padding: 16px;
   min-height: 260px;
@@ -1488,7 +1488,7 @@ select:focus-visible {
 }
 
 .status-bar__total {
-  color: #f9a85f;
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text));
   font-weight: 600;
 }
 
@@ -1515,7 +1515,7 @@ select:focus-visible {
 }
 
 .status-bar__highlight {
-  color: #f9a85f;
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text));
   font-weight: 600;
   animation: statusPulse 2.4s ease-in-out infinite;
 }
@@ -1557,7 +1557,7 @@ select:focus-visible {
 }
 
 .status-bar__news-body {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 12px;
   padding: 16px;
   color: var(--color-muted);
@@ -1592,7 +1592,7 @@ select:focus-visible {
 }
 
 .news-hero__card {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 16px;
   overflow: hidden;
   display: grid;
@@ -1604,7 +1604,7 @@ select:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: linear-gradient(135deg, #f97316, #facc15);
+  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, #ffffff));
 }
 
 .news-hero__content {
@@ -1615,7 +1615,7 @@ select:focus-visible {
 
 .news-hero__subtitle {
   font-size: 0.8rem;
-  color: #f9a85f;
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text));
 }
 
 .news-section {
@@ -1642,7 +1642,7 @@ select:focus-visible {
 }
 
 .news-category {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border: 1px solid var(--color-border);
 }
 
@@ -1658,7 +1658,7 @@ select:focus-visible {
   gap: 16px;
   padding: 12px;
   border-radius: 14px;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
 }
 
 .news-latest__icon {
@@ -1689,7 +1689,7 @@ select:focus-visible {
   gap: 12px;
   padding: 10px 14px;
   border-radius: 12px;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   min-width: 200px;
   border: 1px solid #222939;
 }
@@ -1719,7 +1719,7 @@ select:focus-visible {
 }
 
 .news-list-card {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 14px;
   padding: 14px;
   border: 1px solid #222939;
@@ -1752,7 +1752,7 @@ select:focus-visible {
 }
 
 .explorer-layout__sidebar {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 14px;
   padding: 12px;
   display: flex;
@@ -1776,8 +1776,8 @@ select:focus-visible {
 }
 
 .explorer-layout__category--active {
-  background: rgba(249, 115, 22, 0.15);
-  border-color: #f97316;
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  border-color: var(--color-accent);
   color: var(--color-text);
 }
 
@@ -1847,7 +1847,7 @@ select:focus-visible {
   align-items: center;
   padding: 12px;
   border-radius: 14px;
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
 }
 
 .explorer-item__icon {
@@ -1914,7 +1914,7 @@ select:focus-visible {
 }
 
 .server-card {
-  background: #1a1f2a;
+  background: var(--color-surface-strong);
   border-radius: 16px;
   padding: 16px;
   display: grid;
@@ -2984,4 +2984,61 @@ textarea {
 .panel-view--news .explorer-item--card:hover {
   transform: translateY(-2px);
   transition: transform 0.2s ease;
+}
+
+.news-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.news-kpis__card {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-surface-strong) 75%, transparent);
+  display: grid;
+  gap: 6px;
+}
+
+.news-kpis__card small {
+  color: var(--color-muted);
+}
+
+.news-kpis__card strong {
+  font-size: 1.15rem;
+}
+
+.news-marquee {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-surface-strong) 70%, transparent);
+}
+
+.news-marquee__track {
+  display: flex;
+  gap: 24px;
+  width: max-content;
+  padding: 10px 14px;
+  animation: carouselScroll 20s linear infinite;
+}
+
+.news-marquee__track span {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.product-dialog__secondary {
+  background: transparent;
+  border: 1px solid var(--color-border);
+}
+
+.product-dialog__text-block a {
+  color: var(--color-accent);
+}
+
+.product-dialog__text-block img {
+  max-width: 100%;
+  border-radius: 8px;
 }

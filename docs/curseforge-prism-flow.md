@@ -84,3 +84,14 @@ El fragmento es útil **como guía de producto/arquitectura**, no para copiar c�
 3. Hacer configurables timeout/retries/concurrency para requests de CurseForge.
 4. Añadir “health check” de API key (ping simple) y feedback claro en Settings.
 5. Mantener fallback manual como flujo de primera clase.
+
+## 9) Estado aplicado en esta rama
+
+Se aplicó el flujo para que CurseForge quede visible y descargable desde el mismo diálogo de producto:
+
+- El catálogo de CurseForge ya no se bloquea por categorías no mapeadas (usa búsqueda global cuando no hay `classId`).
+- El detalle de versiones conserva `modId` + `fileId` para resolver descarga legal con `curseforge_resolve_download`.
+- El botón **Descargar** usa resolución automática/manual (igual que Modrinth, donde abre URL directa de versión).
+- Si falta API key de CurseForge, se abre fallback a `websiteUrl` sin romper el flujo.
+
+Con esto el flujo queda consistente: **catálogo visible + descarga directa cuando está permitida + fallback manual cuando no**.
