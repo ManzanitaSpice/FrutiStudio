@@ -58,7 +58,15 @@ export const createInstance = async (config: Instance) => {
 
 export const updateInstance = async (_config: Instance) => Promise.resolve();
 
-export const removeInstance = async (_instanceId: string) => Promise.resolve();
+export const removeInstance = async (instanceId: string) => {
+  const validInstanceId = assertValidInstanceId(instanceId);
+  await invokeWithHandling<void>("delete_instance", {
+    instanceId: validInstanceId,
+  });
+  if (cachedInstances) {
+    cachedInstances = cachedInstances.filter((instance) => instance.id !== validInstanceId);
+  }
+};
 
 const assertValidInstanceId = (instanceId: string) => {
   if (typeof instanceId !== "string" || instanceId.trim().length === 0) {
