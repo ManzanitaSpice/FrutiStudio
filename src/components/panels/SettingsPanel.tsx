@@ -32,7 +32,7 @@ export const SettingsPanel = () => {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; card: string } | null>(null);
 
   useEffect(() => {
-    const load = async () => {
+    const run = async () => {
       const config = await loadConfig();
       setTelemetryOptIn(Boolean(config.telemetryOptIn));
       setAutoUpdates(config.autoUpdates ?? true);
@@ -42,7 +42,7 @@ export const SettingsPanel = () => {
         setCustomTheme(config.customTheme);
       }
     };
-    void load();
+    void run();
   }, []);
 
   useEffect(() => {
@@ -50,6 +50,17 @@ export const SettingsPanel = () => {
       document.documentElement.style.setProperty(`--custom-${key}`, value);
     });
   }, [customTheme]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
 
   const toggleTelemetry = async () => {
     const config = await loadConfig();
@@ -95,27 +106,9 @@ export const SettingsPanel = () => {
     setTheme("custom");
   };
 
-  useEffect(() => {
-    if (!contextMenu) {
-      return;
-    }
-    const close = () => setContextMenu(null);
-    window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
-    };
-  }, [contextMenu]);
-
   const handleCardContextMenu = (event: ReactMouseEvent<HTMLElement>, card: string) => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, card });
-  };
-
-  const handleCurseforgeKeyChange = (value: string) => {
-    setCurseforgeKey(value);
-    saveCurseforgeApiKey(value);
   };
 
   return (
@@ -123,234 +116,129 @@ export const SettingsPanel = () => {
       <div className="panel-view__header">
         <div>
           <h2>Configuración</h2>
-          <p>Preferencias generales de la aplicación.</p>
+          <p>Ajustes globales del launcher organizados por categorías.</p>
         </div>
       </div>
-      <div className="panel-view__body">
-        <div className="settings-grid">
-          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "base")}>
-            <div className="settings-card__header">
-              <h3>{t("baseDir").title}</h3>
-              <p>{t("baseDir").placeholder}</p>
-            </div>
-            <SelectFolderButton />
-            <p className="panel-view__status">
-              {status === "valid" && baseDir ? t("baseDir").statusValid : null}
-              {status === "validating" ? t("baseDir").statusLoading : null}
-              {status === "invalid" ? t("baseDir").statusInvalid : null}
-              {status === "idle" ? t("baseDir").statusIdle : null}
-            </p>
-          </article>
-          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "apariencia")}>
-            <div className="settings-card__header">
-              <h3>Apariencia y accesibilidad</h3>
-              <p>Define tema, zoom y contraste del launcher.</p>
-            </div>
-            <label className="settings-card__field">
-              <span>Preferencia de tema</span>
-              <select
-                aria-label="Tema del launcher"
-                value={theme}
-                onChange={(event) =>
-                  void handleThemeChange(event.target.value as typeof theme)
-                }
-              >
-                <option value="default">Default</option>
-                <option value="light">Claro</option>
-                <option value="dark">Oscuro</option>
-                <option value="chrome">Chrome</option>
-                <option value="sunset">ManzanitaJ</option>
-                <option value="mint">Mint</option>
-                <option value="lavender">Lavender</option>
-                <option value="peach">Peach</option>
-                <option value="custom">Personalizado</option>
-              </select>
-            </label>
-            <label className="settings-card__field">
-              <span>Zoom de interfaz</span>
-              <div className="settings-card__range">
-                <input
-                  type="range"
-                  min={0.8}
-                  max={1.5}
-                  step={0.05}
-                  value={uiScale}
-                  onChange={(event) =>
-                    void handleScaleChange(Number(event.target.value))
-                  }
-                />
+
+      <div className="panel-view__body settings-layout">
+        <section className="settings-section">
+          <header className="settings-section__header">
+            <h3>General</h3>
+            <p>Ruta base, cuentas y privacidad.</p>
+          </header>
+          <div className="settings-grid settings-grid--organized">
+            <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "base")}>
+              <div className="settings-card__header">
+                <h3>{t("baseDir").title}</h3>
+                <p>{t("baseDir").placeholder}</p>
+              </div>
+              <SelectFolderButton />
+              <p className="panel-view__status">
+                {status === "valid" && baseDir ? t("baseDir").statusValid : null}
+                {status === "validating" ? t("baseDir").statusLoading : null}
+                {status === "invalid" ? t("baseDir").statusInvalid : null}
+                {status === "idle" ? t("baseDir").statusIdle : null}
+              </p>
+            </article>
+            <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "privacy")}>
+              <div className="settings-card__header">
+                <h3>Privacidad</h3>
+                <p>Controla telemetría y permisos de datos.</p>
+              </div>
+              <label className="panel-view__toggle">
+                <input type="checkbox" checked={telemetryOptIn} onChange={toggleTelemetry} />
+                Activar telemetría opcional
+              </label>
+            </article>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <header className="settings-section__header">
+            <h3>Apariencia y rendimiento</h3>
+            <p>Temas, zoom y opciones globales.</p>
+          </header>
+          <div className="settings-grid settings-grid--organized">
+            <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "apariencia")}>
+              <div className="settings-card__header">
+                <h3>Apariencia</h3>
+                <p>Define tema y escala visual.</p>
+              </div>
+              <label className="settings-card__field">
+                <span>Preferencia de tema</span>
+                <select value={theme} onChange={(event) => void handleThemeChange(event.target.value as typeof theme)}>
+                  <option value="default">Default</option>
+                  <option value="light">Claro</option>
+                  <option value="dark">Oscuro</option>
+                  <option value="chrome">Chrome</option>
+                  <option value="sunset">Sunset</option>
+                  <option value="mint">Mint</option>
+                  <option value="lavender">Lavender</option>
+                  <option value="peach">Peach</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </label>
+              <label className="settings-card__range">
+                <span>Escala UI</span>
+                <input type="range" min={0.8} max={1.35} step={0.05} value={uiScale} onChange={(event) => void handleScaleChange(Number(event.target.value))} />
                 <strong>{Math.round(uiScale * 100)}%</strong>
+              </label>
+              {theme === "custom" ? (
+                <div className="settings-card__colors">
+                  {Object.entries({ Fondo: "bg", Superficie: "surface", Borde: "border", Texto: "text", Acento: "accent" }).map(([label, key]) => (
+                    <label key={key}>
+                      {label}
+                      <input type="color" value={customTheme[key as keyof typeof customDefaults]} onChange={(event) => void handleCustomColorChange(key as keyof typeof customDefaults, event.target.value)} />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+            <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "java")}>
+              <div className="settings-card__header">
+                <h3>Java y memoria</h3>
+                <p>Configura rendimiento global.</p>
               </div>
-            </label>
-            {(theme === "custom" || theme === "default") && (
-              <div className="settings-card__colors">
-                <p>Paleta pastel personalizada</p>
-                <label>
-                  Fondo
-                  <input
-                    type="color"
-                    value={customTheme.bg}
-                    onChange={(event) =>
-                      void handleCustomColorChange("bg", event.target.value)
-                    }
-                  />
-                </label>
-                <label>
-                  Tarjetas
-                  <input
-                    type="color"
-                    value={customTheme.surface}
-                    onChange={(event) =>
-                      void handleCustomColorChange("surface", event.target.value)
-                    }
-                  />
-                </label>
-                <label>
-                  Superficie fuerte
-                  <input
-                    type="color"
-                    value={customTheme.surfaceStrong}
-                    onChange={(event) =>
-                      void handleCustomColorChange(
-                        "surfaceStrong",
-                        event.target.value,
-                      )
-                    }
-                  />
-                </label>
-                <label>
-                  Bordes
-                  <input
-                    type="color"
-                    value={customTheme.border}
-                    onChange={(event) =>
-                      void handleCustomColorChange("border", event.target.value)
-                    }
-                  />
-                </label>
-                <label>
-                  Texto
-                  <input
-                    type="color"
-                    value={customTheme.text}
-                    onChange={(event) =>
-                      void handleCustomColorChange("text", event.target.value)
-                    }
-                  />
-                </label>
-                <label>
-                  Texto secundario
-                  <input
-                    type="color"
-                    value={customTheme.muted}
-                    onChange={(event) =>
-                      void handleCustomColorChange("muted", event.target.value)
-                    }
-                  />
-                </label>
-                <label>
-                  Color de acento
-                  <input
-                    type="color"
-                    value={customTheme.accent}
-                    onChange={(event) =>
-                      void handleCustomColorChange("accent", event.target.value)
-                    }
-                  />
-                </label>
+              <div className="settings-card__actions">
+                <button type="button">Detectar versiones de Java</button>
+                <button type="button">Asignar memoria</button>
+                <button type="button">Parámetros de JVM</button>
               </div>
-            )}
-          </article>
-          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "cuentas")}>
-            <div className="settings-card__header">
-              <h3>Cuentas y perfiles</h3>
-              <p>Administra sesiones, perfiles y atajos rápidos.</p>
-            </div>
-            <div className="settings-card__actions">
-              <button type="button">Administrar cuentas</button>
-              <button type="button">Sincronizar perfiles</button>
-              <button type="button">Cambiar cuenta principal</button>
-            </div>
-          </article>
-          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "java")}>
-            <div className="settings-card__header">
-              <h3>Java &amp; memoria</h3>
-              <p>Ajusta el rendimiento global para todas las instancias.</p>
-            </div>
-            <div className="settings-card__actions">
-              <button type="button">Detectar versiones de Java</button>
-              <button type="button">Asignar memoria</button>
-              <button type="button">Parámetros de JVM</button>
-            </div>
-          </article>
-        </div>
-        <div className="settings-grid settings-grid--secondary">
-          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "red")}>
-            <div className="settings-card__header">
-              <h3>Red y descargas</h3>
-              <p>Controla mirrors, ancho de banda y modo offline.</p>
-            </div>
-            <label className="settings-card__field">
-              <span>API key de CurseForge</span>
-              <input
-                type="password"
-                placeholder="Pega tu key para conectar CurseForge"
-                value={curseforgeKey}
-                onChange={(event) => handleCurseforgeKeyChange(event.target.value)}
-              />
-            </label>
-            <label className="panel-view__toggle">
-              <input
-                type="checkbox"
-                checked={backgroundDownloads}
-                onChange={() => void toggleBackgroundDownloads()}
-              />
-              Mantener descargas en segundo plano
-            </label>
-            <div className="settings-card__actions">
-              <button type="button">Gestionar mirrors</button>
-              <button type="button">Limpiar caché</button>
-            </div>
-          </article>
-          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "updates")}>
-            <div className="settings-card__header">
-              <h3>Actualizaciones y plugins</h3>
-              <p>Define cuándo actualizar el launcher y sus extensiones.</p>
-            </div>
-            <label className="panel-view__toggle">
-              <input
-                type="checkbox"
-                checked={autoUpdates}
-                onChange={() => void toggleAutoUpdates()}
-              />
-              Actualizar launcher automáticamente
-            </label>
-            <div className="settings-card__actions">
-              <button type="button">Revisar plugins</button>
-              <button type="button">Ver historial de cambios</button>
-            </div>
-          </article>
-          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "privacy")}>
-            <div className="settings-card__header">
-              <h3>Privacidad</h3>
-              <p>Decide qué datos comparte el launcher contigo.</p>
-            </div>
-            <label className="panel-view__toggle">
-              <input
-                type="checkbox"
-                checked={telemetryOptIn}
-                onChange={toggleTelemetry}
-              />
-              Activar telemetría opcional
-            </label>
-            <div className="settings-card__actions">
-              <button type="button">Descargar datos</button>
-              <button type="button">Restablecer permisos</button>
-            </div>
-          </article>
-        </div>
+            </article>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <header className="settings-section__header">
+            <h3>Red y actualizaciones</h3>
+          </header>
+          <div className="settings-grid settings-grid--organized">
+            <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "red")}>
+              <div className="settings-card__header">
+                <h3>Red y descargas</h3>
+              </div>
+              <label className="settings-card__field">
+                <span>API key de CurseForge</span>
+                <input type="password" placeholder="Pega tu key para conectar CurseForge" value={curseforgeKey} onChange={(event) => { setCurseforgeKey(event.target.value); saveCurseforgeApiKey(event.target.value); }} />
+              </label>
+              <label className="panel-view__toggle">
+                <input type="checkbox" checked={backgroundDownloads} onChange={() => void toggleBackgroundDownloads()} />
+                Mantener descargas en segundo plano
+              </label>
+            </article>
+            <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "updates")}>
+              <div className="settings-card__header">
+                <h3>Actualizaciones</h3>
+              </div>
+              <label className="panel-view__toggle">
+                <input type="checkbox" checked={autoUpdates} onChange={() => void toggleAutoUpdates()} />
+                Actualizar launcher automáticamente
+              </label>
+            </article>
+          </div>
+        </section>
       </div>
-      
+
       {contextMenu ? (
         <div className="section-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
           <span className="section-context-menu__title">Atajos de {contextMenu.card}</span>
@@ -359,7 +247,6 @@ export const SettingsPanel = () => {
           <button type="button" onClick={() => navigator.clipboard.writeText(`fruti://settings/${contextMenu.card}`)}>Copiar deep-link</button>
         </div>
       ) : null}
-
     </section>
   );
 };

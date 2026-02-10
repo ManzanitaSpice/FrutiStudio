@@ -48,6 +48,10 @@ struct InstanceRecord {
     id: String,
     name: String,
     version: String,
+    #[serde(default)]
+    loader_name: Option<String>,
+    #[serde(default)]
+    loader_version: Option<String>,
 }
 
 
@@ -167,6 +171,32 @@ struct CurseforgeFileEnvelope {
 struct CurseforgeFileData {
     download_url: Option<String>,
     is_available: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MojangVersionManifest {
+    versions: Vec<MojangVersionEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MojangVersionEntry {
+    id: String,
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MojangVersionDetail {
+    downloads: MojangVersionDownloads,
+}
+
+#[derive(Debug, Deserialize)]
+struct MojangVersionDownloads {
+    client: MojangDownload,
+}
+
+#[derive(Debug, Deserialize)]
+struct MojangDownload {
+    url: String,
 }
 
 fn murmurhash2(data: &[u8]) -> u32 {
@@ -634,6 +664,65 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
     Ok(instances)
 }
 
+
+async fn bootstrap_instance_runtime(instance_root: &Path, version: &str) -> Result<(), String> {
+    let runtime_dir = instance_root.join(".fruti-runtime");
+    fs::create_dir_all(&runtime_dir)
+        .map_err(|error| format!("No se pudo crear runtime de instancia: {error}"))?;
+
+    let manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
+    let manifest = reqwest::get(manifest_url)
+        .await
+        .map_err(|error| format!("No se pudo descargar el manifiesto de versiones: {error}"))?
+        .json::<MojangVersionManifest>()
+        .await
+        .map_err(|error| format!("No se pudo parsear el manifiesto de versiones: {error}"))?;
+
+    let Some(version_entry) = manifest.versions.into_iter().find(|entry| entry.id == version) else {
+        return Err(format!("La versión {version} no existe en el manifiesto oficial."));
+    };
+
+    let detail = reqwest::get(&version_entry.url)
+        .await
+        .map_err(|error| format!("No se pudo descargar metadata de la versión: {error}"))?
+        .json::<MojangVersionDetail>()
+        .await
+        .map_err(|error| format!("No se pudo parsear metadata de la versión: {error}"))?;
+
+    let version_json_path = runtime_dir.join(format!("{version}.json"));
+    let version_json = reqwest::get(&version_entry.url)
+        .await
+        .map_err(|error| format!("No se pudo volver a descargar metadata: {error}"))?
+        .text()
+        .await
+        .map_err(|error| format!("No se pudo leer metadata: {error}"))?;
+
+    fs::write(&version_json_path, version_json)
+        .map_err(|error| format!("No se pudo guardar metadata local de versión: {error}"))?;
+
+    let client_jar_path = runtime_dir.join(format!("minecraft-{version}.jar"));
+    let client_bytes = reqwest::get(&detail.downloads.client.url)
+        .await
+        .map_err(|error| format!("No se pudo descargar client.jar: {error}"))?
+        .bytes()
+        .await
+        .map_err(|error| format!("No se pudo leer client.jar: {error}"))?;
+
+    fs::write(&client_jar_path, client_bytes)
+        .map_err(|error| format!("No se pudo guardar client.jar: {error}"))?;
+
+    let launch_hint = format!(
+        "# FrutiStudio bootstrap
+# Esta instancia descargó runtime base.
+# Si usas PrismLauncher, crea/importa esta instancia o define launch-command.txt
+",
+    );
+    fs::write(instance_root.join("launch-readme.txt"), launch_hint)
+        .map_err(|error| format!("No se pudo escribir launch-readme.txt: {error}"))?;
+
+    Ok(())
+}
+
 #[command]
 async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Result<(), String> {
     let path = database_path(&app)?;
@@ -647,9 +736,32 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
 
     let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
     fs::create_dir_all(instance_root.join("mods"))
-        .map_err(|error| format!("No se pudo crear la carpeta de la instancia: {error}"))?;
+        .map_err(|error| format!("No se pudo crear la carpeta mods: {error}"))?;
     fs::create_dir_all(instance_root.join("config"))
-        .map_err(|error| format!("No se pudo crear la carpeta de configuración: {error}"))?;
+        .map_err(|error| format!("No se pudo crear la carpeta config: {error}"))?;
+    fs::create_dir_all(instance_root.join("logs"))
+        .map_err(|error| format!("No se pudo crear la carpeta logs: {error}"))?;
+    fs::create_dir_all(instance_root.join("resourcepacks"))
+        .map_err(|error| format!("No se pudo crear la carpeta resourcepacks: {error}"))?;
+    fs::create_dir_all(instance_root.join("shaderpacks"))
+        .map_err(|error| format!("No se pudo crear la carpeta shaderpacks: {error}"))?;
+
+    bootstrap_instance_runtime(&instance_root, &instance.version).await?;
+
+    let meta = serde_json::json!({
+        "id": instance.id,
+        "name": instance.name,
+        "version": instance.version,
+        "loaderName": instance.loader_name.unwrap_or_else(|| "Vanilla".to_string()),
+        "loaderVersion": instance.loader_version.unwrap_or_else(|| "latest".to_string()),
+        "createdAt": SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
+    });
+    fs::write(
+        instance_root.join("instance.json"),
+        serde_json::to_string_pretty(&meta).map_err(|error| format!("No se pudo serializar metadata: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo escribir metadata de instancia: {error}"))?;
+
     Ok(())
 }
 
