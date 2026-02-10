@@ -10,6 +10,16 @@ import {
 } from "../../services/curseforgeKeyService";
 import { SelectFolderButton } from "../SelectFolderButton";
 
+const customDefaults = {
+  bg: "#f7f4ff",
+  surface: "#ffffff",
+  surfaceStrong: "#ece7f8",
+  border: "#cfc3e8",
+  text: "#2f2340",
+  muted: "#66597f",
+  accent: "#a070ff",
+};
+
 export const SettingsPanel = () => {
   const { baseDir, status } = useBaseDir();
   const { t } = useI18n();
@@ -18,15 +28,25 @@ export const SettingsPanel = () => {
   const [autoUpdates, setAutoUpdates] = useState(true);
   const [backgroundDownloads, setBackgroundDownloads] = useState(true);
   const [curseforgeKey, setCurseforgeKey] = useState("");
+  const [customTheme, setCustomTheme] = useState(customDefaults);
 
   useEffect(() => {
     const load = async () => {
       const config = await loadConfig();
       setTelemetryOptIn(Boolean(config.telemetryOptIn));
       setCurseforgeKey(getCurseforgeApiKey());
+      if (config.customTheme) {
+        setCustomTheme(config.customTheme);
+      }
     };
     void load();
   }, []);
+
+  useEffect(() => {
+    Object.entries(customTheme).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(`--custom-${key}`, value);
+    });
+  }, [customTheme]);
 
   const toggleTelemetry = async () => {
     const config = await loadConfig();
@@ -39,6 +59,23 @@ export const SettingsPanel = () => {
     setScale(nextScale);
     const config = await loadConfig();
     await saveConfig({ ...config, uiScale: nextScale });
+  };
+
+  const handleThemeChange = async (nextTheme: typeof theme) => {
+    setTheme(nextTheme);
+    const config = await loadConfig();
+    await saveConfig({ ...config, theme: nextTheme, customTheme });
+  };
+
+  const handleCustomColorChange = async (
+    key: keyof typeof customDefaults,
+    value: string,
+  ) => {
+    const nextTheme = { ...customTheme, [key]: value };
+    setCustomTheme(nextTheme);
+    const config = await loadConfig();
+    await saveConfig({ ...config, customTheme: nextTheme, theme: "custom" });
+    setTheme("custom");
   };
 
   const handleCurseforgeKeyChange = (value: string) => {
@@ -80,12 +117,18 @@ export const SettingsPanel = () => {
                 aria-label="Tema del launcher"
                 value={theme}
                 onChange={(event) =>
-                  setTheme(event.target.value as typeof theme)
+                  void handleThemeChange(event.target.value as typeof theme)
                 }
               >
-                <option value="system">Sistema</option>
+                <option value="default">Default</option>
                 <option value="light">Claro</option>
                 <option value="dark">Oscuro</option>
+                <option value="chrome">Chrome</option>
+                <option value="sunset">Sunset</option>
+                <option value="mint">Mint</option>
+                <option value="lavender">Lavender</option>
+                <option value="peach">Peach</option>
+                <option value="custom">Personalizado</option>
               </select>
             </label>
             <label className="settings-card__field">
@@ -104,6 +147,84 @@ export const SettingsPanel = () => {
                 <strong>{Math.round(uiScale * 100)}%</strong>
               </div>
             </label>
+            {(theme === "custom" || theme === "default") && (
+              <div className="settings-card__colors">
+                <p>Paleta pastel personalizada</p>
+                <label>
+                  Fondo
+                  <input
+                    type="color"
+                    value={customTheme.bg}
+                    onChange={(event) =>
+                      void handleCustomColorChange("bg", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  Tarjetas
+                  <input
+                    type="color"
+                    value={customTheme.surface}
+                    onChange={(event) =>
+                      void handleCustomColorChange("surface", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  Superficie fuerte
+                  <input
+                    type="color"
+                    value={customTheme.surfaceStrong}
+                    onChange={(event) =>
+                      void handleCustomColorChange(
+                        "surfaceStrong",
+                        event.target.value,
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  Bordes
+                  <input
+                    type="color"
+                    value={customTheme.border}
+                    onChange={(event) =>
+                      void handleCustomColorChange("border", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  Texto
+                  <input
+                    type="color"
+                    value={customTheme.text}
+                    onChange={(event) =>
+                      void handleCustomColorChange("text", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  Texto secundario
+                  <input
+                    type="color"
+                    value={customTheme.muted}
+                    onChange={(event) =>
+                      void handleCustomColorChange("muted", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  Color de acento
+                  <input
+                    type="color"
+                    value={customTheme.accent}
+                    onChange={(event) =>
+                      void handleCustomColorChange("accent", event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            )}
           </article>
           <article className="settings-card">
             <div className="settings-card__header">

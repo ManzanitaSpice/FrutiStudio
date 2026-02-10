@@ -13,6 +13,9 @@ import { useUiZoom } from "./hooks/useUiZoom";
 import { useUI } from "./hooks/useUI";
 import { featureFlags } from "./config/featureFlags";
 import { fetchInstances } from "./services/instanceService";
+import { fetchNewsOverview } from "./services/newsService";
+import { fetchExplorerItems } from "./services/explorerService";
+import { fetchServerListings } from "./services/serverService";
 import { loadConfig, saveConfig } from "./services/configService";
 import type { Instance } from "./types/models";
 import "./App.css";
@@ -43,6 +46,24 @@ const SettingsPanel = lazy(() =>
   })),
 );
 
+const loadingSteps = [
+  "Inicializando launcher",
+  "Cargando APIs",
+  "Preparando secciones",
+  "Sincronizando preferencias",
+  "Finalizando",
+];
+
+const defaultCustomTheme = {
+  bg: "#f7f4ff",
+  surface: "#ffffff",
+  surfaceStrong: "#ece7f8",
+  border: "#cfc3e8",
+  text: "#2f2340",
+  muted: "#66597f",
+  accent: "#a070ff",
+};
+
 const AppShell = () => {
   const {
     activeSection,
@@ -62,14 +83,44 @@ const AppShell = () => {
     null,
   );
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [bootReady, setBootReady] = useState(false);
+  const [bootStep, setBootStep] = useState(0);
 
   useEffect(() => {
-    const loadInstances = async () => {
-      const data = await fetchInstances();
-      setInstances(data);
+    const runBoot = async () => {
+      setBootStep(0);
+      const config = await loadConfig();
+      setBootStep(1);
+      await Promise.allSettled([
+        fetchInstances(),
+        fetchNewsOverview(),
+        fetchExplorerItems("Modpacks"),
+        fetchServerListings(),
+      ]);
+      setBootStep(2);
+      if (config.uiScale) {
+        setScale(config.uiScale);
+      }
+      if (config.theme) {
+        setTheme(config.theme);
+      }
+      if (config.customTheme) {
+        Object.entries(config.customTheme).forEach(([key, value]) => {
+          document.documentElement.style.setProperty(`--custom-${key}`, value);
+        });
+      } else {
+        Object.entries(defaultCustomTheme).forEach(([key, value]) => {
+          document.documentElement.style.setProperty(`--custom-${key}`, value);
+        });
+      }
+      setBootStep(3);
+      const loadedInstances = await fetchInstances();
+      setInstances(loadedInstances);
+      setBootStep(4);
+      window.setTimeout(() => setBootReady(true), 600);
     };
-    void loadInstances();
-  }, []);
+    void runBoot();
+  }, [setScale, setTheme]);
 
   useUiZoom({
     scale: uiScale,
@@ -86,19 +137,6 @@ const AppShell = () => {
   useEffect(() => {
     document.documentElement.style.setProperty("--ui-scale", uiScale.toString());
   }, [uiScale]);
-
-  useEffect(() => {
-    const applyConfig = async () => {
-      const config = await loadConfig();
-      if (config.uiScale) {
-        setScale(config.uiScale);
-      }
-      if (config.theme) {
-        setTheme(config.theme);
-      }
-    };
-    void applyConfig();
-  }, [setScale, setTheme]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -126,9 +164,26 @@ const AppShell = () => {
     setSelectedInstanceId(instance.id);
   };
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
+
   return (
     <ErrorBoundary>
       <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
+        {!bootReady && (
+          <div className="boot-screen" role="status" aria-live="polite">
+            <div className="boot-screen__logo">FrutiLauncher</div>
+            <h2>Cargando APIs y secciones</h2>
+            <ul>
+              {loadingSteps.map((step, index) => {
+                const done = index <= bootStep;
+                return (
+                  <li key={step} className={done ? "is-done" : ""}>
+                    {step}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         <NotificationCenter />
         <Toolbar
           current={activeSection}
@@ -171,10 +226,7 @@ const AppShell = () => {
           </main>
         </div>
         {showStatusBar && (
-          <StatusBar
-            selectedInstance={selectedInstance}
-            instances={instances}
-          />
+          <StatusBar selectedInstance={selectedInstance} instances={instances} />
         )}
       </div>
     </ErrorBoundary>
