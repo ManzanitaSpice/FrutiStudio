@@ -174,6 +174,10 @@ interface CurseforgeDescriptionResponse {
 
 const MODRINTH_BASE = "https://api.modrinth.com/v2";
 const CURSEFORGE_BASE = "https://api.curseforge.com/v1";
+const CURSEFORGE_PROXY_BASES = [
+  "https://api.curse.tools/v1",
+  "https://cfproxy.bmpm.workers.dev/v1",
+];
 const CURSE_MINECRAFT_GAME_ID = 432;
 const CURSE_MAX_PAGE_SIZE = 50;
 const cache = new Map<
@@ -217,10 +221,12 @@ const isTauriRuntime = () =>
 
 const requestCurseforgeV1 = async <T>(
   path: string,
-  apiKey: string,
+  apiKey?: string,
   query?: Record<string, string>,
 ): Promise<T> => {
-  if (isTauriRuntime()) {
+  const params = query ? `?${new URLSearchParams(query).toString()}` : "";
+
+  if (apiKey && isTauriRuntime()) {
     return invokeWithHandling<T>("curseforge_v1_get", {
       path,
       query,
@@ -228,12 +234,28 @@ const requestCurseforgeV1 = async <T>(
     });
   }
 
-  const params = query ? `?${new URLSearchParams(query).toString()}` : "";
+  if (apiKey) {
+    return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
+      init: { headers: { "x-api-key": apiKey } },
+      ttl: 45_000,
+    });
+  }
 
-  return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
-    init: { headers: { "x-api-key": apiKey } },
-    ttl: 45_000,
-  });
+  let lastError: unknown;
+  for (const base of CURSEFORGE_PROXY_BASES) {
+    try {
+      return await apiFetch<T>(`${base}${path}${params}`, { ttl: 45_000 });
+    } catch (error) {
+      lastError = error;
+      console.warn("[explorer] curseforge proxy failed", { base, path, error });
+    }
+  }
+
+  throw new Error(
+    lastError instanceof Error
+      ? `No se pudo conectar con CurseForge (proxy): ${lastError.message}`
+      : "No se pudo conectar con CurseForge (proxy).",
+  );
 };
 
 const stripHtml = (value: string) =>
@@ -389,9 +411,6 @@ const fetchModrinthPage = async (filters: ExplorerFilters): Promise<ExplorerResu
 
 const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerResult> => {
   const apiKey = getCurseforgeApiKey();
-  if (!apiKey) {
-    return { items: [], hasMore: false, total: 0, page: filters.page ?? 0 };
-  }
 
   const classId = curseforgeClassIds[filters.category];
 
@@ -623,35 +642,43 @@ export const fetchExplorerItemDetails = async (
   }
 
   const apiKey = getCurseforgeApiKey();
-  if (!apiKey) {
-    const fallback: ExplorerItemDetails = {
-      id: item.id,
-      source: "CurseForge",
-      title: item.name,
-      author: item.author,
-      description: item.description,
-      body: item.description,
-      changelog: "",
-      gallery: item.thumbnail ? [item.thumbnail] : [],
-      gameVersions: item.versions,
-      loaders: item.loaders,
-      dependencies: [],
-      downloads: item.rawDownloads,
-      updatedAt: item.updatedAt,
-      url: item.url,
-      type: item.type,
-      versions: [],
-      primaryMinecraftVersion: item.versions[0],
-      primaryLoader: item.loaders[0],
-      primaryLoaderVersion: undefined,
-    };
-    return fallback;
-  }
+
+  const fallback: ExplorerItemDetails = {
+    id: item.id,
+    source: "CurseForge",
+    title: item.name,
+    author: item.author,
+    description: item.description,
+    body: item.description,
+    changelog: "",
+    gallery: item.thumbnail ? [item.thumbnail] : [],
+    gameVersions: item.versions,
+    loaders: item.loaders,
+    dependencies: [],
+    downloads: item.rawDownloads,
+    updatedAt: item.updatedAt,
+    url: item.url,
+    type: item.type,
+    versions: [],
+    primaryMinecraftVersion: item.versions[0],
+    primaryLoader: item.loaders[0],
+    primaryLoaderVersion: undefined,
+  };
 
   const data = await requestCurseforgeV1<CurseforgeModResponse>(
     `/mods/${item.projectId}`,
     apiKey,
-  );
+  ).catch((error) => {
+    console.warn("[explorer] curseforge detail fallback", {
+      projectId: item.projectId,
+      error,
+    });
+    return null;
+  });
+
+  if (!data?.data) {
+    return fallback;
+  }
 
   const files = data.data.latestFiles ?? [];
   const versions = files.map((file, index) => {
