@@ -11,9 +11,7 @@ import {
   type MinecraftVersion,
   fetchMinecraftVersions,
 } from "../../services/minecraftVersionService";
-import { createInstance, launchInstance } from "../../services/instanceService";
-import { searchModrinth } from "../../services/modrinthService";
-import { searchCurseforge } from "../../services/curseService";
+import { createInstance, launchInstance, repairInstance } from "../../services/instanceService";
 import {
   type ExternalInstance,
   fetchExternalInstances,
@@ -132,6 +130,8 @@ interface CatalogMod {
   name: string;
   version: string;
   provider: "modrinth" | "curseforge";
+  type: "Mods" | "Shaders" | "Resource Packs";
+  sourceLabel?: string;
 }
 
 export const InstancePanel = ({
@@ -196,6 +196,7 @@ export const InstancePanel = ({
   const [modDownloadOpen, setModDownloadOpen] = useState(false);
   const [modReviewOpen, setModReviewOpen] = useState(false);
   const [modProvider, setModProvider] = useState<"modrinth" | "curseforge">("modrinth");
+  const [catalogType, setCatalogType] = useState<"Mods" | "Shaders" | "Resource Packs">("Mods");
   const [catalogMods, setCatalogMods] = useState<CatalogMod[]>([]);
   const [selectedCatalogMods, setSelectedCatalogMods] = useState<CatalogMod[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -299,8 +300,8 @@ export const InstancePanel = ({
         action: () => {
           void (async () => {
             try {
-              await createInstance(selectedInstance);
-              setLaunchStatus("Reparación completada: instancia regenerada y lista para iniciar.");
+              await repairInstance(selectedInstance.id);
+              setLaunchStatus("Reparación completada: estructura de instancia validada sin reinstalar todo.");
               onUpdateInstance(selectedInstance.id, {
                 status: "ready",
                 isRunning: false,
@@ -756,57 +757,47 @@ export const InstancePanel = ({
     setCatalogLoading(true);
     setCatalogError(null);
     try {
-      if (modProvider === "modrinth") {
-        const found = await searchModrinth({
-          query: modQuery.trim(),
-          gameVersion: selectedInstance.version,
-          loader: selectedInstance.loaderName.toLowerCase(),
-        });
-        setCatalogMods(
-          found.slice(0, 20).map((item) => ({
-            id: item.id,
-            name: item.title,
-            version: selectedInstance.version,
-            provider: "modrinth",
-          })),
-        );
-      } else {
-        const loaderType: Record<string, number> = {
-          forge: 1,
-          fabric: 4,
-          quilt: 5,
-          neoforge: 6,
-        };
-        const found = await searchCurseforge({
-          query: modQuery.trim(),
-          gameVersion: selectedInstance.version,
-          modLoaderType: loaderType[selectedInstance.loaderName.toLowerCase()],
-          classId: 6,
-          pageSize: 20,
-        });
-        setCatalogMods(
-          found.map((item) => ({
-            id: String(item.id),
-            name: item.name,
-            version: selectedInstance.version,
-            provider: "curseforge",
-          })),
-        );
-      }
+      const found = await fetchUnifiedCatalog({
+        query: modQuery.trim(),
+        category: catalogType,
+        platform: modProvider,
+        gameVersion: selectedInstance.version,
+        loader:
+          selectedInstance.loaderName.toLowerCase() === "vanilla"
+            ? undefined
+            : selectedInstance.loaderName.toLowerCase(),
+        sort: "popular",
+        page: 0,
+        pageSize: 24,
+      });
+
+      setCatalogMods(
+        found.items.map((item) => ({
+          id: item.projectId,
+          name: item.name,
+          version: selectedInstance.version,
+          provider: item.source === "CurseForge" ? "curseforge" : "modrinth",
+          type: catalogType,
+          sourceLabel: item.source,
+        })),
+      );
     } catch (error) {
-      setCatalogError(error instanceof Error ? error.message : "No se pudo buscar mods.");
+      setCatalogError(
+        error instanceof Error ? error.message : "No se pudo buscar contenido.",
+      );
       setCatalogMods([]);
     } finally {
       setCatalogLoading(false);
     }
   };
 
+
   useEffect(() => {
     if (!modDownloadOpen) {
       return;
     }
     void loadCatalogMods();
-  }, [modDownloadOpen, modProvider]);
+  }, [catalogType, modDownloadOpen, modProvider]);
 
   const renderEditorBody = () => {
     if (activeEditorSection === "Registro de Minecraft" && selectedInstance) {
@@ -832,17 +823,71 @@ export const InstancePanel = ({
 
     if (activeEditorSection === "Versión") {
       return (
-        <div className="instance-editor__table">
-          <div className="instance-editor__table-header">
-            <span>Nombre</span>
-            <span>Versión</span>
-          </div>
-          {versionRows.map((row) => (
-            <div key={row.name} className="instance-editor__table-row">
-              <span>{row.name}</span>
-              <span>{row.version}</span>
-            </div>
-          ))}
+        <div className="instance-config__grid">
+          <article className="instance-config__card">
+            <h6>Versiones de la instancia</h6>
+            <label>
+              Versión de Minecraft
+              <select
+                value={selectedInstance?.version ?? instanceVersion}
+                onChange={(event) =>
+                  selectedInstance
+                    ? onUpdateInstance(selectedInstance.id, { version: event.target.value })
+                    : setInstanceVersion(event.target.value)
+                }
+              >
+                {filteredVersions.map((version) => (
+                  <option key={version.id} value={version.id}>
+                    {version.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Loader
+              <select
+                value={selectedInstance?.loaderName ?? instanceLoader}
+                onChange={(event) =>
+                  selectedInstance
+                    ? onUpdateInstance(selectedInstance.id, { loaderName: event.target.value })
+                    : setInstanceLoader(event.target.value)
+                }
+              >
+                <option value="Vanilla">Vanilla</option>
+                <option value="NeoForge">NeoForge</option>
+                <option value="Forge">Forge</option>
+                <option value="Fabric">Fabric</option>
+                <option value="Quilt">Quilt</option>
+              </select>
+            </label>
+            <label>
+              Versión de loader
+              <select
+                value={selectedInstance?.loaderVersion ?? instanceLoaderVersion}
+                onChange={(event) =>
+                  selectedInstance
+                    ? onUpdateInstance(selectedInstance.id, { loaderVersion: event.target.value })
+                    : setInstanceLoaderVersion(event.target.value)
+                }
+              >
+                {(loaderVersions.length ? loaderVersions : [selectedInstance?.loaderVersion ?? "latest"]).map((version) => (
+                  <option key={version} value={version}>
+                    {version}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </article>
+          <article className="instance-config__card">
+            <h6>Resumen actual</h6>
+            <ul>
+              {versionRows.map((row) => (
+                <li key={row.name}>
+                  <strong>{row.name}:</strong> {row.version}
+                </li>
+              ))}
+            </ul>
+          </article>
         </div>
       );
     }
@@ -880,11 +925,11 @@ export const InstancePanel = ({
       return (
         <div className="instance-config">
           <div className="instance-config__intro">
-            <h5>📦 Configuración de Instancia</h5>
+            <h5>📦 Configuración de instancia</h5>
             <p>Este panel sobrescribe ajustes globales solo para esta instancia.</p>
             <p>Nada aquí afecta a otras instancias.</p>
             <button type="button" className="explorer-item__secondary">
-              🔗 Open Global Settings
+              🔗 Abrir configuración global
             </button>
           </div>
           <div
@@ -913,7 +958,7 @@ export const InstancePanel = ({
           {activeConfigTab === "General" ? (
             <div className="instance-config__grid">
               <article className="instance-config__card">
-                <h6>🪟 Game Window</h6>
+                <h6>🪟 Ventana del juego</h6>
                 <label>
                   <input
                     type="checkbox"
@@ -925,7 +970,7 @@ export const InstancePanel = ({
                   Iniciar Minecraft maximizado
                 </label>
                 <label>
-                  Window Size (Ancho × Alto)
+                  Tamaño de ventana (ancho × alto)
                   <input
                     value={selectedConfig.windowSize}
                     onChange={(event) =>
@@ -943,7 +988,7 @@ export const InstancePanel = ({
                       updateSelectedConfig("hideLauncherOnGameOpen", event.target.checked)
                     }
                   />{" "}
-                  When the game window opens, hide the launcher
+                  Ocultar launcher al abrir Minecraft
                 </label>
                 <label>
                   <input
@@ -956,11 +1001,11 @@ export const InstancePanel = ({
                       )
                     }
                   />{" "}
-                  When the game window closes, quit the launcher
+                  Cerrar launcher al salir del juego
                 </label>
               </article>
               <article className="instance-config__card">
-                <h6>🖥 Console Window</h6>
+                <h6>🖥 Consola</h6>
                 <label>
                   <input
                     type="checkbox"
@@ -969,7 +1014,7 @@ export const InstancePanel = ({
                       updateSelectedConfig("showConsoleOnLaunch", event.target.checked)
                     }
                   />{" "}
-                  When the game is launched, show the console window
+                  Mostrar consola al iniciar el juego
                 </label>
                 <label>
                   <input
@@ -979,7 +1024,7 @@ export const InstancePanel = ({
                       updateSelectedConfig("showConsoleOnCrash", event.target.checked)
                     }
                   />{" "}
-                  When the game crashes, show the console window
+                  Mostrar consola si hay crash
                 </label>
                 <label>
                   <input
@@ -989,13 +1034,13 @@ export const InstancePanel = ({
                       updateSelectedConfig("hideConsoleOnQuit", event.target.checked)
                     }
                   />{" "}
-                  When the game quits, hide the console window
+                  Ocultar consola al cerrar el juego
                 </label>
               </article>
               <article className="instance-config__card">
-                <h6>📁 Global Data Packs</h6>
+                <h6>📁 Data packs globales</h6>
                 <label>
-                  Folder Path
+                  Ruta de carpeta
                   <input
                     value={selectedConfig.globalDatapacksPath}
                     onChange={(event) =>
@@ -1007,7 +1052,7 @@ export const InstancePanel = ({
                 <small>⚠ Requiere mods específicos · ⚠ No es vanilla-friendly</small>
               </article>
               <article className="instance-config__card">
-                <h6>⏱ Game Time</h6>
+                <h6>⏱ Tiempo de juego</h6>
                 <label>
                   <input
                     type="checkbox"
@@ -1016,7 +1061,7 @@ export const InstancePanel = ({
                       updateSelectedConfig("showPlaytime", event.target.checked)
                     }
                   />{" "}
-                  Show time playing this instance
+                  Mostrar tiempo jugado en esta instancia
                 </label>
                 <label>
                   <input
@@ -1026,11 +1071,11 @@ export const InstancePanel = ({
                       updateSelectedConfig("recordPlaytime", event.target.checked)
                     }
                   />{" "}
-                  Record time playing this instance
+                  Registrar tiempo jugado en esta instancia
                 </label>
               </article>
               <article className="instance-config__card">
-                <h6>👤 Override Default Account</h6>
+                <h6>👤 Cuenta por instancia</h6>
                 <label>
                   Cuenta
                   <select
@@ -1138,7 +1183,7 @@ export const InstancePanel = ({
               <article className="instance-config__card">
                 <h6>🧠 Memoria</h6>
                 <label>
-                  Minimum Memory Usage (Xms)
+                  Memoria mínima (Xms)
                   <input
                     type="number"
                     min={256}
@@ -1150,7 +1195,7 @@ export const InstancePanel = ({
                   />
                 </label>
                 <label>
-                  Maximum Memory Usage (Xmx)
+                  Memoria máxima (Xmx)
                   <input
                     type="number"
                     min={512}
@@ -1162,7 +1207,7 @@ export const InstancePanel = ({
                   />
                 </label>
                 <label>
-                  PermGen Size (-XX:PermSize)
+                  PermGen (-XX:PermSize)
                   <input
                     value={selectedConfig.permGen}
                     onChange={(event) =>
@@ -2131,25 +2176,30 @@ ${rows.join("\n")}`;
         <div className="instance-editor__backdrop" onClick={() => setModDownloadOpen(false)}>
           <article className="product-dialog product-dialog--install" onClick={(event) => event.stopPropagation()}>
             <header>
-              <h3>Descargar mods</h3>
+              <h3>Catálogo de contenido</h3>
               <button type="button" onClick={() => setModDownloadOpen(false)}>Cancelar</button>
             </header>
             <div className="product-dialog__install-body">
-              <p>Compatible con {selectedInstance.loaderName} en Minecraft {selectedInstance.version}.</p>
-              <div className="instance-import__actions">
+              <p>Busca contenido compatible con {selectedInstance.loaderName} en Minecraft {selectedInstance.version}.</p>
+              <div className="instance-catalog__filters">
+                <select value={catalogType} onChange={(event) => setCatalogType(event.target.value as "Mods" | "Shaders" | "Resource Packs")}>
+                  <option value="Mods">Mods</option>
+                  <option value="Shaders">Shaders</option>
+                  <option value="Resource Packs">Resource Packs</option>
+                </select>
                 <button type="button" onClick={() => setModProvider("curseforge")}>CurseForge</button>
                 <button type="button" onClick={() => setModProvider("modrinth")}>Modrinth</button>
-                <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder="Buscar mod..." />
+                <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder="Buscar por nombre..." />
                 <button type="button" onClick={() => void loadCatalogMods()} disabled={catalogLoading}>Buscar</button>
               </div>
               {catalogError ? <p>{catalogError}</p> : null}
-              {catalogLoading ? <p>Buscando mods compatibles...</p> : null}
-              <div className="instance-editor__table">
+              {catalogLoading ? <p>Buscando contenido compatible...</p> : null}
+              <div className="instance-catalog__results">
                 {catalogMods.map((mod) => {
                   const alreadySelected = selectedCatalogMods.some((item) => item.id === mod.id && item.provider === mod.provider);
                   return (
                     <div key={`${mod.provider}-${mod.id}`} className="instance-editor__table-row">
-                      <span>{mod.name}</span>
+                      <span>{mod.name}<br /><small className="instance-catalog__meta">{mod.type} · {mod.sourceLabel ?? mod.provider}</small></span>
                       <button type="button" disabled={alreadySelected} onClick={() => setSelectedCatalogMods((prev) => [...prev, mod])}>
                         {alreadySelected ? "Seleccionado" : "Agregar"}
                       </button>
@@ -2173,7 +2223,7 @@ ${rows.join("\n")}`;
             <div className="product-dialog__install-body">
               <ul>
                 {selectedCatalogMods.map((mod) => (
-                  <li key={`${mod.provider}-${mod.id}`}>{mod.name} · {mod.provider}</li>
+                  <li key={`${mod.provider}-${mod.id}`}>{mod.name} · {mod.type} · {mod.provider}</li>
                 ))}
               </ul>
               <div className="instance-import__actions">
