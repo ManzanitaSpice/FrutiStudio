@@ -54,39 +54,9 @@ const creatorSections = [
   "Importar",
   "ATLauncher",
   "CurseForge",
-  "FTB Legacy",
-  "Importar app de FTB",
   "Modrinth",
-  "Technic",
 ];
 
-const sectionToolbars: Record<string, string[]> = {
-  "Registro de Minecraft": ["Pausar", "Limpiar", "Guardar log"],
-  "Versión": [
-    "Cambiar versión",
-    "Remover",
-    "Personalizar",
-    "Editar",
-    "Revertir",
-    "Instalar loader",
-    "Añadir a minecraft.jar",
-    "Sustituir minecraft.jar",
-    "Añadir agentes",
-    "Añadir vacío",
-    "Importar componentes",
-    "Abrir .minecraft",
-    "Añadir librerías",
-  ],
-  Mods: ["Descargar mods", "Buscar actualizaciones", "Cambiar versión"],
-  "Resource Packs": ["Añadir", "Activar", "Importar", "Abrir carpeta"],
-  "Shader Packs": ["Añadir", "Activar", "Importar", "Abrir carpeta"],
-  Notas: ["Nueva nota", "Compartir", "Exportar"],
-  Mundos: ["Añadir", "Importar", "Respaldar", "Abrir carpeta"],
-  Servidores: ["Añadir servidor", "Editar", "Importar", "Exportar"],
-  "Capturas de pantalla": ["Abrir carpeta", "Importar", "Compartir"],
-  Configuración: ["Restaurar", "Exportar", "Aplicar perfil"],
-  "Otros registros": ["Filtrar", "Exportar", "Limpiar"],
-};
 
 export const InstancePanel = ({
   instances,
@@ -151,8 +121,6 @@ export const InstancePanel = ({
   } | null>(null);
   const selectedInstance =
     instances.find((instance) => instance.id === selectedInstanceId) ?? null;
-  const toolbarActions =
-    sectionToolbars[activeEditorSection] ?? sectionToolbars["Versión"];
   const statusLabels: Record<Instance["status"], string> = {
     ready: "Listo para jugar",
     "pending-update": "Actualización pendiente",
@@ -228,6 +196,7 @@ export const InstancePanel = ({
 
   const openEditor = () => {
     setEditorOpen(true);
+    setContextMenu(null);
   };
 
   const closeEditor = () => {
@@ -236,6 +205,7 @@ export const InstancePanel = ({
 
   const openCreator = () => {
     setCreatorOpen(true);
+    setContextMenu(null);
     setCreatorPosition({
       x: Math.max(32, window.innerWidth / 2 - 520),
       y: Math.max(24, window.innerHeight / 2 - 320),
@@ -782,12 +752,7 @@ export const InstancePanel = ({
       );
     }
 
-    return (
-      <div className="instance-creator__placeholder">
-        <p>No hay resultados cargados para {activeCreatorSection}.</p>
-        <span>Elige una fuente o busca para comenzar.</span>
-      </div>
-    );
+    return null;
   };
 
   const handleContextMenu = (
@@ -969,30 +934,12 @@ export const InstancePanel = ({
                 <div className="instance-menu__section">
                   <h4>Acciones rápidas</h4>
                   <div className="instance-menu__actions">
-                    <button type="button">Iniciar</button>
                     <button type="button" onClick={openEditor}>
                       Editar
                     </button>
-                    <button type="button">Forzar cierre</button>
-                    <button type="button">Crear atajo</button>
-                  </div>
-                </div>
-                <div className="instance-menu__section">
-                  <h4>Gestión de perfil</h4>
-                  <div className="instance-menu__actions">
-                    <button type="button">Cambiar grupo</button>
-                    <button type="button">Exportar</button>
-                    <button type="button">Duplicar</button>
-                    <button type="button">Borrar</button>
-                  </div>
-                </div>
-                <div className="instance-menu__section instance-menu__section--tools">
-                  <h4>Herramientas</h4>
-                  <div className="instance-menu__actions">
-                    <button type="button">Abrir carpeta</button>
-                    <button type="button">Ver logs</button>
-                    <button type="button">Reparar instancia</button>
-                    <button type="button">Limpiar cache</button>
+                    <button type="button" onClick={openCreator}>
+                      Crear nueva
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1038,14 +985,10 @@ export const InstancePanel = ({
                 <div className="instance-editor__workspace">
                   <div className="instance-editor__panel">{renderEditorBody()}</div>
                   <aside className="instance-editor__rail">
-                    <h5>Herramientas</h5>
-                    <div className="instance-editor__actions">
-                      {toolbarActions.map((action) => (
-                        <button key={action} type="button">
-                          {action}
-                        </button>
-                      ))}
-                    </div>
+                    <h5>Estado</h5>
+                    <p className="instance-editor__status-note">
+                      Esta sección muestra información real de la instancia seleccionada.
+                    </p>
                   </aside>
                 </div>
               </div>
@@ -1065,13 +1008,12 @@ export const InstancePanel = ({
               <span className="instance-context-menu__title">
                 {contextMenu.instance.name}
               </span>
-              <button type="button">Iniciar</button>
               <button type="button" onClick={openEditor}>
                 Editar
               </button>
-              <button type="button">Abrir carpeta</button>
-              <button type="button">Duplicar</button>
-              <button type="button">Eliminar</button>
+              <button type="button" onClick={openCreator}>
+                Crear otra instancia
+              </button>
             </>
           ) : (
             <>
@@ -1081,8 +1023,6 @@ export const InstancePanel = ({
               <button type="button" onClick={openCreator}>
                 Crear instancia
               </button>
-              <button type="button">Importar instancia</button>
-              <button type="button">Actualizar lista</button>
             </>
           )}
         </div>
@@ -1139,8 +1079,9 @@ export const InstancePanel = ({
                       >
                         Crear instancia
                       </button>
-                      <button type="button">Importar archivo</button>
-                      <button type="button">Ver requisitos</button>
+                      <button type="button" onClick={() => setCreatorOpen(false)}>
+                        Cerrar
+                      </button>
                     </div>
                   </aside>
                 </div>
