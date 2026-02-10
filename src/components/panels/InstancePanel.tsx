@@ -194,6 +194,7 @@ export const InstancePanel = ({
   const [selectedModId, setSelectedModId] = useState<string | null>(null);
   const [modQuery, setModQuery] = useState("");
   const [modDownloadOpen, setModDownloadOpen] = useState(false);
+  const [modDownloadTarget, setModDownloadTarget] = useState<"Mods" | "Shaders" | "Resource Packs">("Mods");
   const [modReviewOpen, setModReviewOpen] = useState(false);
   const [modProvider, setModProvider] = useState<"modrinth" | "curseforge">("modrinth");
   const [catalogType, setCatalogType] = useState<"Mods" | "Shaders" | "Resource Packs">("Mods");
@@ -836,7 +837,7 @@ export const InstancePanel = ({
                     : setInstanceVersion(event.target.value)
                 }
               >
-                {filteredVersions.map((version) => (
+                {(filteredVersions.length ? filteredVersions : [{ id: selectedInstance?.version ?? instanceVersion ?? "Sin datos", type: "release" as const }]).map((version) => (
                   <option key={version.id} value={version.id}>
                     {version.id}
                   </option>
@@ -870,7 +871,7 @@ export const InstancePanel = ({
                     : setInstanceLoaderVersion(event.target.value)
                 }
               >
-                {(loaderVersions.length ? loaderVersions : [selectedInstance?.loaderVersion ?? "latest"]).map((version) => (
+                {(loaderVersions.length ? loaderVersions : [(selectedInstance?.loaderVersion ?? instanceLoaderVersion) || "latest"]).map((version) => (
                   <option key={version} value={version}>
                     {version}
                   </option>
@@ -1689,9 +1690,28 @@ export const InstancePanel = ({
     };
     onCreateInstance(newInstance);
     try {
+      setLaunchStatus("Preparando archivos base de Minecraft...");
       await createInstance(newInstance);
+      onUpdateInstance(newInstance.id, {
+        status: "ready",
+        isDownloading: false,
+        downloadProgress: 100,
+        downloadStage: "finalizando",
+        downloadLabel: "Instancia lista para iniciar",
+      });
+      setLaunchStatus("Instancia creada y preparada correctamente.");
     } catch (error) {
       console.error("No se pudo crear la instancia", error);
+      onUpdateInstance(newInstance.id, {
+        status: "pending-update",
+        isDownloading: false,
+        downloadProgress: 0,
+      });
+      setLaunchStatus(
+        error instanceof Error
+          ? `No se pudo crear la instancia: ${error.message}`
+          : "No se pudo crear la instancia.",
+      );
     }
     setInstanceName("");
     setInstanceGroup("");
@@ -1927,7 +1947,7 @@ export const InstancePanel = ({
                           <div className="instance-editor__mods-menu">
                             <button
                               type="button"
-                              onClick={() => setModDownloadOpen(true)}
+                              onClick={() => { setModDownloadTarget("Mods"); setCatalogType("Mods"); setModDownloadOpen(true); }}
                             >
                               Descargar mods
                             </button>
@@ -2061,12 +2081,45 @@ ${rows.join("\n")}`;
                             </button>
                           </div>
                         </>
+                      ) : activeEditorSection === "Shader Packs" ? (
+                        <>
+                          <h5>Opciones de shaders</h5>
+                          <div className="instance-editor__mods-menu">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setModDownloadTarget("Shaders");
+                                setCatalogType("Shaders");
+                                setModDownloadOpen(true);
+                              }}
+                            >
+                              Descargar shaders
+                            </button>
+                            <button type="button" onClick={() => window.alert("Abrir carpeta shaderpacks")}>Ver carpeta</button>
+                          </div>
+                        </>
+                      ) : activeEditorSection === "Resource Packs" ? (
+                        <>
+                          <h5>Opciones de resource packs</h5>
+                          <div className="instance-editor__mods-menu">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setModDownloadTarget("Resource Packs");
+                                setCatalogType("Resource Packs");
+                                setModDownloadOpen(true);
+                              }}
+                            >
+                              Descargar resource packs
+                            </button>
+                            <button type="button" onClick={() => window.alert("Abrir carpeta resourcepacks")}>Ver carpeta</button>
+                          </div>
+                        </>
                       ) : (
                         <>
                           <h5>Información</h5>
                           <p className="instance-editor__status-note">
-                            Selecciona la sección <strong>Mods</strong> para gestionar
-                            archivos instalados.
+                            Selecciona la sección <strong>Mods</strong>, <strong>Shader Packs</strong> o <strong>Resource Packs</strong> para gestionar descargas.
                           </p>
                         </>
                       )}
@@ -2174,9 +2227,9 @@ ${rows.join("\n")}`;
 
       {modDownloadOpen && selectedInstance ? (
         <div className="instance-editor__backdrop" onClick={() => setModDownloadOpen(false)}>
-          <article className="product-dialog product-dialog--install" onClick={(event) => event.stopPropagation()}>
+          <article className="product-dialog product-dialog--install product-dialog--download" onClick={(event) => event.stopPropagation()}>
             <header>
-              <h3>Catálogo de contenido</h3>
+              <h3>Descargar {modDownloadTarget}</h3>
               <button type="button" onClick={() => setModDownloadOpen(false)}>Cancelar</button>
             </header>
             <div className="product-dialog__install-body">
@@ -2189,7 +2242,7 @@ ${rows.join("\n")}`;
                 </select>
                 <button type="button" onClick={() => setModProvider("curseforge")}>CurseForge</button>
                 <button type="button" onClick={() => setModProvider("modrinth")}>Modrinth</button>
-                <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder="Buscar por nombre..." />
+                <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder={`Buscar ${modDownloadTarget.toLowerCase()} por nombre...`} />
                 <button type="button" onClick={() => void loadCatalogMods()} disabled={catalogLoading}>Buscar</button>
               </div>
               {catalogError ? <p>{catalogError}</p> : null}
@@ -2250,7 +2303,7 @@ ${rows.join("\n")}`;
                     setModReviewOpen(false);
                     setModDownloadOpen(false);
                     setSelectedCatalogMods([]);
-                    setLaunchStatus("Mods descargados e instalados en la instancia.");
+                    setLaunchStatus(`${modDownloadTarget} descargados e instalados en la instancia.`);
                   }}
                 >
                   OK / Instalar

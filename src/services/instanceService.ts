@@ -47,6 +47,8 @@ export const createInstance = async (config: Instance) => {
       id: config.id,
       name: config.name,
       version: config.version,
+      loader_name: config.loaderName,
+      loader_version: config.loaderVersion,
     },
   });
   if (cachedInstances) {

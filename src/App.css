@@ -3528,3 +3528,62 @@ textarea {
   color: var(--color-muted);
   font-size: 0.78rem;
 }
+
+/* Layout improvements requested */
+.settings-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-section__header h3 {
+  margin: 0;
+}
+
+.settings-section__header p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+}
+
+.settings-grid--organized {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.instance-editor-panel {
+  width: min(1320px, 97vw);
+  height: min(840px, 94vh);
+}
+
+.instance-editor__body {
+  grid-template-columns: 220px 1fr;
+}
+
+.instance-editor__sidebar {
+  padding: 10px;
+  gap: 6px;
+}
+
+.instance-editor__tab {
+  padding: 0.35em 0.55em;
+  font-size: 0.88rem;
+}
+
+.instance-editor__workspace {
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 10px;
+}
+
+.product-dialog--download {
+  width: min(1280px, 97vw);
+  min-height: min(760px, 92vh);
+}
+
+.instance-catalog__results {
+  max-height: 420px;
+  overflow: auto;
+}

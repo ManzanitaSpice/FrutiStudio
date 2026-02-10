@@ -27,15 +27,57 @@ const loadQuiltVersions = async (mcVersion: string) => {
 };
 
 const loadForgeVersions = async (mcVersion: string) => {
-  const url = `https://bmclapi2.bangbang93.com/forge/minecraft/${mcVersion}`;
-  const data = await apiFetch<Array<{ version: string }>>(url, { ttl: 120_000 });
-  return data.map((entry) => entry.version);
+  const mirrors = [
+    `https://bmclapi2.bangbang93.com/forge/minecraft/${mcVersion}`,
+    `https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json`,
+  ];
+
+  for (const url of mirrors) {
+    try {
+      if (url.includes("promotions_slim")) {
+        const data = await apiFetch<{ promos: Record<string, string> }>(url, {
+          ttl: 120_000,
+        });
+        const versions = Object.entries(data.promos)
+          .filter(([key]) => key.startsWith(`${mcVersion}-`))
+          .map(([, value]) => value);
+        if (versions.length) return versions;
+      } else {
+        const data = await apiFetch<Array<{ version: string }>>(url, { ttl: 120_000 });
+        const versions = data.map((entry) => entry.version);
+        if (versions.length) return versions;
+      }
+    } catch {
+      // Intentar siguiente mirror.
+    }
+  }
+
+  return [];
 };
 
 const loadNeoForgeVersions = async (mcVersion: string) => {
-  const url = `https://bmclapi2.bangbang93.com/neoforge/${mcVersion}`;
-  const data = await apiFetch<Array<{ version: string }>>(url, { ttl: 120_000 });
-  return data.map((entry) => entry.version);
+  const mirrors = [
+    `https://bmclapi2.bangbang93.com/neoforge/${mcVersion}`,
+    `https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge`,
+  ];
+
+  for (const url of mirrors) {
+    try {
+      if (url.includes("maven.neoforged.net")) {
+        const data = await apiFetch<string[]>(url, { ttl: 120_000 });
+        const versions = data.filter((entry) => entry.startsWith(mcVersion));
+        if (versions.length) return versions;
+      } else {
+        const data = await apiFetch<Array<{ version: string }>>(url, { ttl: 120_000 });
+        const versions = data.map((entry) => entry.version);
+        if (versions.length) return versions;
+      }
+    } catch {
+      // Intentar siguiente mirror.
+    }
+  }
+
+  return [];
 };
 
 export const fetchLoaderVersions = async (
