@@ -559,6 +559,11 @@ async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<
     })
 }
 
+#[command]
+async fn force_init_database(app: tauri::AppHandle) -> Result<(), String> {
+    init_database(&app)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -579,9 +584,11 @@ pub fn run() {
             manage_modpack
         ])
         .setup(|app| {
-            if let Err(error) = init_database(app.handle()) {
-                eprintln!("Error al inicializar la base de datos: {error}");
-            }
+            tauri::async_runtime::block_on(async {
+                if let Err(error) = force_init_database(app.handle().clone()).await {
+                    eprintln!("Error al forzar la inicialización de la base de datos: {error}");
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())
