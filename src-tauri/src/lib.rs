@@ -748,6 +748,33 @@ async fn bootstrap_instance_runtime(instance_root: &Path, version: &str) -> Resu
     Ok(())
 }
 
+fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
+    fs::create_dir_all(instance_root.join("mods"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta mods: {error}"))?;
+    fs::create_dir_all(instance_root.join("config"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta config: {error}"))?;
+    fs::create_dir_all(instance_root.join("logs"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta logs: {error}"))?;
+    fs::create_dir_all(instance_root.join("resourcepacks"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta resourcepacks: {error}"))?;
+    fs::create_dir_all(instance_root.join("shaderpacks"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta shaderpacks: {error}"))?;
+    Ok(())
+}
+
+fn read_instance_version(app: &tauri::AppHandle, instance_id: &str) -> Result<String, String> {
+    let path = database_path(app)?;
+    let conn = Connection::open(path)
+        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+
+    conn.query_row(
+        "SELECT version FROM instances WHERE id = ?1",
+        params![instance_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|error| format!("No se pudo obtener la versión de la instancia: {error}"))
+}
+
 #[command]
 async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Result<(), String> {
     let path = database_path(&app)?;
@@ -760,16 +787,7 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
 
     let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
-    fs::create_dir_all(instance_root.join("mods"))
-        .map_err(|error| format!("No se pudo crear la carpeta mods: {error}"))?;
-    fs::create_dir_all(instance_root.join("config"))
-        .map_err(|error| format!("No se pudo crear la carpeta config: {error}"))?;
-    fs::create_dir_all(instance_root.join("logs"))
-        .map_err(|error| format!("No se pudo crear la carpeta logs: {error}"))?;
-    fs::create_dir_all(instance_root.join("resourcepacks"))
-        .map_err(|error| format!("No se pudo crear la carpeta resourcepacks: {error}"))?;
-    fs::create_dir_all(instance_root.join("shaderpacks"))
-        .map_err(|error| format!("No se pudo crear la carpeta shaderpacks: {error}"))?;
+    ensure_instance_layout(&instance_root)?;
 
     bootstrap_instance_runtime(&instance_root, &instance.version).await?;
 
@@ -793,12 +811,29 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
 #[command]
 async fn repair_instance(app: tauri::AppHandle, instance_id: String) -> Result<(), String> {
     let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
-    fs::create_dir_all(instance_root.join("mods"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta mods: {error}"))?;
-    fs::create_dir_all(instance_root.join("config"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta config: {error}"))?;
-    fs::create_dir_all(instance_root.join("logs"))
-        .map_err(|error| format!("No se pudo asegurar la carpeta logs: {error}"))?;
+
+    ensure_instance_layout(&instance_root)?;
+
+    let version = read_instance_version(&app, &instance_id)?;
+    bootstrap_instance_runtime(&instance_root, &version).await?;
+
+    let launch_command = instance_root.join("launch-command.txt");
+    if !launch_command.exists() {
+        let runtime_jar = instance_root
+            .join(".fruti-runtime")
+            .join(format!("minecraft-{version}.jar"));
+
+        if runtime_jar.exists() {
+            let launch_line = format!(
+                "java -jar '{}' --gameDir '{}'",
+                runtime_jar.display(),
+                instance_root.display()
+            );
+            fs::write(&launch_command, format!("{launch_line}\n"))
+                .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
+        }
+    }
+
     Ok(())
 }
 
