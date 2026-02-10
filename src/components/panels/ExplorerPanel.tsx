@@ -76,7 +76,23 @@ export const ExplorerPanel = () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchExplorerItems(selectedCategory);
+        const effectiveLoader =
+          loaderFilter !== "Todos"
+            ? loaderFilter
+            : forkFilter !== "Todos"
+              ? forkFilter
+              : undefined;
+        const data = await fetchExplorerItems(selectedCategory, {
+          limit: 36,
+          loader: effectiveLoader,
+          gameVersion: versionFilter !== "Todas" ? versionFilter : undefined,
+          sort:
+            sortFilter === "downloads"
+              ? "downloads"
+              : sortFilter === "recent"
+                ? "recent"
+                : "popular",
+        });
         if (isActive) {
           setItems(data);
         }
@@ -100,7 +116,7 @@ export const ExplorerPanel = () => {
     return () => {
       isActive = false;
     };
-  }, [selectedCategory]);
+  }, [forkFilter, loaderFilter, selectedCategory, sortFilter, versionFilter]);
 
   const parseDownloads = (value: string) => {
     const match = value.replace(",", ".").match(/([\d.]+)\s*([kKmM])?/);
@@ -293,7 +309,13 @@ export const ExplorerPanel = () => {
             {filteredItems.length ? (
               filteredItems.map((item) => (
                 <article key={item.id} className="explorer-item">
-                  <div className="explorer-item__icon" />
+                  <div className="explorer-item__icon">
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.name} loading="lazy" />
+                    ) : (
+                      <span>{item.name.slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
                   <div className="explorer-item__info">
                     <h4>{item.name}</h4>
                     <p>

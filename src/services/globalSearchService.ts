@@ -7,6 +7,7 @@ export interface GlobalSearchSuggestion {
   description: string;
   source: string;
   url?: string;
+  imageUrl?: string;
 }
 
 const normalize = (value: string) => value.toLowerCase().trim();
@@ -18,27 +19,38 @@ export const fetchGlobalSearchSuggestions = async (
   if (query.length < 2) {
     return [];
   }
+  const searchTerm = term.trim();
 
   const tasks = await Promise.allSettled([
-    fetchExplorerItems("Mods"),
-    fetchExplorerItems("Modpacks"),
-    fetchExplorerItems("Worlds"),
+    fetchExplorerItems("Mods", { query: searchTerm, limit: 10, sort: "downloads" }),
+    fetchExplorerItems("Modpacks", {
+      query: searchTerm,
+      limit: 10,
+      sort: "downloads",
+    }),
+    fetchExplorerItems("Worlds", { query: searchTerm, limit: 8, sort: "recent" }),
+    fetchExplorerItems("Resource Packs", {
+      query: searchTerm,
+      limit: 6,
+      sort: "recent",
+    }),
     fetchServerListings(),
   ]);
 
-  const [mods, modpacks, worlds, servers] = tasks.map((task) =>
+  const [mods, modpacks, worlds, resources, servers] = tasks.map((task) =>
     task.status === "fulfilled" ? task.value : [],
   );
 
-  const explorerSuggestions = [...mods, ...modpacks, ...worlds]
+  const explorerSuggestions = [...mods, ...modpacks, ...worlds, ...resources]
     .filter((item) => normalize(item.name).includes(query))
-    .slice(0, 6)
+    .slice(0, 10)
     .map((item) => ({
       id: item.id,
       label: item.name,
       description: `${item.type} · ${item.source}`,
       source: item.source,
       url: item.url,
+      imageUrl: item.imageUrl,
     }));
 
   const serverSuggestions = servers

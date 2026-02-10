@@ -1,7 +1,7 @@
 const cache = new Map<string, { value: unknown; expiresAt: number }>();
-let lastRequest = 0;
+const hostLimits = new Map<string, number>();
 
-const RATE_LIMIT_MS = 400;
+const RATE_LIMIT_MS = 160;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -34,10 +34,12 @@ export const apiFetch = async <T>(
   }
 
   const now = Date.now();
+  const host = new URL(url).host;
+  const lastRequest = hostLimits.get(host) ?? 0;
   if (now - lastRequest < RATE_LIMIT_MS) {
     await wait(RATE_LIMIT_MS - (now - lastRequest));
   }
-  lastRequest = Date.now();
+  hostLimits.set(host, Date.now());
 
   const response = await fetch(url, init);
   if (!response.ok) {

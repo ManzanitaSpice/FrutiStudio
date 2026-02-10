@@ -17,6 +17,7 @@ export interface CurseforgeModSummary {
   summary?: string;
   downloadCount?: number;
   websiteUrl?: string;
+  logoUrl?: string;
 }
 
 const mapMod = (item: Record<string, unknown>): CurseforgeModSummary => ({
@@ -27,6 +28,11 @@ const mapMod = (item: Record<string, unknown>): CurseforgeModSummary => ({
   websiteUrl: item.links && typeof item.links === "object"
     ? (item.links as { websiteUrl?: string }).websiteUrl
     : undefined,
+  logoUrl:
+    item.logo && typeof item.logo === "object"
+      ? ((item.logo as { thumbnailUrl?: string }).thumbnailUrl ??
+          (item.logo as { url?: string }).url)
+      : undefined,
 });
 
 export const searchCurseforge = async ({

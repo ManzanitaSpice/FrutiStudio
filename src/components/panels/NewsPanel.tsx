@@ -9,6 +9,7 @@ export const NewsPanel = () => {
   const [news, setNews] = useState<NewsOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState("Todos");
 
   useEffect(() => {
     let isActive = true;
@@ -48,6 +49,35 @@ export const NewsPanel = () => {
   const carousels = news?.carousels ?? [];
   const categories = news?.categories ?? [];
   const warnings = news?.warnings ?? [];
+  const allCategories = ["Todos", ...categories];
+
+  const normalizeCategory = (value?: string) =>
+    value?.toLowerCase().replace(/\s+/g, "") ?? "";
+  const matchesCategory = (value?: string) => {
+    if (activeCategory === "Todos") {
+      return true;
+    }
+    return (
+      normalizeCategory(value).includes(normalizeCategory(activeCategory)) ||
+      normalizeCategory(activeCategory).includes(normalizeCategory(value))
+    );
+  };
+
+  const filteredFeatured = featuredItems.filter((item) =>
+    matchesCategory(item.category),
+  );
+  const filteredTrending = trendingItems.filter((item) =>
+    matchesCategory(item.category),
+  );
+  const filteredLatest = latestItems.filter((item) =>
+    matchesCategory(item.category),
+  );
+  const filteredCarousels = carousels
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => matchesCategory(item.category)),
+    }))
+    .filter((section) => section.items.length > 0);
 
   return (
     <section className="panel-view panel-view--news">
@@ -73,11 +103,34 @@ export const NewsPanel = () => {
         </div>
       ) : null}
 
-      {featuredItems.length ? (
+      {allCategories.length ? (
+        <div className="news-category-bar">
+          {allCategories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              onClick={() => setActiveCategory(category)}
+              className={
+                activeCategory === category
+                  ? "news-category-bar__button news-category-bar__button--active"
+                  : "news-category-bar__button"
+              }
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {filteredFeatured.length ? (
         <div className="news-hero news-hero--carousel">
-          {featuredItems.map((item) => (
+          {filteredFeatured.map((item) => (
             <article key={item.id} className="news-hero__card">
-              <div className="news-hero__media" />
+              <div className="news-hero__media">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt={item.title} loading="lazy" />
+                ) : null}
+              </div>
               <div className="news-hero__content">
                 <span className="news-hero__subtitle">{item.subtitle}</span>
                 <h3>{item.title}</h3>
@@ -102,7 +155,7 @@ export const NewsPanel = () => {
         </div>
       )}
 
-      {carousels.map((section) => (
+      {filteredCarousels.map((section) => (
         <div key={section.id} className="news-section">
           <div className="news-section__header">
             <h3>{section.title}</h3>
@@ -112,7 +165,13 @@ export const NewsPanel = () => {
             <div className="news-carousel__track">
               {section.items.map((item) => (
                 <article key={item.id} className="news-carousel__card">
-                  <div className="news-carousel__icon" />
+                  <div className="news-carousel__icon">
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.title} loading="lazy" />
+                    ) : (
+                      <span>{item.title.slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
                   <div>
                     <h4>{item.title}</h4>
                     <p>
@@ -131,7 +190,7 @@ export const NewsPanel = () => {
         </div>
       ))}
 
-      {trendingItems.length ? (
+      {filteredTrending.length ? (
         <div className="news-section">
           <div className="news-section__header">
             <h3>En tendencia ahora</h3>
@@ -139,12 +198,18 @@ export const NewsPanel = () => {
           </div>
           <div className="news-carousel">
             <div className="news-carousel__track">
-              {[...trendingItems, ...trendingItems].map((item, index) => (
+              {[...filteredTrending, ...filteredTrending].map((item, index) => (
                 <article
                   key={`${item.id}-${index}`}
                   className="news-carousel__card"
                 >
-                  <div className="news-carousel__icon" />
+                  <div className="news-carousel__icon">
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.title} loading="lazy" />
+                    ) : (
+                      <span>{item.title.slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
                   <div>
                     <h4>{item.title}</h4>
                     <p>
@@ -171,7 +236,12 @@ export const NewsPanel = () => {
           </div>
           <div className="news-section__grid">
             {categories.map((category) => (
-              <button key={category} type="button" className="news-category">
+              <button
+                key={category}
+                type="button"
+                className="news-category"
+                onClick={() => setActiveCategory(category)}
+              >
                 {category}
               </button>
             ))}
@@ -179,16 +249,22 @@ export const NewsPanel = () => {
         </div>
       ) : null}
 
-      {latestItems.length ? (
+      {filteredLatest.length ? (
         <div className="news-section">
           <div className="news-section__header">
             <h3>Últimos lanzamientos</h3>
             <button type="button">Actualizar</button>
           </div>
           <div className="news-latest">
-            {latestItems.map((item) => (
+            {filteredLatest.map((item) => (
               <article key={item.id} className="news-latest__card">
-                <div className="news-latest__icon" />
+                <div className="news-latest__icon">
+                  {item.imageUrl ? (
+                    <img src={item.imageUrl} alt={item.name} loading="lazy" />
+                  ) : (
+                    <span>{item.name.slice(0, 2).toUpperCase()}</span>
+                  )}
+                </div>
                 <div>
                   <h4>{item.name}</h4>
                   <p>
