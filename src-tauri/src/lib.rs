@@ -12,6 +12,7 @@ use fs2::available_space;
 use once_cell::sync::Lazy;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -59,7 +60,6 @@ struct SelectFolderResult {
     path: Option<String>,
     error: Option<String>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,13 +201,18 @@ fn murmurhash2(data: &[u8]) -> u32 {
 
 fn curseforge_headers(api_key: &str) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
-    let key = HeaderValue::from_str(api_key).map_err(|error| format!("API key inválida: {error}"))?;
+    let key =
+        HeaderValue::from_str(api_key).map_err(|error| format!("API key inválida: {error}"))?;
     headers.insert("x-api-key", key);
     headers.insert("content-type", HeaderValue::from_static("application/json"));
     Ok(headers)
 }
 
-async fn fetch_mod_name_and_site(client: &reqwest::Client, headers: &HeaderMap, mod_id: u32) -> (Option<String>, Option<String>) {
+async fn fetch_mod_name_and_site(
+    client: &reqwest::Client,
+    headers: &HeaderMap,
+    mod_id: u32,
+) -> (Option<String>, Option<String>) {
     let response = client
         .get(format!("https://api.curseforge.com/v1/mods/{mod_id}"))
         .headers(headers.clone())
@@ -221,7 +226,12 @@ async fn fetch_mod_name_and_site(client: &reqwest::Client, headers: &HeaderMap, 
         }
     }
 
-    (None, Some(format!("https://www.curseforge.com/minecraft/mc-mods/{mod_id}")))
+    (
+        None,
+        Some(format!(
+            "https://www.curseforge.com/minecraft/mc-mods/{mod_id}"
+        )),
+    )
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -653,18 +663,29 @@ async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<
 }
 
 #[command]
-async fn curseforge_scan_fingerprints(mods_dir: String, api_key: String) -> Result<FingerprintScanResult, String> {
+async fn curseforge_scan_fingerprints(
+    mods_dir: String,
+    api_key: String,
+) -> Result<FingerprintScanResult, String> {
     let mods_path = Path::new(&mods_dir);
     if !mods_path.exists() || !mods_path.is_dir() {
         return Err("La carpeta de mods no existe o no es válida.".to_string());
     }
 
     let mut local_files = Vec::new();
-    for entry in fs::read_dir(mods_path).map_err(|error| format!("No se pudo leer carpeta de mods: {error}"))? {
+    for entry in fs::read_dir(mods_path)
+        .map_err(|error| format!("No se pudo leer carpeta de mods: {error}"))?
+    {
         let entry = entry.map_err(|error| format!("Entrada inválida: {error}"))?;
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.eq_ignore_ascii_case("jar")).unwrap_or(false) {
-            let bytes = fs::read(&path).map_err(|error| format!("No se pudo leer archivo {}: {error}", path.display()))?;
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("jar"))
+            .unwrap_or(false)
+        {
+            let bytes = fs::read(&path)
+                .map_err(|error| format!("No se pudo leer archivo {}: {error}", path.display()))?;
             let fingerprint = murmurhash2(&bytes);
             local_files.push((path, fingerprint));
         }
@@ -706,7 +727,11 @@ async fn curseforge_scan_fingerprints(mods_dir: String, api_key: String) -> Resu
             let (mod_name, _) = fetch_mod_name_and_site(&client, &headers, matched.id).await;
             files.push(FingerprintFileResult {
                 path: path.display().to_string(),
-                file_name: path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_string(),
+                file_name: path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
                 fingerprint,
                 matched: true,
                 mod_id: Some(matched.id),
@@ -716,7 +741,11 @@ async fn curseforge_scan_fingerprints(mods_dir: String, api_key: String) -> Resu
         } else {
             files.push(FingerprintFileResult {
                 path: path.display().to_string(),
-                file_name: path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_string(),
+                file_name: path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
                 fingerprint,
                 matched: false,
                 mod_id: None,
@@ -733,12 +762,18 @@ async fn curseforge_scan_fingerprints(mods_dir: String, api_key: String) -> Resu
 }
 
 #[command]
-async fn curseforge_resolve_download(mod_id: u32, file_id: u32, api_key: String) -> Result<CurseforgeDownloadResolution, String> {
+async fn curseforge_resolve_download(
+    mod_id: u32,
+    file_id: u32,
+    api_key: String,
+) -> Result<CurseforgeDownloadResolution, String> {
     let headers = curseforge_headers(&api_key)?;
     let client = reqwest::Client::new();
 
     let file_response = client
-        .get(format!("https://api.curseforge.com/v1/mods/{mod_id}/files/{file_id}"))
+        .get(format!(
+            "https://api.curseforge.com/v1/mods/{mod_id}/files/{file_id}"
+        ))
         .headers(headers.clone())
         .send()
         .await
@@ -756,13 +791,20 @@ async fn curseforge_resolve_download(mod_id: u32, file_id: u32, api_key: String)
         .map_err(|error| format!("Respuesta inválida al consultar archivo: {error}"))?;
 
     let (mod_name, website_url) = fetch_mod_name_and_site(&client, &headers, mod_id).await;
-    let can_auto_download = file_envelope.data.is_available.unwrap_or(file_envelope.data.download_url.is_some())
+    let can_auto_download = file_envelope
+        .data
+        .is_available
+        .unwrap_or(file_envelope.data.download_url.is_some())
         && file_envelope.data.download_url.is_some();
 
     let reason = if can_auto_download {
-        format!("Descarga permitida por API para {}", mod_name.unwrap_or_else(|| format!("mod {mod_id}")))
+        format!(
+            "Descarga permitida por API para {}",
+            mod_name.unwrap_or_else(|| format!("mod {mod_id}"))
+        )
     } else {
-        "El archivo no permite descarga automática por API; usar descarga manual en navegador".to_string()
+        "El archivo no permite descarga automática por API; usar descarga manual en navegador"
+            .to_string()
     };
 
     Ok(CurseforgeDownloadResolution {
@@ -773,6 +815,49 @@ async fn curseforge_resolve_download(mod_id: u32, file_id: u32, api_key: String)
         website_url,
         reason,
     })
+}
+
+#[command]
+async fn curseforge_v1_get(
+    path: String,
+    query: Option<std::collections::HashMap<String, String>>,
+    api_key: String,
+) -> Result<Value, String> {
+    let normalized = path.trim();
+    if normalized.is_empty() || !normalized.starts_with('/') {
+        return Err(
+            "Ruta inválida para CurseForge API. Usa formato /v1/... interno como /mods/search"
+                .to_string(),
+        );
+    }
+
+    let headers = curseforge_headers(&api_key)?;
+    let client = reqwest::Client::new();
+    let url = format!("https://api.curseforge.com/v1{normalized}");
+    let request = client.get(url).headers(headers);
+    let request = if let Some(query_params) = query {
+        request.query(&query_params)
+    } else {
+        request
+    };
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("No se pudo consultar CurseForge: {error}"))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("No se pudo leer respuesta de CurseForge: {error}"))?;
+
+    if !status.is_success() {
+        return Err(format!("CurseForge respondió {status}: {body}"));
+    }
+
+    serde_json::from_str::<Value>(&body)
+        .map_err(|error| format!("Respuesta JSON inválida de CurseForge: {error}"))
 }
 
 pub fn run() {
@@ -790,7 +875,8 @@ pub fn run() {
             create_instance,
             manage_modpack,
             curseforge_scan_fingerprints,
-            curseforge_resolve_download
+            curseforge_resolve_download,
+            curseforge_v1_get
         ])
         .setup(|app| {
             if let Err(error) = init_database(app.handle()) {
@@ -812,7 +898,6 @@ mod tests {
         let migrated = migrate_config(config);
         assert_eq!(migrated.version, Some(1));
     }
-
 
     #[test]
     fn murmurhash2_is_stable() {
