@@ -188,8 +188,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
         <div>
           <h2>Explorador unificado</h2>
           <p>
-            Catálogo completo de CurseForge + Modrinth con filtros reales, paginación y
-            metadata lista para instalar.
+            Catálogo unificado con filtros avanzados y resultados listos para instalar.
           </p>
         </div>
       </div>

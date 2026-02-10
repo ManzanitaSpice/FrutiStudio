@@ -53,20 +53,36 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
   const categories: ExplorerCategory[] = ["Modpacks", "Mods", "Shaders", "Resource Packs", "Data Packs", "Addons"];
 
   const settled = await Promise.allSettled(
-    categories.map((category) =>
-      fetchUnifiedCatalog({
-        category,
-        sort: "popular",
-        page: 0,
-        pageSize: 8,
-        platform: "all",
-      }),
+    categories.flatMap((category) =>
+      (["modrinth", "curseforge"] as const).map((platform) =>
+        fetchUnifiedCatalog({
+          category,
+          sort: "popular",
+          page: 0,
+          pageSize: 8,
+          platform,
+        }),
+      ),
     ),
   );
 
-  const catalogItems = settled
+  const mixed = settled
     .filter((result): result is PromiseFulfilledResult<ExplorerResult> => result.status === "fulfilled")
-    .flatMap((result) => result.value.items);
+    .map((result) => result.value.items);
+
+  const maxRows = Math.max(0, ...mixed.map((items) => items.length));
+  const catalogItems: ExplorerItem[] = [];
+  const unique = new Set<string>();
+  for (let index = 0; index < maxRows; index += 1) {
+    for (const sourceItems of mixed) {
+      const item = sourceItems[index];
+      if (!item) continue;
+      const dedupeKey = `${item.name.toLowerCase()}::${item.type.toLowerCase()}`;
+      if (unique.has(dedupeKey)) continue;
+      unique.add(dedupeKey);
+      catalogItems.push(item);
+    }
+  }
 
   if (settled.some((result) => result.status === "rejected")) {
     warnings.push("Se cargó parcialmente el feed de novedades por límites de API.");

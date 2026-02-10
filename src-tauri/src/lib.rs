@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -47,6 +48,13 @@ struct InstanceRecord {
     id: String,
     name: String,
     version: String,
+}
+
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchInstanceResult {
+    pid: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -292,9 +300,23 @@ const MAX_CONFIG_BACKUPS: usize = 12;
 const MAX_BACKUP_AGE_DAYS: u64 = 14;
 
 fn launcher_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map_err(|error| format!("No se pudo obtener la carpeta del launcher: {error}"))
+    let config_path = config_path(app)?;
+    if config_path.exists() {
+        if let Ok(raw) = fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str::<AppConfig>(&raw) {
+                if let Some(base_dir) = config.base_dir {
+                    if !base_dir.trim().is_empty() {
+                        return Ok(PathBuf::from(base_dir));
+                    }
+                }
+            }
+        }
+    }
+    let base = app
+        .path()
+        .data_dir()
+        .map_err(|error| format!("No se pudo obtener la carpeta del launcher: {error}"))?;
+    Ok(base.join("FrutiLauncher"))
 }
 
 fn ensure_launcher_layout(app: &tauri::AppHandle) -> Result<(), String> {
@@ -530,11 +552,7 @@ async fn append_log(
     scope: String,
     lines: Vec<String>,
 ) -> Result<(), String> {
-    let logs_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| format!("No se pudo obtener el directorio de config: {error}"))?
-        .join("logs");
+    let logs_dir = launcher_root(&app)?.join("logs");
 
     fs::create_dir_all(&logs_dir)
         .map_err(|error| format!("No se pudo crear carpeta de logs: {error}"))?;
@@ -617,7 +635,46 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
         params![instance.id, instance.name, instance.version],
     )
     .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
+
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
+    fs::create_dir_all(instance_root.join("mods"))
+        .map_err(|error| format!("No se pudo crear la carpeta de la instancia: {error}"))?;
+    fs::create_dir_all(instance_root.join("config"))
+        .map_err(|error| format!("No se pudo crear la carpeta de configuración: {error}"))?;
     Ok(())
+}
+
+#[command]
+async fn launch_instance(app: tauri::AppHandle, instance_id: String) -> Result<LaunchInstanceResult, String> {
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+    if !instance_root.exists() {
+        return Err("La carpeta de la instancia no existe. Crea la instancia nuevamente.".to_string());
+    }
+
+    let launch_script = instance_root.join("start-instance.sh");
+    if !launch_script.exists() {
+        let script = "#!/usr/bin/env bash\necho '[FrutiLauncher] Iniciando instancia'\nif command -v java >/dev/null 2>&1; then\n  java -version\nfi\n";
+        fs::write(&launch_script, script)
+            .map_err(|error| format!("No se pudo crear el script de arranque: {error}"))?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&launch_script) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(&launch_script, perms);
+        }
+    }
+
+    let child = Command::new("bash")
+        .arg(&launch_script)
+        .current_dir(&instance_root)
+        .spawn()
+        .map_err(|error| format!("No se pudo iniciar Minecraft para esta instancia: {error}"))?;
+
+    Ok(LaunchInstanceResult { pid: child.id() })
 }
 
 #[command]
@@ -878,6 +935,7 @@ pub fn run() {
             append_log,
             list_instances,
             create_instance,
+            launch_instance,
             manage_modpack,
             curseforge_scan_fingerprints,
             curseforge_resolve_download,

@@ -11,7 +11,7 @@ import {
   type MinecraftVersion,
   fetchMinecraftVersions,
 } from "../../services/minecraftVersionService";
-import { createInstance } from "../../services/instanceService";
+import { createInstance, launchInstance } from "../../services/instanceService";
 import {
   type ExternalInstance,
   fetchExternalInstances,
@@ -106,6 +106,10 @@ export const InstancePanel = ({
   >("idle");
   const [creatorError, setCreatorError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [launchStatus, setLaunchStatus] = useState<string | null>(null);
+  const [editorName, setEditorName] = useState("");
+  const [editorGroup, setEditorGroup] = useState("");
+  const [editorMemory, setEditorMemory] = useState("4 GB");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -151,6 +155,11 @@ export const InstancePanel = ({
   }, [instances]);
 
   const openEditor = () => {
+    if (selectedInstance) {
+      setEditorName(selectedInstance.name);
+      setEditorGroup(selectedInstance.group);
+      setEditorMemory(selectedInstance.memory);
+    }
     setEditorOpen(true);
     setContextMenu(null);
   };
@@ -172,21 +181,31 @@ export const InstancePanel = ({
     return [
       {
         id: "launch",
-        label: "▶ Iniciar",
+        label: "Iniciar",
         disabled: selectedInstance.isRunning,
-        action: () =>
-          onUpdateInstance(selectedInstance.id, {
-            isRunning: true,
-            processId: Date.now(),
-            status: "ready",
-            isDownloading: false,
-            downloadProgress: 100,
-            downloadStage: "finalizando",
-          }),
+        action: async () => {
+          try {
+            setLaunchStatus("Iniciando Minecraft...");
+            const result = await launchInstance(selectedInstance.id);
+            onUpdateInstance(selectedInstance.id, {
+              isRunning: true,
+              processId: result.pid,
+              status: "ready",
+              isDownloading: false,
+              downloadProgress: 100,
+              downloadStage: "finalizando",
+              lastPlayed: new Date().toISOString(),
+            });
+            setLaunchStatus("Instancia iniciada correctamente.");
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "No se pudo iniciar la instancia.";
+            setLaunchStatus(message);
+          }
+        },
       },
       {
         id: "stop",
-        label: "⏹ Forzar cierre",
+        label: "Detener",
         disabled: !selectedInstance.isRunning || !hasPid,
         action: () =>
           onUpdateInstance(selectedInstance.id, {
@@ -197,13 +216,13 @@ export const InstancePanel = ({
       },
       {
         id: "edit",
-        label: "✏ Editar",
+        label: "Editar",
         disabled: selectedInstance.isRunning,
         action: openEditor,
       },
       {
         id: "group",
-        label: "🔁 Cambiar grupo",
+        label: "Cambiar grupo",
         disabled: false,
         action: () =>
           onUpdateInstance(selectedInstance.id, {
@@ -212,20 +231,20 @@ export const InstancePanel = ({
       },
       {
         id: "folder",
-        label: "📁 Carpeta",
+        label: "Carpeta",
         disabled: false,
         action: () => window.alert(`Abrir carpeta de ${selectedInstance.name}`),
       },
       {
         id: "export",
-        label: "📦 Exportar",
+        label: "Exportar",
         disabled: false,
         action: () =>
           window.alert(`Exportar ${selectedInstance.name} (mods/config/manifest.json)`),
       },
       {
         id: "copy",
-        label: "📋 Copiar",
+        label: "Duplicar",
         disabled: false,
         action: () =>
           onCreateInstance({
@@ -239,13 +258,13 @@ export const InstancePanel = ({
       },
       {
         id: "delete",
-        label: "🗑 Borrar",
+        label: "Eliminar",
         disabled: false,
         action: () => setDeleteConfirmId(selectedInstance.id),
       },
       {
         id: "shortcut",
-        label: "🔗 Crear atajo",
+        label: "Crear atajo",
         disabled: false,
         action: () => window.alert(`Crear atajo con --instanceId=${selectedInstance.id}`),
       },
@@ -500,6 +519,39 @@ export const InstancePanel = ({
               <span>{row.version}</span>
             </div>
           ))}
+        </div>
+      );
+    }
+
+    if (activeEditorSection === "Configuración" && selectedInstance) {
+      return (
+        <div className="instance-editor__form">
+          <label>
+            Nombre
+            <input value={editorName} onChange={(event) => setEditorName(event.target.value)} />
+          </label>
+          <label>
+            Grupo
+            <input value={editorGroup} onChange={(event) => setEditorGroup(event.target.value)} />
+          </label>
+          <label>
+            Memoria
+            <input value={editorMemory} onChange={(event) => setEditorMemory(event.target.value)} placeholder="4 GB" />
+          </label>
+          <div className="instance-editor__actions">
+            <button
+              type="button"
+              onClick={() =>
+                onUpdateInstance(selectedInstance.id, {
+                  name: editorName.trim() || selectedInstance.name,
+                  group: editorGroup.trim() || "No agrupado",
+                  memory: editorMemory.trim() || "4 GB",
+                })
+              }
+            >
+              Guardar cambios
+            </button>
+          </div>
         </div>
       );
     }
@@ -993,15 +1045,18 @@ export const InstancePanel = ({
               <div className="instance-menu__scroll">
                 <div className="instance-menu__section">
                   <h4>Acciones rápidas</h4>
+                  {launchStatus ? <p className="instance-menu__launch-status">{launchStatus}</p> : null}
                   <div className="instance-menu__actions instance-menu__actions--grid">
                     {quickActions.map((action) => (
                       <button
                         key={action.id}
                         type="button"
-                        onClick={action.action}
+                        onClick={() => void action.action()}
                         disabled={action.disabled}
+                        className="instance-menu__action-btn"
                       >
-                        {action.label}
+                        <span className="instance-menu__action-icon" aria-hidden="true">•</span>
+                        <span>{action.label}</span>
                       </button>
                     ))}
                     <button type="button" onClick={openCreator}>

@@ -18,6 +18,16 @@ export const NewsPanel = () => {
   const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
   const [carouselIndex, setCarouselIndex] = useState(0);
 
+  const nextCarousel = () => {
+    if (!popularModpacks.length) return;
+    setCarouselIndex((prev) => (prev + 1) % popularModpacks.length);
+  };
+
+  const previousCarousel = () => {
+    if (!popularModpacks.length) return;
+    setCarouselIndex((prev) => (prev - 1 + popularModpacks.length) % popularModpacks.length);
+  };
+
   useEffect(() => {
     let isActive = true;
     const load = async () => {
@@ -107,8 +117,8 @@ export const NewsPanel = () => {
       return;
     }
     const timer = window.setInterval(() => {
-      setCarouselIndex((prev) => (prev + 1) % popularModpacks.length);
-    }, 4500);
+      nextCarousel();
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [popularModpacks]);
 
@@ -118,8 +128,7 @@ export const NewsPanel = () => {
         <div>
           <h2>Novedades</h2>
           <p>
-            Explorá modpacks, mods y recursos populares con acceso directo a detalle e
-            instalación.
+            Novedades seleccionadas y combinadas de Modrinth + CurseForge.
           </p>
         </div>
       </div>
@@ -143,6 +152,14 @@ export const NewsPanel = () => {
             <span className="news-section__meta">Carrusel automático</span>
           </div>
           <div className="news-carousel">
+            <button
+              type="button"
+              className="news-carousel__nav news-carousel__nav--prev"
+              onClick={previousCarousel}
+              aria-label="Anterior"
+            >
+              ‹
+            </button>
             {popularModpacks.map((item, index) => (
               <article
                 key={item.id}
@@ -184,6 +201,14 @@ export const NewsPanel = () => {
                 </div>
               </article>
             ))}
+            <button
+              type="button"
+              className="news-carousel__nav news-carousel__nav--next"
+              onClick={nextCarousel}
+              aria-label="Siguiente"
+            >
+              ›
+            </button>
           </div>
           <div
             className="news-carousel__dots"

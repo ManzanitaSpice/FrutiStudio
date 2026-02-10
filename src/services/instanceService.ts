@@ -57,3 +57,10 @@ export const createInstance = async (config: Instance) => {
 export const updateInstance = async (_config: Instance) => Promise.resolve();
 
 export const removeInstance = async (_instanceId: string) => Promise.resolve();
+
+
+export const launchInstance = async (instanceId: string) => {
+  return invokeWithHandling<{ pid: number }>("launch_instance", {
+    instanceId,
+  });
+};
