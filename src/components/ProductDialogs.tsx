@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { sanitizeLauncherHtml } from "../utils/sanitizeRichText";
+import { parseAndSanitizeRichText } from "../utils/sanitizeRichText";
 
 import type {
   ExplorerItem,
@@ -59,7 +59,7 @@ export const ProductDetailsDialog = ({
   >("all");
 
   const descriptionHtml = useMemo(
-    () => sanitizeLauncherHtml(details?.body ?? details?.description ?? item.description),
+    () => parseAndSanitizeRichText(details?.body ?? details?.description ?? item.description),
     [details?.body, details?.description, item.description],
   );
 
