@@ -58,6 +58,9 @@ export interface JavaProfile {
   path: string;
   version: string;
   detected: boolean;
+  source?: string;
+  architecture?: string;
+  recommended?: boolean;
 }
 
 export interface LocalInstance {

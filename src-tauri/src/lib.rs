@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -203,6 +203,32 @@ struct MojangVersionDownloads {
 #[derive(Debug, Deserialize)]
 struct MojangDownload {
     url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaRuntime {
+    id: String,
+    name: String,
+    path: String,
+    version: String,
+    major: u32,
+    architecture: String,
+    source: String,
+    recommended: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaResolution {
+    minecraft_version: String,
+    required_major: u32,
+    selected: Option<JavaRuntime>,
+    runtimes: Vec<JavaRuntime>,
+}
+
+struct JavaManager {
+    launcher_root: PathBuf,
 }
 
 fn murmurhash2(data: &[u8]) -> u32 {
@@ -673,57 +699,235 @@ fn shell_escape(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn validate_java_candidate(path: &Path) -> bool {
+fn java_bin_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "javaw.exe"
+    } else {
+        "java"
+    }
+}
+
+fn parse_java_version(output: &str) -> Option<(String, u32)> {
+    let line = output.lines().next()?.trim().to_string();
+    let token = line
+        .split_whitespace()
+        .find(|part| part.starts_with('"') && part.ends_with('"'))?
+        .trim_matches('"')
+        .to_string();
+
+    if let Some(rest) = token.strip_prefix("1.") {
+        let major = rest.split('.').next()?.parse::<u32>().ok()?;
+        return Some((token, major));
+    }
+
+    let major = token.split('.').next()?.parse::<u32>().ok()?;
+    Some((token, major))
+}
+
+fn inspect_java_runtime(path: &Path, source: &str) -> Option<JavaRuntime> {
     if !path.exists() {
-        return false;
+        return None;
     }
 
-    Command::new(path)
-        .arg("-version")
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    let output = Command::new(path).arg("-version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let combined = if stderr.trim().is_empty() {
+        stdout
+    } else {
+        stderr
+    };
+    let (version, major) = parse_java_version(&combined)?;
+
+    let architecture = if combined.to_lowercase().contains("64-bit") {
+        "x64".to_string()
+    } else if combined.to_lowercase().contains("aarch64") {
+        "arm64".to_string()
+    } else {
+        std::env::consts::ARCH.to_string()
+    };
+
+    let runtime_name = path
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .and_then(|name| name.to_str())
+        .unwrap_or("java");
+
+    Some(JavaRuntime {
+        id: format!("{}-{}", source, major),
+        name: format!("Java {major} ({runtime_name})"),
+        path: path.display().to_string(),
+        version,
+        major,
+        architecture,
+        source: source.to_string(),
+        recommended: false,
+    })
 }
 
-fn resolve_java_binary(instance_root: &Path) -> Option<PathBuf> {
-    let mut candidates = Vec::new();
+impl JavaManager {
+    fn new(app: &tauri::AppHandle) -> Result<Self, String> {
+        Ok(Self {
+            launcher_root: launcher_root(app)?,
+        })
+    }
 
-    if let Ok(explicit) = std::env::var("FRUTI_JAVA_PATH") {
-        if !explicit.trim().is_empty() {
-            candidates.push(PathBuf::from(explicit));
+    fn java_runtime_dir(&self) -> PathBuf {
+        self.launcher_root.join("runtime").join("java")
+    }
+
+    fn required_major_for_minecraft(&self, mc_version: &str) -> u32 {
+        let clean = mc_version.trim().trim_start_matches('v');
+        let mut parts = clean.split('.');
+        let major = parts
+            .next()
+            .and_then(|p| p.parse::<u32>().ok())
+            .unwrap_or_default();
+        let minor = parts
+            .next()
+            .and_then(|p| p.parse::<u32>().ok())
+            .unwrap_or_default();
+
+        if major == 1 && minor <= 16 {
+            8
+        } else if major == 1 && minor == 17 {
+            16
+        } else if major == 1 && minor >= 18 {
+            17
+        } else if major > 1 {
+            21
+        } else {
+            17
         }
     }
 
-    if let Ok(java_home) = std::env::var("JAVA_HOME") {
-        if !java_home.trim().is_empty() {
-            candidates.push(PathBuf::from(java_home).join("bin").join("java"));
+    fn detect_installed(&self) -> Vec<JavaRuntime> {
+        let mut runtimes = Vec::new();
+        let mut seen_paths = HashSet::new();
+
+        if let Ok(explicit) = std::env::var("FRUTI_JAVA_PATH") {
+            let path = PathBuf::from(explicit.trim());
+            if let Some(runtime) = inspect_java_runtime(&path, "fruti-env") {
+                seen_paths.insert(runtime.path.clone());
+                runtimes.push(runtime);
+            }
+        }
+
+        let managed_root = self.java_runtime_dir();
+        if let Ok(entries) = fs::read_dir(&managed_root) {
+            for entry in entries.flatten() {
+                let runtime = entry.path();
+                if !runtime.is_dir() {
+                    continue;
+                }
+                let java = runtime.join("bin").join(java_bin_name());
+                if let Some(found) = inspect_java_runtime(&java, "embebido") {
+                    if seen_paths.insert(found.path.clone()) {
+                        runtimes.push(found);
+                    }
+                }
+            }
+        }
+
+        let mut system_candidates = vec![
+            PathBuf::from("/usr/bin/java"),
+            PathBuf::from("/usr/local/bin/java"),
+            PathBuf::from("/opt/homebrew/opt/openjdk/bin/java"),
+        ];
+
+        if cfg!(target_os = "windows") {
+            for root in [
+                "C:/Program Files/Java",
+                "C:/Program Files/Eclipse Adoptium",
+                "C:/Program Files/Adoptium",
+            ] {
+                let base = PathBuf::from(root);
+                if let Ok(entries) = fs::read_dir(base) {
+                    for entry in entries.flatten() {
+                        let java = entry.path().join("bin").join(java_bin_name());
+                        system_candidates.push(java);
+                    }
+                }
+            }
+        }
+
+        if let Ok(java_home) = std::env::var("JAVA_HOME") {
+            let java_home = java_home.trim();
+            if !java_home.is_empty() {
+                system_candidates.push(PathBuf::from(java_home).join("bin").join(java_bin_name()));
+            }
+        }
+
+        for candidate in system_candidates {
+            if let Some(found) = inspect_java_runtime(&candidate, "sistema") {
+                if seen_paths.insert(found.path.clone()) {
+                    runtimes.push(found);
+                }
+            }
+        }
+
+        if command_available("java") {
+            let from_path = PathBuf::from("java");
+            if let Some(found) = inspect_java_runtime(&from_path, "path") {
+                if seen_paths.insert(found.path.clone()) {
+                    runtimes.push(found);
+                }
+            }
+        }
+
+        let mut by_major: HashMap<u32, JavaRuntime> = HashMap::new();
+        for runtime in runtimes {
+            by_major
+                .entry(runtime.major)
+                .and_modify(|current| {
+                    if current.source != "embebido" && runtime.source == "embebido" {
+                        *current = runtime.clone();
+                    }
+                })
+                .or_insert(runtime);
+        }
+
+        let mut deduped: Vec<JavaRuntime> = by_major.into_values().collect();
+        deduped.sort_by_key(|r| r.major);
+        deduped
+    }
+
+    fn resolve_for_minecraft(&self, mc_version: &str) -> JavaResolution {
+        let required_major = self.required_major_for_minecraft(mc_version);
+        let mut runtimes = self.detect_installed();
+
+        let selected_index = runtimes
+            .iter()
+            .position(|runtime| runtime.major == required_major)
+            .or_else(|| {
+                runtimes
+                    .iter()
+                    .position(|runtime| runtime.major > required_major)
+            });
+
+        if let Some(index) = selected_index {
+            runtimes[index].recommended = true;
+        }
+
+        JavaResolution {
+            minecraft_version: mc_version.to_string(),
+            required_major,
+            selected: selected_index.map(|index| runtimes[index].clone()),
+            runtimes,
         }
     }
-
-    candidates.push(
-        instance_root
-            .join(".fruti-runtime")
-            .join("java")
-            .join("bin")
-            .join("java"),
-    );
-    candidates.push(PathBuf::from("/usr/bin/java"));
-    candidates.push(PathBuf::from("/usr/local/bin/java"));
-
-    for candidate in candidates {
-        if validate_java_candidate(&candidate) {
-            return Some(candidate);
-        }
-    }
-
-    if command_available("java") {
-        return Some(PathBuf::from("java"));
-    }
-
-    None
 }
 
-fn build_launch_command(instance_root: &Path, instance: &InstanceRecord) -> Result<String, String> {
+fn build_launch_command(
+    app: &tauri::AppHandle,
+    instance_root: &Path,
+    instance: &InstanceRecord,
+) -> Result<String, String> {
     let loader = instance
         .loader_name
         .as_deref()
@@ -748,12 +952,15 @@ fn build_launch_command(instance_root: &Path, instance: &InstanceRecord) -> Resu
             );
         }
 
-        let Some(java_path) = resolve_java_binary(instance_root) else {
-            return Err(
-                "No se encontró Java. Instala Java 17+ en el sistema o define FRUTI_JAVA_PATH."
-                    .to_string(),
-            );
+        let manager = JavaManager::new(app)?;
+        let resolution = manager.resolve_for_minecraft(version);
+        let Some(runtime) = resolution.selected else {
+            return Err(format!(
+                "No se encontró Java compatible para Minecraft {version}. Requerido Java {}.",
+                resolution.required_major
+            ));
         };
+        let java_path = PathBuf::from(runtime.path);
 
         return Ok(format!(
             "{} -jar {} --gameDir {}",
@@ -787,6 +994,21 @@ fn build_launch_command(instance_root: &Path, instance: &InstanceRecord) -> Resu
         shell_escape(&target),
         shell_escape(&instance_root.to_string_lossy())
     ))
+}
+
+#[command]
+async fn list_java_runtimes(app: tauri::AppHandle) -> Result<Vec<JavaRuntime>, String> {
+    let manager = JavaManager::new(&app)?;
+    Ok(manager.detect_installed())
+}
+
+#[command]
+async fn resolve_java_for_minecraft(
+    app: tauri::AppHandle,
+    minecraft_version: String,
+) -> Result<JavaResolution, String> {
+    let manager = JavaManager::new(&app)?;
+    Ok(manager.resolve_for_minecraft(&minecraft_version))
 }
 
 #[command]
@@ -966,7 +1188,7 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
     bootstrap_instance_runtime(&instance_root, &instance.version).await?;
 
     let launch_command = instance_root.join("launch-command.txt");
-    let launch_line = build_launch_command(&instance_root, &instance)?;
+    let launch_line = build_launch_command(&app, &instance_root, &instance)?;
     fs::write(&launch_command, format!("{launch_line}\n"))
         .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
 
@@ -1310,6 +1532,8 @@ pub fn run() {
             validate_base_dir,
             append_log,
             list_instances,
+            list_java_runtimes,
+            resolve_java_for_minecraft,
             create_instance,
             repair_instance,
             launch_instance,
