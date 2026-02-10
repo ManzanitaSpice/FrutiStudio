@@ -7,8 +7,7 @@ const CURSEFORGE_PROXY_BASES = [
   "https://cfproxy.bmpm.workers.dev/v1",
 ];
 
-const buildHeaders = (apiKey?: string) =>
-  apiKey ? { "x-api-key": apiKey } : undefined;
+const buildHeaders = (apiKey?: string) => (apiKey ? { "x-api-key": apiKey } : undefined);
 
 const isTauriRuntime = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -18,9 +17,7 @@ const requestCurseforgeV1 = async <T>(
   apiKey?: string,
   query?: Record<string, string>,
 ): Promise<T> => {
-  const params = query
-    ? `?${new URLSearchParams(query).toString()}`
-    : "";
+  const params = query ? `?${new URLSearchParams(query).toString()}` : "";
 
   if (isTauriRuntime() && apiKey) {
     return invokeWithHandling<T>("curseforge_v1_get", {
@@ -97,6 +94,16 @@ export const fetchCurseforgeFiles = async (modId: number, apiKey?: string) => {
   return requestCurseforgeV1<{ data: unknown[] }>(`/mods/${modId}/files`, apiKey);
 };
 
+export const fetchCurseforgeFilesByIds = async (fileIds: number[], apiKey?: string) => {
+  if (fileIds.length === 0) {
+    return { data: [] as unknown[] };
+  }
+
+  return requestCurseforgeV1<{ data: unknown[] }>("/mods/files", apiKey, {
+    fileIds: fileIds.join(","),
+  });
+};
+
 export const fetchCurseforgeGameVersions = async (apiKey?: string) => {
   return requestCurseforgeV1<{ data: unknown[] }>("/games/432/gameVersions", apiKey);
 };
@@ -105,10 +112,7 @@ export const fetchCurseforgeModLoaders = async (apiKey?: string) => {
   return requestCurseforgeV1<{ data: unknown[] }>("/games/432/modloaders", apiKey);
 };
 
-export const fetchCurseforgeCategories = async (
-  classId: number,
-  apiKey?: string,
-) => {
+export const fetchCurseforgeCategories = async (classId: number, apiKey?: string) => {
   return requestCurseforgeV1<{ data: unknown[] }>("/categories", apiKey, {
     gameId: "432",
     classId: String(classId),

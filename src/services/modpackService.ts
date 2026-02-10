@@ -1,3 +1,8 @@
+import {
+  resolveCurseforgeManifest,
+  type CurseforgeManifest,
+} from "./curseforgeModpackService";
+
 export interface ModpackInstallRequest {
   id: string;
   name: string;
@@ -6,6 +11,13 @@ export interface ModpackInstallRequest {
 
 export const installModpack = async (_request: ModpackInstallRequest) => {
   return Promise.resolve();
+};
+
+export const installCurseforgeManifest = async (
+  manifest: CurseforgeManifest,
+  apiKey?: string,
+) => {
+  return resolveCurseforgeManifest(manifest, apiKey);
 };
 
 export const removeModpack = async (_modpackId: string) => Promise.resolve();
