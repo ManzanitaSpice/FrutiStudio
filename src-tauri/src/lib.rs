@@ -54,7 +54,6 @@ struct InstanceRecord {
     loader_version: Option<String>,
 }
 
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LaunchInstanceResult {
@@ -663,6 +662,126 @@ fn command_available(command: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn shell_escape(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn validate_java_candidate(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+
+    Command::new(path)
+        .arg("-version")
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn resolve_java_binary(instance_root: &Path) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(explicit) = std::env::var("FRUTI_JAVA_PATH") {
+        if !explicit.trim().is_empty() {
+            candidates.push(PathBuf::from(explicit));
+        }
+    }
+
+    if let Ok(java_home) = std::env::var("JAVA_HOME") {
+        if !java_home.trim().is_empty() {
+            candidates.push(PathBuf::from(java_home).join("bin").join("java"));
+        }
+    }
+
+    candidates.push(
+        instance_root
+            .join(".fruti-runtime")
+            .join("java")
+            .join("bin")
+            .join("java"),
+    );
+    candidates.push(PathBuf::from("/usr/bin/java"));
+    candidates.push(PathBuf::from("/usr/local/bin/java"));
+
+    for candidate in candidates {
+        if validate_java_candidate(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    if command_available("java") {
+        return Some(PathBuf::from("java"));
+    }
+
+    None
+}
+
+fn build_launch_command(instance_root: &Path, instance: &InstanceRecord) -> Result<String, String> {
+    let loader = instance
+        .loader_name
+        .as_deref()
+        .unwrap_or("vanilla")
+        .trim()
+        .to_lowercase();
+    let version = instance.version.trim();
+
+    if version.is_empty() {
+        return Err("La instancia no tiene versión de Minecraft definida.".to_string());
+    }
+
+    if loader == "vanilla" || loader.is_empty() {
+        let runtime_jar = instance_root
+            .join(".fruti-runtime")
+            .join(format!("minecraft-{version}.jar"));
+
+        if !runtime_jar.exists() {
+            return Err(
+                "No se encontró el client.jar local. Repara la instancia para volver a descargar runtime."
+                    .to_string(),
+            );
+        }
+
+        let Some(java_path) = resolve_java_binary(instance_root) else {
+            return Err(
+                "No se encontró Java. Instala Java 17+ en el sistema o define FRUTI_JAVA_PATH."
+                    .to_string(),
+            );
+        };
+
+        return Ok(format!(
+            "{} -jar {} --gameDir {}",
+            shell_escape(&java_path.to_string_lossy()),
+            shell_escape(&runtime_jar.to_string_lossy()),
+            shell_escape(&instance_root.to_string_lossy())
+        ));
+    }
+
+    if !command_available("portablemc") {
+        return Err(
+            "Para instancias con modloader (Forge/Fabric/Quilt/NeoForge) instala portablemc o define start-instance.sh manual."
+                .to_string(),
+        );
+    }
+
+    let mut target = format!("{loader}:{version}");
+    let loader_version = instance
+        .loader_version
+        .as_deref()
+        .unwrap_or("latest")
+        .trim()
+        .to_string();
+
+    if !loader_version.is_empty() && loader_version != "latest" {
+        target = format!("{target}:{loader_version}");
+    }
+
+    Ok(format!(
+        "portablemc start {} --work-dir {}",
+        shell_escape(&target),
+        shell_escape(&instance_root.to_string_lossy())
+    ))
+}
+
 #[command]
 async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, String> {
     let path = database_path(&app)?;
@@ -689,7 +808,6 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
     Ok(instances)
 }
 
-
 async fn bootstrap_instance_runtime(instance_root: &Path, version: &str) -> Result<(), String> {
     let runtime_dir = instance_root.join(".fruti-runtime");
     fs::create_dir_all(&runtime_dir)
@@ -703,8 +821,14 @@ async fn bootstrap_instance_runtime(instance_root: &Path, version: &str) -> Resu
         .await
         .map_err(|error| format!("No se pudo parsear el manifiesto de versiones: {error}"))?;
 
-    let Some(version_entry) = manifest.versions.into_iter().find(|entry| entry.id == version) else {
-        return Err(format!("La versión {version} no existe en el manifiesto oficial."));
+    let Some(version_entry) = manifest
+        .versions
+        .into_iter()
+        .find(|entry| entry.id == version)
+    else {
+        return Err(format!(
+            "La versión {version} no existe en el manifiesto oficial."
+        ));
     };
 
     let detail = reqwest::get(&version_entry.url)
@@ -762,17 +886,28 @@ fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn read_instance_version(app: &tauri::AppHandle, instance_id: &str) -> Result<String, String> {
+fn read_instance_record(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<InstanceRecord, String> {
     let path = database_path(app)?;
     let conn = Connection::open(path)
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
 
     conn.query_row(
-        "SELECT version FROM instances WHERE id = ?1",
+        "SELECT id, name, version, loader_name, loader_version FROM instances WHERE id = ?1",
         params![instance_id],
-        |row| row.get::<_, String>(0),
+        |row| {
+            Ok(InstanceRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                version: row.get(2)?,
+                loader_name: row.get(3)?,
+                loader_version: row.get(4)?,
+            })
+        },
     )
-    .map_err(|error| format!("No se pudo obtener la versión de la instancia: {error}"))
+    .map_err(|error| format!("No se pudo obtener la instancia: {error}"))
 }
 
 #[command]
@@ -801,7 +936,8 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     });
     fs::write(
         instance_root.join("instance.json"),
-        serde_json::to_string_pretty(&meta).map_err(|error| format!("No se pudo serializar metadata: {error}"))?,
+        serde_json::to_string_pretty(&meta)
+            .map_err(|error| format!("No se pudo serializar metadata: {error}"))?,
     )
     .map_err(|error| format!("No se pudo escribir metadata de instancia: {error}"))?;
 
@@ -814,38 +950,35 @@ async fn repair_instance(app: tauri::AppHandle, instance_id: String) -> Result<(
 
     ensure_instance_layout(&instance_root)?;
 
-    let version = read_instance_version(&app, &instance_id)?;
-    bootstrap_instance_runtime(&instance_root, &version).await?;
+    let instance = read_instance_record(&app, &instance_id)?;
+    bootstrap_instance_runtime(&instance_root, &instance.version).await?;
 
     let launch_command = instance_root.join("launch-command.txt");
-    if !launch_command.exists() {
-        let runtime_jar = instance_root
-            .join(".fruti-runtime")
-            .join(format!("minecraft-{version}.jar"));
-
-        if runtime_jar.exists() {
-            let launch_line = format!(
-                "java -jar '{}' --gameDir '{}'",
-                runtime_jar.display(),
-                instance_root.display()
-            );
-            fs::write(&launch_command, format!("{launch_line}\n"))
-                .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
-        }
-    }
+    let launch_line = build_launch_command(&instance_root, &instance)?;
+    fs::write(&launch_command, format!("{launch_line}\n"))
+        .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
 
     Ok(())
 }
 
 #[command]
-async fn launch_instance(app: tauri::AppHandle, instance_id: String) -> Result<LaunchInstanceResult, String> {
+async fn launch_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<LaunchInstanceResult, String> {
     let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
     if !instance_root.exists() {
-        return Err("La carpeta de la instancia no existe. Crea la instancia nuevamente.".to_string());
+        return Err(
+            "La carpeta de la instancia no existe. Crea la instancia nuevamente.".to_string(),
+        );
     }
 
     let launch_script = instance_root.join("start-instance.sh");
     let launch_command = instance_root.join("launch-command.txt");
+
+    if !launch_script.exists() && !launch_command.exists() {
+        repair_instance(app.clone(), instance_id.clone()).await?;
+    }
 
     #[cfg(unix)]
     {
@@ -867,7 +1000,9 @@ async fn launch_instance(app: tauri::AppHandle, instance_id: String) -> Result<L
         let command_line = fs::read_to_string(&launch_command)
             .map_err(|error| format!("No se pudo leer launch-command.txt: {error}"))?;
         if command_line.trim().is_empty() {
-            return Err("launch-command.txt está vacío. Define un comando de inicio válido.".to_string());
+            return Err(
+                "launch-command.txt está vacío. Define un comando de inicio válido.".to_string(),
+            );
         }
         Command::new("sh")
             .arg("-c")
