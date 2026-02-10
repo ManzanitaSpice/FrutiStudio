@@ -1,0 +1,135 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Toolbar > renderiza con feature flags 1`] = `
+<div>
+  <header
+    class="topbar"
+  >
+    <div
+      class="topbar__row topbar__row--utility"
+    >
+      <div
+        class="topbar__utility-left"
+      >
+        <div
+          aria-label="FrutiLauncher"
+          class="topbar__brand"
+        >
+          <span
+            aria-hidden="true"
+            class="topbar__brand-icon"
+          />
+          <span
+            class="topbar__brand-name"
+          >
+            FrutiLauncher
+          </span>
+        </div>
+        <div
+          aria-label="Historial"
+          class="topbar__nav-controls"
+          role="group"
+        >
+          <button
+            aria-label="Volver"
+            disabled=""
+            type="button"
+          >
+            ←
+          </button>
+          <button
+            aria-label="Avanzar"
+            disabled=""
+            type="button"
+          >
+            →
+          </button>
+        </div>
+      </div>
+    </div>
+    <div
+      class="topbar__row topbar__row--main"
+    >
+      <nav
+        aria-label="Navegación principal"
+        class="topbar__nav"
+      >
+        <button
+          aria-current="page"
+          class="topbar__button topbar__button--active"
+          type="button"
+        >
+          Mis modpacks
+        </button>
+        <button
+          class="topbar__button"
+          type="button"
+        >
+          Novedades
+        </button>
+        <button
+          class="topbar__button"
+          type="button"
+        >
+          Explorador
+        </button>
+        <button
+          class="topbar__button"
+          type="button"
+        >
+          Servers
+        </button>
+        <button
+          class="topbar__button"
+          type="button"
+        >
+          Configuración
+        </button>
+      </nav>
+      <label
+        class="topbar__search"
+      >
+        <span>
+          🔍
+        </span>
+        <input
+          placeholder="Buscar en novedades, explorador y servers..."
+          type="search"
+        />
+        <button
+          aria-label="Limpiar búsqueda"
+          type="button"
+        >
+          ✕
+        </button>
+      </label>
+      <div
+        class="topbar__account"
+      >
+        <button
+          aria-expanded="false"
+          aria-haspopup="menu"
+          class="topbar__account-trigger"
+          type="button"
+        >
+          <img
+            alt="Skin del jugador"
+            src="data:image/svg+xml,%3csvg%20width='64'%20height='64'%20viewBox='0%200%2064%2064'%20fill='none'%20xmlns='http://www.w3.org/2000/svg'%3e%3crect%20width='64'%20height='64'%20rx='12'%20fill='%231B1F2A'/%3e%3crect%20x='12'%20y='10'%20width='40'%20height='44'%20rx='8'%20fill='%238B5E3C'/%3e%3crect%20x='18'%20y='18'%20width='10'%20height='10'%20rx='3'%20fill='%233B2A1A'/%3e%3crect%20x='36'%20y='18'%20width='10'%20height='10'%20rx='3'%20fill='%233B2A1A'/%3e%3crect%20x='22'%20y='36'%20width='20'%20height='8'%20rx='4'%20fill='%235C3B26'/%3e%3crect%20x='20'%20y='26'%20width='24'%20height='6'%20rx='3'%20fill='%236F4C31'/%3e%3c/svg%3e"
+          />
+          <span
+            class="topbar__account-name"
+          >
+            ManzanitaSpace
+          </span>
+          <span
+            aria-hidden="true"
+            class="topbar__account-caret"
+          >
+            ▾
+          </span>
+        </button>
+      </div>
+    </div>
+  </header>
+</div>
+`;

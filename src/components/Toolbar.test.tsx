@@ -17,6 +17,10 @@ describe("Toolbar", () => {
           servers: true,
           settings: true,
         }}
+        onBack={() => undefined}
+        onForward={() => undefined}
+        canGoBack={false}
+        canGoForward={false}
       />,
     );
 

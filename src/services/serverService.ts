@@ -25,6 +25,20 @@ const STATUS_BASE = "https://api.mcstatus.io/v2/status/java";
 
 const officialServers = [
   {
+    id: "jartex",
+    name: "Jartex",
+    ip: "play.jartexnetwork.com",
+    tags: ["PvP", "BedWars"],
+    website: "https://jartexnetwork.com",
+  },
+  {
+    id: "mineclub",
+    name: "MineClub",
+    ip: "play.mineclub.com",
+    tags: ["Survival", "Roleplay"],
+    website: "https://mineclub.com",
+  },
+  {
     id: "hypixel",
     name: "Hypixel",
     ip: "mc.hypixel.net",
@@ -57,7 +71,7 @@ const officialServers = [
 const buildStatusUrl = (ip: string) => `${STATUS_BASE}/${ip}`;
 
 export const fetchServerListings = async (): Promise<ServerListing[]> => {
-  const results = await Promise.all(
+  const results = await Promise.allSettled(
     officialServers.map(async (server) => {
       const data = await apiFetch<McStatusResponse>(buildStatusUrl(server.ip), {
         ttl: 60_000,
@@ -78,5 +92,8 @@ export const fetchServerListings = async (): Promise<ServerListing[]> => {
     }),
   );
 
-  return results;
+  return results
+    .filter((result): result is PromiseFulfilledResult<ServerListing> => result.status === "fulfilled")
+    .map((result) => result.value)
+    .sort((a, b) => b.players.localeCompare(a.players));
 };

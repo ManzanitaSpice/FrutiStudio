@@ -48,10 +48,18 @@ const SettingsPanel = lazy(() =>
 
 const loadingSteps = [
   "Inicializando launcher",
-  "Cargando APIs",
-  "Preparando secciones",
-  "Sincronizando preferencias",
-  "Finalizando",
+  "Descargando catálogos de Modrinth/CurseForge",
+  "Validando metadatos y compatibilidad",
+  "Extrayendo configuración de usuario",
+  "Instalando estado final de la sesión",
+];
+
+const loadingEvents = [
+  "Descarga: índice de modpacks completado",
+  "Validación: versiones de Minecraft verificadas",
+  "Extracción: preferencias de UI cargadas",
+  "Instalación: módulos de panel sincronizados",
+  "Listo: launcher operativo",
 ];
 
 const defaultCustomTheme = {
@@ -85,12 +93,14 @@ const AppShell = () => {
   const [instances, setInstances] = useState<Instance[]>([]);
   const [bootReady, setBootReady] = useState(false);
   const [bootStep, setBootStep] = useState(0);
+  const [bootEvents, setBootEvents] = useState<string[]>([]);
 
   useEffect(() => {
     const runBoot = async () => {
       setBootStep(0);
       const config = await loadConfig();
       setBootStep(1);
+      setBootEvents([loadingEvents[0]]);
       await Promise.allSettled([
         fetchInstances(),
         fetchNewsOverview(),
@@ -98,6 +108,7 @@ const AppShell = () => {
         fetchServerListings(),
       ]);
       setBootStep(2);
+      setBootEvents((prev) => [...prev, loadingEvents[1]]);
       if (config.uiScale) {
         setScale(config.uiScale);
       }
@@ -114,10 +125,12 @@ const AppShell = () => {
         });
       }
       setBootStep(3);
+      setBootEvents((prev) => [...prev, loadingEvents[2], loadingEvents[3]]);
       const loadedInstances = await fetchInstances();
       setInstances(loadedInstances);
       setBootStep(4);
-      window.setTimeout(() => setBootReady(true), 600);
+      setBootEvents((prev) => [...prev, loadingEvents[4]]);
+      window.setTimeout(() => setBootReady(true), 900);
     };
     void runBoot();
   }, [setScale, setTheme]);
@@ -182,6 +195,11 @@ const AppShell = () => {
                 );
               })}
             </ul>
+            <div className="boot-screen__events">
+              {bootEvents.map((event) => (
+                <p key={event}>{event}</p>
+              ))}
+            </div>
           </div>
         )}
         <NotificationCenter />
