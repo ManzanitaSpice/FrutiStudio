@@ -28,6 +28,8 @@ interface InstancePanelProps {
   onSelectInstance: (id: string) => void;
   onClearSelection: () => void;
   onCreateInstance: (instance: Instance) => void;
+  onUpdateInstance: (id: string, patch: Partial<Instance>) => void;
+  onDeleteInstance: (id: string) => void;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
 }
@@ -60,6 +62,8 @@ export const InstancePanel = ({
   onSelectInstance,
   onClearSelection,
   onCreateInstance,
+  onUpdateInstance,
+  onDeleteInstance,
   isFocusMode,
   onToggleFocusMode,
 }: InstancePanelProps) => {
@@ -67,7 +71,6 @@ export const InstancePanel = ({
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [activeEditorSection, setActiveEditorSection] = useState(editorSections[1]);
   const [activeCreatorSection, setActiveCreatorSection] = useState(creatorSections[0]);
-  const [creatorPosition, setCreatorPosition] = useState({ x: 0, y: 0 });
   const [availableVersions, setAvailableVersions] = useState<MinecraftVersion[]>([]);
   const [versionsStatus, setVersionsStatus] = useState<
     "idle" | "loading" | "ready" | "error"
@@ -102,6 +105,7 @@ export const InstancePanel = ({
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [creatorError, setCreatorError] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -146,37 +150,29 @@ export const InstancePanel = ({
     });
   }, [instances]);
 
+
+  const quickActions = useMemo(() => {
+    if (!selectedInstance) {
+      return [];
+    }
+    const hasPid = typeof selectedInstance.processId === "number";
+    return [
+      { id: "launch", label: "▶ Iniciar", disabled: selectedInstance.isRunning, action: () => onUpdateInstance(selectedInstance.id, { isRunning: true, processId: Date.now(), status: "ready", isDownloading: false, downloadProgress: 100, downloadStage: "finalizando" }) },
+      { id: "stop", label: "⏹ Forzar cierre", disabled: !selectedInstance.isRunning || !hasPid, action: () => onUpdateInstance(selectedInstance.id, { isRunning: false, processId: undefined, status: "stopped" }) },
+      { id: "edit", label: "✏ Editar", disabled: selectedInstance.isRunning, action: openEditor },
+      { id: "group", label: "🔁 Cambiar grupo", disabled: false, action: () => onUpdateInstance(selectedInstance.id, { group: selectedInstance.group === "No agrupado" ? "Favoritos" : "No agrupado" }) },
+      { id: "folder", label: "📁 Carpeta", disabled: false, action: () => window.alert(`Abrir carpeta de ${selectedInstance.name}`) },
+      { id: "export", label: "📦 Exportar", disabled: false, action: () => window.alert(`Exportar ${selectedInstance.name} (mods/config/manifest.json)`) },
+      { id: "copy", label: "📋 Copiar", disabled: false, action: () => onCreateInstance({ ...selectedInstance, id: `${selectedInstance.id}-copy-${Date.now()}`, name: `${selectedInstance.name} (Copia)`, isRunning: false, processId: undefined, status: "stopped" }) },
+      { id: "delete", label: "🗑 Borrar", disabled: false, action: () => setDeleteConfirmId(selectedInstance.id) },
+      { id: "shortcut", label: "🔗 Crear atajo", disabled: false, action: () => window.alert(`Crear atajo con --instanceId=${selectedInstance.id}`) },
+    ];
+  }, [onCreateInstance, onUpdateInstance, selectedInstance]);
+
   const handleCreatorBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       setCreatorOpen(false);
     }
-  };
-
-  const startCreatorDrag = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (!creatorOpen) {
-      return;
-    }
-    if (event.target instanceof HTMLElement && event.target.closest("button")) {
-      return;
-    }
-    event.preventDefault();
-    const startX = event.clientX - creatorPosition.x;
-    const startY = event.clientY - creatorPosition.y;
-
-    const handleMove = (moveEvent: globalThis.MouseEvent) => {
-      setCreatorPosition({
-        x: moveEvent.clientX - startX,
-        y: moveEvent.clientY - startY,
-      });
-    };
-
-    const handleUp = () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
   };
 
   const openEditor = () => {
@@ -191,10 +187,6 @@ export const InstancePanel = ({
   const openCreator = () => {
     setCreatorOpen(true);
     setContextMenu(null);
-    setCreatorPosition({
-      x: Math.max(32, window.innerWidth / 2 - 520),
-      y: Math.max(24, window.innerHeight / 2 - 320),
-    });
   };
 
   useEffect(() => {
@@ -794,6 +786,8 @@ export const InstancePanel = ({
       playtimeMinutes: 0,
       isDownloading: true,
       isRunning: false,
+      downloadProgress: 5,
+      downloadStage: "descargando",
       downloadLabel:
         instanceLoader === "Vanilla"
           ? `Descargando Minecraft ${resolvedVersion}`
@@ -930,13 +924,18 @@ export const InstancePanel = ({
               <div className="instance-menu__scroll">
                 <div className="instance-menu__section">
                   <h4>Acciones rápidas</h4>
-                  <div className="instance-menu__actions">
-                    <button type="button" onClick={openEditor}>
-                      Editar
-                    </button>
-                    <button type="button" onClick={openCreator}>
-                      Crear nueva
-                    </button>
+                  <div className="instance-menu__actions instance-menu__actions--grid">
+                    {quickActions.map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        onClick={action.action}
+                        disabled={action.disabled}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                    <button type="button" onClick={openCreator}>➕ Crear nueva</button>
                   </div>
                 </div>
               </div>
@@ -944,7 +943,8 @@ export const InstancePanel = ({
           </aside>
         )}
         {selectedInstance && editorOpen && (
-          <section className="instance-editor-panel">
+          <div className="instance-editor__backdrop" onClick={closeEditor}>
+            <section className="instance-editor-panel" onClick={(event) => event.stopPropagation()}>
             <header className="instance-editor__header">
               <div>
                 <h3>Editar {selectedInstance.name}</h3>
@@ -990,7 +990,8 @@ export const InstancePanel = ({
                 </div>
               </div>
             </div>
-          </section>
+            </section>
+          </div>
         )}
       </div>
       {contextMenu && (
@@ -1011,6 +1012,9 @@ export const InstancePanel = ({
               <button type="button" onClick={openCreator}>
                 Crear otra instancia
               </button>
+              <button type="button" onClick={() => setDeleteConfirmId(contextMenu.instance?.id ?? null)}>
+                Eliminar instancia
+              </button>
             </>
           ) : (
             <>
@@ -1022,13 +1026,37 @@ export const InstancePanel = ({
           )}
         </div>
       )}
+      {deleteConfirmId && (
+        <div className="instance-editor__backdrop" onClick={() => setDeleteConfirmId(null)}>
+          <article className="product-dialog product-dialog--install" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <h3>Confirmación</h3>
+            </header>
+            <div className="product-dialog__install-body">
+              <p>¿Deseas eliminar esta instancia?</p>
+              <div className="instance-import__actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteInstance(deleteConfirmId);
+                    setDeleteConfirmId(null);
+                  }}
+                >
+                  Aceptar
+                </button>
+                <button type="button" onClick={() => setDeleteConfirmId(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </article>
+        </div>
+      )}
+
       {creatorOpen && (
         <div className="instance-editor__backdrop" onClick={handleCreatorBackdropClick}>
-          <div
-            className="instance-creator"
-            style={{ left: creatorPosition.x, top: creatorPosition.y }}
-          >
-            <header className="instance-creator__header" onMouseDown={startCreatorDrag}>
+          <div className="instance-creator">
+            <header className="instance-creator__header">
               <div>
                 <h3>Nueva instancia</h3>
                 <p>Elige el origen y configura tu perfil.</p>

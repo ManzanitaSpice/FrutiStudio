@@ -133,7 +133,7 @@ const AppShell = () => {
       setBootStep(4);
       setBootEvents((prev) => [...prev, loadingEvents[4]]);
       const elapsed = Date.now() - bootStartedAt.current;
-      const minimumBootDuration = 10_000;
+      const minimumBootDuration = 4_500;
       const remaining = Math.max(0, minimumBootDuration - elapsed);
       window.setTimeout(() => setBootReady(true), remaining);
     };
@@ -180,6 +180,19 @@ const AppShell = () => {
     setInstances((prev) => [instance, ...prev]);
     setSelectedInstanceId(instance.id);
   };
+
+  const handleUpdateInstance = (instanceId: string, patch: Partial<Instance>) => {
+    setInstances((prev) =>
+      prev.map((instance) =>
+        instance.id === instanceId ? { ...instance, ...patch } : instance,
+      ),
+    );
+  };
+
+  const handleDeleteInstance = (instanceId: string) => {
+    setInstances((prev) => prev.filter((instance) => instance.id !== instanceId));
+    setSelectedInstanceId((prev) => (prev === instanceId ? null : prev));
+  };
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
   const bootProgress = Math.min(
     100,
@@ -206,6 +219,7 @@ const AppShell = () => {
               <div className="boot-screen__progress" aria-hidden="true">
                 <div style={{ width: `${bootProgress}%` }} />
               </div>
+              <p className="boot-screen__percent">{bootProgress}%</p>
               <ul>
                 {loadingSteps.map((step, index) => {
                   const done = index <= bootStep;
@@ -217,8 +231,10 @@ const AppShell = () => {
                 })}
               </ul>
               <div className="boot-screen__events">
-                {bootEvents.map((event) => (
-                  <p key={event}>{event}</p>
+                {bootEvents.map((event, index) => (
+                  <p key={event} style={{ opacity: Math.max(0.25, 1 - (bootEvents.length - 1 - index) * 0.25) }}>
+                    {event}
+                  </p>
                 ))}
               </div>
             </div>
@@ -247,6 +263,8 @@ const AppShell = () => {
                   onSelectInstance={setSelectedInstanceId}
                   onClearSelection={handleClearSelection}
                   onCreateInstance={handleCreateInstance}
+                  onUpdateInstance={handleUpdateInstance}
+                  onDeleteInstance={handleDeleteInstance}
                   isFocusMode={isFocusMode}
                   onToggleFocusMode={toggleFocus}
                 />

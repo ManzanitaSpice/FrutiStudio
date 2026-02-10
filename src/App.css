@@ -2716,3 +2716,95 @@ textarea {
   color: var(--muted);
   margin: 0;
 }
+
+.instance-editor__backdrop {
+  display: grid;
+  place-items: center;
+}
+
+.instance-creator,
+.instance-editor-panel {
+  position: relative;
+  width: min(1120px, 94vw);
+  height: min(740px, 90vh);
+  margin: 0;
+  border-radius: 18px;
+  backdrop-filter: blur(10px);
+}
+
+.instance-creator__header {
+  cursor: default;
+}
+
+.instance-menu__actions--grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.instance-menu__actions--grid button {
+  text-align: left;
+}
+
+.boot-screen__window {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: auto;
+  width: min(760px, 94vw);
+}
+
+.boot-screen__percent {
+  margin: -4px 0 0;
+  color: #fff;
+  font-weight: 700;
+}
+
+.boot-screen__events {
+  background: transparent;
+  border: 0;
+  min-width: 0;
+}
+
+.boot-screen__progress {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.boot-screen__progress div {
+  background: #fff;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.45);
+}
+
+.product-dialog {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.product-dialog__text-block {
+  display: grid;
+  gap: 12px;
+  line-height: 1.5;
+}
+
+.product-dialog__changelog-list {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+}
+
+.product-dialog__versions-list {
+  display: grid;
+  gap: 10px;
+}
+
+.product-dialog__version-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surfaceStrong) 70%, transparent);
+}
