@@ -105,6 +105,14 @@ struct ValidationReport {
 struct InstanceCommandArgs {
     #[serde(alias = "instance_id", alias = "id", alias = "uuid")]
     instance_id: Option<String>,
+    #[serde(alias = "playerName")]
+    username: Option<String>,
+    #[serde(alias = "playerUuid")]
+    uuid: Option<String>,
+    #[serde(alias = "access_token")]
+    access_token: Option<String>,
+    #[serde(alias = "user_type")]
+    user_type: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -419,6 +427,7 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 const REQUIRED_LAUNCHER_DIRS: [&str; 3] = ["instances", "downloads", "logs"];
+const DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOfficial";
 const BACKUP_PREFIX: &str = "config.json.";
 const BACKUP_SUFFIX: &str = ".bak";
 const MAX_CONFIG_BACKUPS: usize = 12;
@@ -439,9 +448,9 @@ fn launcher_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
     let base = app
         .path()
-        .data_dir()
+        .app_data_dir()
         .map_err(|error| format!("No se pudo obtener la carpeta del launcher: {error}"))?;
-    Ok(base.join("FrutiLauncher"))
+    Ok(base.join(DEFAULT_LAUNCHER_DIR_NAME))
 }
 
 fn ensure_launcher_layout(app: &tauri::AppHandle) -> Result<(), String> {
@@ -578,8 +587,9 @@ fn cleanup_backups(backup_dir: &Path) -> Result<(), String> {
 
 #[command]
 async fn save_base_dir(app: tauri::AppHandle, base_dir: String) -> Result<(), String> {
+    let normalized = base_dir.trim().to_string();
     let config = AppConfig {
-        base_dir: Some(base_dir),
+        base_dir: (!normalized.is_empty()).then_some(normalized),
         ..load_config(app.clone()).await?
     };
     save_config(app, config).await
@@ -589,9 +599,9 @@ async fn save_base_dir(app: tauri::AppHandle, base_dir: String) -> Result<(), St
 async fn default_base_dir(app: tauri::AppHandle) -> Result<String, String> {
     let base = app
         .path()
-        .data_dir()
+        .app_data_dir()
         .map_err(|error| format!("No se pudo obtener el directorio base: {error}"))?;
-    let target = base.join("FrutiLauncher");
+    let target = base.join(DEFAULT_LAUNCHER_DIR_NAME);
     fs::create_dir_all(&target)
         .map_err(|error| format!("No se pudo crear la carpeta base: {error}"))?;
     Ok(target.display().to_string())
@@ -653,7 +663,7 @@ async fn validate_base_dir(
         }
     }
 
-    for folder in ["instances", "modpacks"] {
+    for folder in REQUIRED_LAUNCHER_DIRS {
         if !is_dry_run {
             let folder_path = base_path.join(folder);
             if let Err(error) = fs::create_dir_all(&folder_path) {
@@ -1188,6 +1198,44 @@ fn resolve_memory_config(instance_root: &Path) -> InstanceMemoryConfig {
     }
 }
 
+fn normalize_uuid(raw: &str) -> Option<String> {
+    let compact = raw.trim().replace('-', "").to_lowercase();
+    if compact.len() == 32 && compact.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        Some(compact)
+    } else {
+        None
+    }
+}
+
+fn default_offline_uuid(username: &str) -> String {
+    let left = murmurhash2(username.as_bytes());
+    let right = murmurhash2(format!("fruti-{username}").as_bytes());
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or_default();
+    format!("{left:08x}{right:08x}{:016x}", time)
+}
+
+fn apply_auth_to_launch_plan(plan: &mut LaunchPlan, auth: LaunchAuth) {
+    let mut replace_flag_value = |flag: &str, value: &str| {
+        if let Some(index) = plan.game_args.iter().position(|arg| arg == flag) {
+            if let Some(slot) = plan.game_args.get_mut(index + 1) {
+                *slot = value.to_string();
+                return;
+            }
+        }
+        plan.game_args.push(flag.to_string());
+        plan.game_args.push(value.to_string());
+    };
+
+    replace_flag_value("--username", &auth.username);
+    replace_flag_value("--uuid", &auth.uuid);
+    replace_flag_value("--accessToken", &auth.access_token);
+    replace_flag_value("--userType", &auth.user_type);
+    plan.auth = auth;
+}
+
 async fn bootstrap_instance_runtime(
     app: &tauri::AppHandle,
     instance_root: &Path,
@@ -1459,13 +1507,7 @@ async fn bootstrap_instance_runtime(
         .map(|path| path.to_string_lossy().to_string())
         .collect::<Vec<_>>();
     let user = "Player";
-    let uuid = format!(
-        "offline-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or_default()
-    );
+    let uuid = default_offline_uuid(user);
 
     let mut game_args = vec![
         "--username".to_string(),
@@ -1772,21 +1814,27 @@ async fn delete_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
         return Err("No hay una instancia válida seleccionada para eliminar.".to_string());
     }
 
-    let path = database_path(&app)?;
-    let conn = Connection::open(path)
-        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
-    conn.execute("DELETE FROM instances WHERE id = ?1", params![instance_id])
-        .map_err(|error| {
-            format!("No se pudo eliminar la instancia de la base de datos: {error}")
-        })?;
+    with_instance_lock(&instance_id, || {
+        let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+        if instance_root.exists() {
+            fs::remove_dir_all(&instance_root).map_err(|error| {
+                format!(
+                    "No se pudo eliminar la carpeta de la instancia ({}) : {error}",
+                    instance_root.display()
+                )
+            })?;
+        }
 
-    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
-    if instance_root.exists() {
-        fs::remove_dir_all(&instance_root)
-            .map_err(|error| format!("No se pudo eliminar la carpeta de la instancia: {error}"))?;
-    }
+        let path = database_path(&app)?;
+        let conn = Connection::open(path)
+            .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+        conn.execute("DELETE FROM instances WHERE id = ?1", params![instance_id])
+            .map_err(|error| {
+                format!("No se pudo eliminar la instancia de la base de datos: {error}")
+            })?;
 
-    Ok(())
+        Ok(())
+    })
 }
 
 #[command]
@@ -1949,17 +1997,69 @@ async fn launch_instance(
         app.clone(),
         InstanceCommandArgs {
             instance_id: Some(instance_id.clone()),
+            username: None,
+            uuid: None,
+            access_token: None,
+            user_type: None,
         },
     )
     .await?;
 
     let launch_plan_path = instance_root.join("launch-plan.json");
-    let launch_plan = fs::read_to_string(&launch_plan_path)
+    let mut launch_plan = fs::read_to_string(&launch_plan_path)
         .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
         .and_then(|raw| {
             serde_json::from_str::<LaunchPlan>(&raw)
                 .map_err(|error| format!("launch-plan.json inválido: {error}"))
         })?;
+
+    let auth_username = args
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&launch_plan.auth.username)
+        .to_string();
+    let auth_uuid = args
+        .uuid
+        .as_deref()
+        .and_then(normalize_uuid)
+        .unwrap_or_else(|| {
+            normalize_uuid(&launch_plan.auth.uuid)
+                .unwrap_or_else(|| default_offline_uuid(&auth_username))
+        });
+    let auth_access_token = args
+        .access_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&launch_plan.auth.access_token)
+        .to_string();
+    let auth_user_type = args
+        .user_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&launch_plan.auth.user_type)
+        .to_string();
+
+    apply_auth_to_launch_plan(
+        &mut launch_plan,
+        LaunchAuth {
+            username: auth_username,
+            uuid: auth_uuid,
+            access_token: if auth_access_token.is_empty() {
+                "offline".to_string()
+            } else {
+                auth_access_token
+            },
+            user_type: if auth_user_type.is_empty() {
+                "offline".to_string()
+            } else {
+                auth_user_type
+            },
+        },
+    );
 
     let validation = validate_launch_plan(&instance_root, &launch_plan);
     if !validation.ok {

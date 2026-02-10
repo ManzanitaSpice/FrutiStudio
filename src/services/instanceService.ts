@@ -1,5 +1,6 @@
 import type { Instance, LocalInstance } from "../types/models";
 import { invokeWithHandling } from "./tauriClient";
+import { getActiveAccount } from "./accountService";
 
 let cachedInstances: Instance[] | null = null;
 
@@ -77,8 +78,13 @@ const assertValidInstanceId = (instanceId: string) => {
 
 export const launchInstance = async (instanceId: string) => {
   const validInstanceId = assertValidInstanceId(instanceId);
+  const activeAccount = getActiveAccount();
   return invokeWithHandling<{ pid: number }>("launch_instance", {
     instanceId: validInstanceId,
+    username: activeAccount?.username,
+    uuid: activeAccount?.uuid,
+    accessToken: activeAccount?.session?.accessToken,
+    userType: activeAccount?.type === "msa" ? "msa" : "offline",
   });
 };
 
