@@ -59,7 +59,7 @@ const AppShell = () => {
     canGoForward,
   } = useUI();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
-    "vmodrit",
+    null,
   );
   const [instances, setInstances] = useState<Instance[]>([]);
 

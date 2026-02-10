@@ -18,3 +18,7 @@ export const validateBaseDir = async (
     }),
   );
 };
+
+export const getDefaultBaseDir = async (): Promise<string> => {
+  return retry(() => invokeWithHandling<string>("default_base_dir"));
+};

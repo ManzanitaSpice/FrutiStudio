@@ -6,6 +6,7 @@ import {
 } from "../services/configService";
 import {
   type BaseDirValidationResult,
+  getDefaultBaseDir,
   validateBaseDir,
 } from "../services/baseDirService";
 
@@ -76,6 +77,13 @@ export const BaseDirProvider = ({
       const config = await loadConfig();
       if (config.baseDir) {
         await applyBaseDir(config.baseDir);
+      } else {
+        try {
+          const defaultDir = await getDefaultBaseDir();
+          await applyBaseDir(defaultDir);
+        } catch (error) {
+          console.error("No se pudo cargar la carpeta base por defecto", error);
+        }
       }
     };
 

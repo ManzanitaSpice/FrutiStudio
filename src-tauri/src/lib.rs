@@ -133,10 +133,10 @@ async fn select_folder(app: tauri::AppHandle) -> Result<SelectFolderResult, Stri
 
 #[command]
 async fn load_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
-    let config_path = config_path(&app)?;
-    if !config_path.exists() {
-        return Ok(migrate_config(AppConfig::default()));
-    }
+  let config_path = config_path(&app)?;
+  if !config_path.exists() {
+    return Ok(migrate_config(AppConfig::default()));
+  }
 
     let raw = fs::read_to_string(&config_path)
         .map_err(|error| format!("No se pudo leer config.json: {error}"))?;
@@ -186,11 +186,23 @@ fn backup_file(path: &Path) -> Result<(), String> {
 
 #[command]
 async fn save_base_dir(app: tauri::AppHandle, base_dir: String) -> Result<(), String> {
-    let config = AppConfig {
-        base_dir: Some(base_dir),
-        ..load_config(app.clone()).await?
-    };
-    save_config(app, config).await
+  let config = AppConfig {
+    base_dir: Some(base_dir),
+    ..load_config(app.clone()).await?
+  };
+  save_config(app, config).await
+}
+
+#[command]
+async fn default_base_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let base = app
+        .path()
+        .data_dir()
+        .map_err(|error| format!("No se pudo obtener el directorio base: {error}"))?;
+    let target = base.join("FrutiLauncher");
+    fs::create_dir_all(&target)
+        .map_err(|error| format!("No se pudo crear la carpeta base: {error}"))?;
+    Ok(target.display().to_string())
 }
 
 #[command]
@@ -348,6 +360,22 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
 }
 
 #[command]
+async fn create_instance(
+    app: tauri::AppHandle,
+    instance: InstanceRecord,
+) -> Result<(), String> {
+    let path = database_path(&app)?;
+    let conn = Connection::open(path)
+        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO instances (id, name, version) VALUES (?1, ?2, ?3)",
+        params![instance.id, instance.name, instance.version],
+    )
+    .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
+    Ok(())
+}
+
+#[command]
 async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<(), String> {
     let path = database_path(&app)?;
     backup_file(&path)?;
@@ -401,9 +429,11 @@ pub fn run() {
             load_config,
             save_config,
             save_base_dir,
+            default_base_dir,
             validate_base_dir,
             append_log,
             list_instances,
+            create_instance,
             manage_modpack
         ])
         .setup(|app| {

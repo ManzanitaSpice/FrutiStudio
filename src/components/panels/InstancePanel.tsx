@@ -5,6 +5,7 @@ import {
   type MinecraftVersion,
   fetchMinecraftVersions,
 } from "../../services/minecraftVersionService";
+import { createInstance } from "../../services/instanceService";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
 
 interface InstancePanelProps {
@@ -87,7 +88,6 @@ export const InstancePanel = ({
   const [activeCreatorSection, setActiveCreatorSection] = useState(
     creatorSections[0],
   );
-  const [editorPosition, setEditorPosition] = useState({ x: 0, y: 0 });
   const [creatorPosition, setCreatorPosition] = useState({ x: 0, y: 0 });
   const [availableVersions, setAvailableVersions] = useState<
     MinecraftVersion[]
@@ -100,6 +100,7 @@ export const InstancePanel = ({
   const [instanceGroup, setInstanceGroup] = useState("");
   const [instanceVersion, setInstanceVersion] = useState("");
   const [instanceLoader, setInstanceLoader] = useState("Vanilla");
+  const [instanceLoaderVersion, setInstanceLoaderVersion] = useState("");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -116,8 +117,7 @@ export const InstancePanel = ({
   };
 
   const versionRows = [
-    { name: selectedInstance?.name ?? "Perfil principal", version: "3.3.3" },
-    { name: "Minecraft", version: selectedInstance?.version ?? "1.21.1" },
+    { name: "Minecraft", version: selectedInstance?.version ?? "—" },
     {
       name: selectedInstance?.loaderName ?? "Loader",
       version: selectedInstance?.loaderVersion ?? "—",
@@ -147,46 +147,10 @@ export const InstancePanel = ({
     });
   }, [instances]);
 
-  const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
-      setEditorOpen(false);
-    }
-  };
-
   const handleCreatorBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       setCreatorOpen(false);
     }
-  };
-
-  const startDrag = (event: MouseEvent<HTMLDivElement>) => {
-    if (!editorOpen) {
-      return;
-    }
-    if (
-      event.target instanceof HTMLElement &&
-      event.target.closest("button")
-    ) {
-      return;
-    }
-    event.preventDefault();
-    const startX = event.clientX - editorPosition.x;
-    const startY = event.clientY - editorPosition.y;
-
-    const handleMove = (moveEvent: MouseEvent) => {
-      setEditorPosition({
-        x: moveEvent.clientX - startX,
-        y: moveEvent.clientY - startY,
-      });
-    };
-
-    const handleUp = () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
   };
 
   const startCreatorDrag = (event: MouseEvent<HTMLDivElement>) => {
@@ -221,10 +185,10 @@ export const InstancePanel = ({
 
   const openEditor = () => {
     setEditorOpen(true);
-    setEditorPosition({
-      x: Math.max(32, window.innerWidth / 2 - 520),
-      y: Math.max(24, window.innerHeight / 2 - 320),
-    });
+  };
+
+  const closeEditor = () => {
+    setEditorOpen(false);
   };
 
   const openCreator = () => {
@@ -273,6 +237,18 @@ export const InstancePanel = ({
       setInstanceVersion(preferredVersion.id);
     }
   }, [instanceVersion, preferredVersion]);
+
+  useEffect(() => {
+    if (instanceLoader === "Vanilla") {
+      setInstanceLoaderVersion("");
+    }
+  }, [instanceLoader]);
+
+  useEffect(() => {
+    if (!selectedInstance && editorOpen) {
+      setEditorOpen(false);
+    }
+  }, [editorOpen, selectedInstance]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -379,6 +355,21 @@ export const InstancePanel = ({
               <option value="Quilt">Quilt</option>
             </select>
           </div>
+          <div className="instance-creator__field">
+            <label htmlFor="instance-loader-version">Versión del loader</label>
+            <input
+              id="instance-loader-version"
+              type="text"
+              placeholder={
+                instanceLoader === "Vanilla"
+                  ? "No aplica para Vanilla"
+                  : "Ej: 47.2.0 o latest"
+              }
+              value={instanceLoader === "Vanilla" ? "" : instanceLoaderVersion}
+              onChange={(event) => setInstanceLoaderVersion(event.target.value)}
+              disabled={instanceLoader === "Vanilla"}
+            />
+          </div>
           <div className="instance-creator__hint">
             {versionsStatus === "loading" && "Cargando versiones oficiales..."}
             {versionsStatus === "error" &&
@@ -411,12 +402,16 @@ export const InstancePanel = ({
     });
   };
 
-  const handleCreateInstance = () => {
+  const handleCreateInstance = async () => {
     const trimmedName = instanceName.trim();
     const trimmedGroup = instanceGroup.trim();
     const resolvedVersion = instanceVersion || preferredVersion?.id || "1.21.1";
     const resolvedName =
       trimmedName.length > 0 ? trimmedName : `Nueva instancia ${resolvedVersion}`;
+    const resolvedLoaderVersion =
+      instanceLoader === "Vanilla"
+        ? "—"
+        : instanceLoaderVersion.trim() || "latest";
     const newInstance: Instance = {
       id:
         typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -425,28 +420,38 @@ export const InstancePanel = ({
       name: resolvedName,
       version: resolvedVersion,
       loaderName: instanceLoader,
-      loaderVersion: instanceLoader === "Vanilla" ? "—" : "latest",
+      loaderVersion: resolvedLoaderVersion,
       mods: 0,
       memory: "4 GB",
-      status: "ready",
+      status: "pending-update",
       group: trimmedGroup.length > 0 ? trimmedGroup : "No agrupado",
       lastPlayed: "Nunca",
       playtime: "0 min",
       playtimeMinutes: 0,
-      isDownloading: false,
+      isDownloading: true,
       isRunning: false,
+      downloadLabel:
+        instanceLoader === "Vanilla"
+          ? `Descargando Minecraft ${resolvedVersion}`
+          : `Descargando Minecraft ${resolvedVersion} + ${instanceLoader} ${resolvedLoaderVersion}`,
     };
     onCreateInstance(newInstance);
+    try {
+      await createInstance(newInstance);
+    } catch (error) {
+      console.error("No se pudo crear la instancia", error);
+    }
     setInstanceName("");
     setInstanceGroup("");
+    setInstanceLoaderVersion("");
     setCreatorOpen(false);
   };
 
   return (
     <section
       className="panel-view panel-view--instances"
-      onClick={() => {
-        if (selectedInstance) {
+      onClick={(event) => {
+        if (event.target === event.currentTarget && selectedInstance) {
           onClearSelection();
         }
       }}
@@ -472,7 +477,9 @@ export const InstancePanel = ({
       <div
         className={
           selectedInstance
-            ? "instances-layout"
+            ? editorOpen
+              ? "instances-layout instances-layout--editor"
+              : "instances-layout"
             : "instances-layout instances-layout--single"
         }
       >
@@ -481,6 +488,12 @@ export const InstancePanel = ({
           onClick={onClearSelection}
           onContextMenu={(event) => handleContextMenu(event, null)}
         >
+          {groupedInstances.length === 0 && (
+            <div className="instances-layout__empty">
+              <p>No hay instancias creadas todavía.</p>
+              <span>Usa "Crear instancia" para comenzar.</span>
+            </div>
+          )}
           {groupedInstances.map(([groupName, groupInstances]) => (
             <section key={groupName} className="instance-group">
               <header className="instance-group__header">
@@ -538,7 +551,7 @@ export const InstancePanel = ({
             </section>
           ))}
         </div>
-        {selectedInstance && (
+        {selectedInstance && !editorOpen && (
           <aside className="instance-menu" onClick={(event) => event.stopPropagation()}>
             <>
               <div className="instance-menu__header">
@@ -585,6 +598,59 @@ export const InstancePanel = ({
               </div>
             </>
           </aside>
+        )}
+        {selectedInstance && editorOpen && (
+          <section className="instance-editor-panel">
+            <header className="instance-editor__header">
+              <div>
+                <h3>Editar {selectedInstance.name}</h3>
+                <p>Minecraft {selectedInstance.version}</p>
+              </div>
+              <button type="button" onClick={closeEditor}>
+                Volver
+              </button>
+            </header>
+            <div className="instance-editor__body">
+              <aside className="instance-editor__sidebar">
+                {editorSections.map((section) => (
+                  <button
+                    key={section}
+                    type="button"
+                    onClick={() => setActiveEditorSection(section)}
+                    className={
+                      activeEditorSection === section
+                        ? "instance-editor__tab instance-editor__tab--active"
+                        : "instance-editor__tab"
+                    }
+                  >
+                    {section}
+                  </button>
+                ))}
+              </aside>
+              <div className="instance-editor__content">
+                <div className="instance-editor__heading">
+                  <div>
+                    <h4>{activeEditorSection}</h4>
+                    <p>Gestiona esta sección con herramientas avanzadas.</p>
+                  </div>
+                  <input type="search" placeholder="Buscar en la sección..." />
+                </div>
+                <div className="instance-editor__workspace">
+                  <div className="instance-editor__panel">{renderEditorBody()}</div>
+                  <aside className="instance-editor__rail">
+                    <h5>Herramientas</h5>
+                    <div className="instance-editor__actions">
+                      {toolbarActions.map((action) => (
+                        <button key={action} type="button">
+                          {action}
+                        </button>
+                      ))}
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            </div>
+          </section>
         )}
       </div>
       {contextMenu && (
@@ -675,64 +741,6 @@ export const InstancePanel = ({
                       </button>
                       <button type="button">Importar archivo</button>
                       <button type="button">Ver requisitos</button>
-                    </div>
-                  </aside>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {editorOpen && selectedInstance && (
-        <div className="instance-editor__backdrop" onClick={handleBackdropClick}>
-          <div
-            className="instance-editor"
-            style={{ left: editorPosition.x, top: editorPosition.y }}
-          >
-            <header className="instance-editor__header" onMouseDown={startDrag}>
-              <div>
-                <h3>Editar {selectedInstance.name}</h3>
-                <p>Minecraft {selectedInstance.version}</p>
-              </div>
-              <button type="button" onClick={() => setEditorOpen(false)}>
-                Cerrar
-              </button>
-            </header>
-            <div className="instance-editor__body">
-              <aside className="instance-editor__sidebar">
-                {editorSections.map((section) => (
-                  <button
-                    key={section}
-                    type="button"
-                    onClick={() => setActiveEditorSection(section)}
-                    className={
-                      activeEditorSection === section
-                        ? "instance-editor__tab instance-editor__tab--active"
-                        : "instance-editor__tab"
-                    }
-                  >
-                    {section}
-                  </button>
-                ))}
-              </aside>
-              <div className="instance-editor__content">
-                <div className="instance-editor__heading">
-                  <div>
-                    <h4>{activeEditorSection}</h4>
-                    <p>Gestiona esta sección con herramientas avanzadas.</p>
-                  </div>
-                  <input type="search" placeholder="Buscar en la sección..." />
-                </div>
-                <div className="instance-editor__workspace">
-                  <div className="instance-editor__panel">{renderEditorBody()}</div>
-                  <aside className="instance-editor__rail">
-                    <h5>Herramientas</h5>
-                    <div className="instance-editor__actions">
-                      {toolbarActions.map((action) => (
-                        <button key={action} type="button">
-                          {action}
-                        </button>
-                      ))}
                     </div>
                   </aside>
                 </div>
