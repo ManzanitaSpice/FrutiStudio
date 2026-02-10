@@ -4,7 +4,25 @@ import { retry } from "../utils/retry";
 export interface AppConfig {
   baseDir?: string;
   uiScale?: number;
-  theme?: "system" | "light" | "dark";
+  theme?:
+    | "default"
+    | "light"
+    | "dark"
+    | "chrome"
+    | "sunset"
+    | "mint"
+    | "lavender"
+    | "peach"
+    | "custom";
+  customTheme?: {
+    bg: string;
+    surface: string;
+    surfaceStrong: string;
+    border: string;
+    text: string;
+    muted: string;
+    accent: string;
+  };
   version?: number;
   telemetryOptIn?: boolean;
 }

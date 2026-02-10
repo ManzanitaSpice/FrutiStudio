@@ -2,7 +2,16 @@ import { createContext, useCallback, useMemo, useReducer } from "react";
 
 import type { SectionKey } from "../components/Toolbar";
 
-export type ThemePreference = "system" | "light" | "dark";
+export type ThemePreference =
+  | "default"
+  | "light"
+  | "dark"
+  | "chrome"
+  | "sunset"
+  | "mint"
+  | "lavender"
+  | "peach"
+  | "custom";
 
 interface UIState {
   activeSection: SectionKey;
@@ -26,7 +35,7 @@ const initialState: UIState = {
   activeSection: "mis-modpacks",
   uiScale: 1,
   isFocusMode: false,
-  theme: "system",
+  theme: "default",
   history: ["mis-modpacks"],
   historyIndex: 0,
 };
