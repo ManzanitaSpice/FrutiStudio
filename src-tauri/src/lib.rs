@@ -60,6 +60,13 @@ struct LaunchInstanceResult {
     pid: u32,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstanceCommandArgs {
+    #[serde(alias = "instance_id", alias = "id", alias = "uuid")]
+    instance_id: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ModpackAction {
@@ -945,8 +952,8 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
 }
 
 #[command]
-async fn repair_instance(app: tauri::AppHandle, instance_id: String) -> Result<(), String> {
-    let instance_id = instance_id.trim().to_string();
+async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Result<(), String> {
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
     if instance_id.is_empty() {
         return Err("No hay una instancia válida seleccionada para reparar.".to_string());
     }
@@ -969,9 +976,9 @@ async fn repair_instance(app: tauri::AppHandle, instance_id: String) -> Result<(
 #[command]
 async fn launch_instance(
     app: tauri::AppHandle,
-    instance_id: String,
+    args: InstanceCommandArgs,
 ) -> Result<LaunchInstanceResult, String> {
-    let instance_id = instance_id.trim().to_string();
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
     if instance_id.is_empty() {
         return Err("No hay una instancia válida seleccionada para iniciar.".to_string());
     }
@@ -987,7 +994,13 @@ async fn launch_instance(
     let launch_command = instance_root.join("launch-command.txt");
 
     if !launch_script.exists() && !launch_command.exists() {
-        repair_instance(app.clone(), instance_id.clone()).await?;
+        repair_instance(
+            app.clone(),
+            InstanceCommandArgs {
+                instance_id: Some(instance_id.clone()),
+            },
+        )
+        .await?;
     }
 
     #[cfg(unix)]
