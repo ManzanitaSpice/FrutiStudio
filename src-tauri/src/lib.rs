@@ -311,7 +311,9 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
         "CREATE TABLE IF NOT EXISTS instances (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            version TEXT NOT NULL
+            version TEXT NOT NULL,
+            loader_name TEXT,
+            loader_version TEXT
         );
         CREATE TABLE IF NOT EXISTS modpacks (
             id TEXT PRIMARY KEY,
@@ -320,6 +322,27 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
         );",
     )
     .map_err(|error| format!("No se pudo inicializar la base: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN loader_name TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna loader_name: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN loader_version TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna loader_version: {error}"))?;
+
     Ok(())
 }
 
@@ -646,7 +669,7 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
     let conn = Connection::open(path)
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
     let mut stmt = conn
-        .prepare("SELECT id, name, version FROM instances")
+        .prepare("SELECT id, name, version, loader_name, loader_version FROM instances")
         .map_err(|error| format!("No se pudo leer instancias: {error}"))?;
     let rows = stmt
         .query_map([], |row| {
@@ -654,6 +677,8 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
                 id: row.get(0)?,
                 name: row.get(1)?,
                 version: row.get(2)?,
+                loader_name: row.get(3)?,
+                loader_version: row.get(4)?,
             })
         })
         .map_err(|error| format!("No se pudo mapear instancias: {error}"))?;
@@ -729,8 +754,8 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     let conn = Connection::open(path)
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
     conn.execute(
-        "INSERT OR REPLACE INTO instances (id, name, version) VALUES (?1, ?2, ?3)",
-        params![instance.id, instance.name, instance.version],
+        "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![instance.id, instance.name, instance.version, instance.loader_name, instance.loader_version],
     )
     .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
 

@@ -64,6 +64,10 @@ export interface LocalInstance {
   id: string;
   name: string;
   version: string;
+  loaderName?: string;
+  loaderVersion?: string;
+  loader_name?: string;
+  loader_version?: string;
 }
 
 export interface FeatureFlags {
