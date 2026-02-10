@@ -16,40 +16,9 @@ const explorerCategories: ExplorerCategory[] = [
   "Addons",
 ];
 
-const fallbackItems: ExplorerItem[] = [
-  {
-    id: "all-the-mons",
-    name: "All the Mons - Simple",
-    author: "ATM Team",
-    downloads: "5.10M descargas",
-    type: "Modpack",
-  },
-  {
-    id: "pam-harvest",
-    name: "Pam's HarvestCraft 2",
-    author: "pamharvestcraft",
-    downloads: "1.5M descargas",
-    type: "Mod",
-  },
-  {
-    id: "bakery",
-    name: "Bakeries",
-    author: "Renvigesa",
-    downloads: "980K descargas",
-    type: "Mod",
-  },
-  {
-    id: "fruitful",
-    name: "Fruitful Fun",
-    author: "Snownee",
-    downloads: "2.2M descargas",
-    type: "Mod",
-  },
-];
-
 export const ExplorerPanel = () => {
   const [selectedCategory, setSelectedCategory] = useState(explorerCategories[0]);
-  const [items, setItems] = useState<ExplorerItem[]>(fallbackItems);
+  const [items, setItems] = useState<ExplorerItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,11 +30,11 @@ export const ExplorerPanel = () => {
       try {
         const data = await fetchExplorerItems(selectedCategory);
         if (isActive) {
-          setItems(data.length ? data : fallbackItems);
+          setItems(data);
         }
       } catch (fetchError) {
         if (isActive) {
-          setItems(fallbackItems);
+          setItems([]);
           setError(
             fetchError instanceof Error
               ? fetchError.message
@@ -149,24 +118,34 @@ export const ExplorerPanel = () => {
           </div>
 
           <div className="explorer-layout__list">
-            {items.map((item) => (
-              <article key={item.id} className="explorer-item">
-                <div className="explorer-item__icon" />
-                <div className="explorer-item__info">
-                  <h4>{item.name}</h4>
-                  <p>
-                    {item.type} · {item.author}
-                  </p>
-                  <span>{item.downloads}</span>
-                </div>
-                <div className="explorer-item__actions">
-                  <button type="button">Instalar</button>
-                  <button type="button" className="explorer-item__secondary">
-                    Crear instancia
-                  </button>
-                </div>
-              </article>
-            ))}
+            {items.length ? (
+              items.map((item) => (
+                <article key={item.id} className="explorer-item">
+                  <div className="explorer-item__icon" />
+                  <div className="explorer-item__info">
+                    <h4>{item.name}</h4>
+                    <p>
+                      {item.type} · {item.author}
+                    </p>
+                    <span>{item.downloads}</span>
+                  </div>
+                  <div className="explorer-item__actions">
+                    <button type="button">Instalar</button>
+                    <button type="button" className="explorer-item__secondary">
+                      Crear instancia
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : loading ? (
+              <div className="explorer-layout__empty">
+                <p>Cargando resultados reales...</p>
+              </div>
+            ) : (
+              <div className="explorer-layout__empty">
+                <p>No hay resultados reales para esta categoría.</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

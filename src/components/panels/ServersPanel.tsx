@@ -1,26 +1,10 @@
-const serverList = [
-  {
-    id: "catcraft",
-    name: "CatCraft",
-    ip: "forge.catcraft.net",
-    players: "127/300",
-    tags: ["Survival", "Towny", "PvE"],
-  },
-  {
-    id: "talonmc",
-    name: "TalonMC",
-    ip: "play.talonmc.net",
-    players: "1,276/2,025",
-    tags: ["Prison", "SkyBlock", "OP"],
-  },
-  {
-    id: "cobble",
-    name: "CobbleGalaxy",
-    ip: "cf.cobblegalaxy.com",
-    players: "577/1,000",
-    tags: ["Survival", "OP", "Super OP"],
-  },
-];
+const serverList: Array<{
+  id: string;
+  name: string;
+  ip: string;
+  players: string;
+  tags: string[];
+}> = [];
 
 export const ServersPanel = () => {
   return (
@@ -54,31 +38,39 @@ export const ServersPanel = () => {
       </div>
 
       <div className="servers-list">
-        {serverList.map((server) => (
-          <article key={server.id} className="server-card">
-            <div className="server-card__info">
-              <div className="server-card__logo" />
-              <div>
-                <h3>{server.name}</h3>
-                <p>{server.ip}</p>
-                <div className="server-card__tags">
-                  {server.tags.map((tag) => (
-                    <span key={tag}>{tag}</span>
-                  ))}
+        {serverList.length ? (
+          serverList.map((server) => (
+            <article key={server.id} className="server-card">
+              <div className="server-card__info">
+                <div className="server-card__logo" />
+                <div>
+                  <h3>{server.name}</h3>
+                  <p>{server.ip}</p>
+                  <div className="server-card__tags">
+                    {server.tags.map((tag) => (
+                      <span key={tag}>{tag}</span>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="server-card__meta">
-              <span className="server-card__players">{server.players} jugando</span>
-              <div className="server-card__actions">
-                <button type="button">Ver</button>
-                <button type="button" className="server-card__copy">
-                  Copiar IP
-                </button>
+              <div className="server-card__meta">
+                <span className="server-card__players">
+                  {server.players} jugando
+                </span>
+                <div className="server-card__actions">
+                  <button type="button">Ver</button>
+                  <button type="button" className="server-card__copy">
+                    Copiar IP
+                  </button>
+                </div>
               </div>
-            </div>
-          </article>
-        ))}
+            </article>
+          ))
+        ) : (
+          <div className="servers-list__empty">
+            <p>No hay servidores reales cargados.</p>
+          </div>
+        )}
       </div>
     </section>
   );
