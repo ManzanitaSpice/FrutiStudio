@@ -2588,3 +2588,131 @@ textarea {
 .product-dialog--install header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--border); }
 .product-dialog__install-body { padding: 20px; display: grid; gap: 12px; }
 .product-dialog__close { border: 0; background: transparent; font-size: 18px; }
+
+.account-manager {
+  width: min(980px, 92vw);
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.account-manager__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.account-manager__header h3 {
+  margin: 0;
+}
+
+.account-manager__header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.account-manager__header button {
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+}
+
+.account-manager__table {
+  display: grid;
+  gap: 8px;
+}
+
+.account-manager__row {
+  display: grid;
+  grid-template-columns: 2fr 0.8fr 0.8fr 1.5fr;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  align-items: center;
+}
+
+.account-manager__row--head {
+  background: var(--surfaceStrong);
+  font-weight: 700;
+}
+
+.account-manager__row span {
+  display: grid;
+}
+
+.account-manager__row small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.account-manager__actions {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.account-manager__actions button,
+.account-manager__footer button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  padding: 7px 10px;
+}
+
+.account-status {
+  font-weight: 600;
+}
+
+.account-status--loading {
+  color: #ad7e00;
+}
+
+.account-status--error,
+.account-status--expired {
+  color: #c34141;
+}
+
+.account-status--ready {
+  color: #2b8f58;
+}
+
+.account-manager__footer {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.account-manager__footer label {
+  display: grid;
+  gap: 4px;
+  min-width: 240px;
+}
+
+.account-manager__footer input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--bg);
+}
+
+.account-manager__error {
+  margin: 0;
+  color: #c34141;
+}
+
+.account-manager__empty,
+.account-manager__hint {
+  color: var(--muted);
+  margin: 0;
+}
