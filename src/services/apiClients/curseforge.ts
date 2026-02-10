@@ -33,6 +33,7 @@ const requestCurseforgeV1 = async <T>(
 
 export interface CurseforgeSearchFilters {
   query: string;
+  gameId?: number;
   gameVersion?: string;
   modLoaderType?: number;
   classId?: number;
@@ -47,6 +48,7 @@ export const searchCurseforgeMods = async (
   apiKey?: string,
 ) => {
   const query = Object.entries({
+    gameId: (filters.gameId ?? 432).toString(),
     searchFilter: filters.query,
     gameVersion: filters.gameVersion,
     modLoaderType: filters.modLoaderType?.toString(),

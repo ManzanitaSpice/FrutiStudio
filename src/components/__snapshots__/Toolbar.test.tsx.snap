@@ -86,23 +86,28 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
           Configuración
         </button>
       </nav>
-      <label
-        class="topbar__search"
+      <div
+        class="topbar__search-wrap"
       >
-        <span>
-          🔍
-        </span>
-        <input
-          placeholder="Buscar en novedades, explorador y servers..."
-          type="search"
-        />
-        <button
-          aria-label="Limpiar búsqueda"
-          type="button"
+        <label
+          class="topbar__search"
         >
-          ✕
-        </button>
-      </label>
+          <span>
+            🔍
+          </span>
+          <input
+            placeholder="Buscar modpacks, mods e instancias..."
+            type="search"
+            value=""
+          />
+          <button
+            aria-label="Limpiar búsqueda"
+            type="button"
+          >
+            ✕
+          </button>
+        </label>
+      </div>
       <div
         class="topbar__account"
       >
@@ -119,7 +124,7 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
           <span
             class="topbar__account-name"
           >
-            ManzanitaSpace
+            Sin cuenta
           </span>
           <span
             aria-hidden="true"

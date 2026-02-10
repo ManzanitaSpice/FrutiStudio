@@ -5,6 +5,14 @@ import type { FeatureFlags } from "../types/models";
 import { useI18n } from "../i18n/useI18n";
 import { fetchInstances } from "../services/instanceService";
 import { fetchUnifiedCatalog } from "../services/explorerService";
+import {
+  getActiveAccount,
+  loadAccountStore,
+  logoutActiveAccount,
+  onAccountsChanged,
+  setActiveAccount,
+} from "../services/accountService";
+import { AccountManagerDialog } from "./AccountManagerDialog";
 
 export type SectionKey =
   | "mis-modpacks"
@@ -49,6 +57,9 @@ export const Toolbar = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [showAccountManager, setShowAccountManager] = useState(false);
+  const [accounts, setAccounts] = useState(loadAccountStore().accounts);
+  const [activeAccountId, setActiveAccountId] = useState(loadAccountStore().activeAccountId);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navItems: Array<{ key: SectionKey; label: string; enabled: boolean }> =
     [
@@ -66,12 +77,19 @@ export const Toolbar = ({
         enabled: flags.settings,
       },
     ];
-  const account = {
-    name: "ManzanitaSpace",
-    skinUrl: null as string | null,
-  };
+  const active = getActiveAccount();
+  const accountName = active?.username ?? "Sin cuenta";
+  const skinSource = active?.avatarUrl ?? steveSkin;
 
-  const skinSource = account.skinUrl ?? steveSkin;
+  useEffect(() => {
+    const sync = () => {
+      const store = loadAccountStore();
+      setAccounts(store.accounts);
+      setActiveAccountId(store.activeAccountId);
+    };
+    sync();
+    return onAccountsChanged(sync);
+  }, []);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -234,46 +252,68 @@ export const Toolbar = ({
               aria-expanded={menuOpen}
             >
               <img src={skinSource} alt="Skin del jugador" />
-              <span className="topbar__account-name">{account.name}</span>
+              <span className="topbar__account-name">{accountName}</span>
               <span aria-hidden="true" className="topbar__account-caret">
                 ▾
               </span>
             </button>
             {menuOpen && (
               <div className="topbar__account-menu" role="menu">
+                {accounts.slice(0, 4).map((account, index) => (
+                  <button
+                    key={account.id}
+                    type="button"
+                    className={account.id === activeAccountId ? "topbar__account-item topbar__account-item--active" : "topbar__account-item"}
+                    role="menuitem"
+                    onClick={() => {
+                      setActiveAccount(account.id);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <span className="topbar__account-check">{account.id === activeAccountId ? "✓" : ""}</span>
+                    <span>{account.username}</span>
+                    <span className="topbar__account-shortcut">Ctrl + {index + 1}</span>
+                  </button>
+                ))}
                 <button
                   type="button"
-                  className="topbar__account-item topbar__account-item--active"
+                  className="topbar__account-item"
                   role="menuitem"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    setShowAccountManager(true);
+                    setMenuOpen(false);
+                  }}
                 >
-                  <span className="topbar__account-check">✓</span>
-                  <span>{account.name}</span>
-                  <span className="topbar__account-shortcut">Ctrl + 1</span>
+                  Administrar cuentas
                 </button>
                 <button
                   type="button"
                   className="topbar__account-item"
                   role="menuitem"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    setShowAccountManager(true);
+                    setMenuOpen(false);
+                  }}
                 >
-                  <span className="topbar__account-check" />
-                  <span>No hay cuenta por defecto</span>
-                  <span className="topbar__account-shortcut">Ctrl + 0</span>
+                  Administrar skins
                 </button>
                 <button
                   type="button"
                   className="topbar__account-item topbar__account-item--footer"
                   role="menuitem"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    logoutActiveAccount();
+                    setMenuOpen(false);
+                  }}
                 >
-                  Administrar cuentas...
+                  Cerrar sesión
                 </button>
               </div>
             )}
           </div>
         </div>
       )}
+      <AccountManagerDialog open={showAccountManager} onClose={() => setShowAccountManager(false)} />
     </header>
   );
 };
