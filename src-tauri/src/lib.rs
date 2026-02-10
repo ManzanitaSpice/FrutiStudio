@@ -601,6 +601,15 @@ fn with_instance_lock<T>(id: &str, f: impl FnOnce() -> Result<T, String>) -> Res
     result
 }
 
+fn command_available(command: &str) -> bool {
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("command -v {command} >/dev/null 2>&1"))
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 #[command]
 async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, String> {
     let path = database_path(&app)?;
@@ -645,6 +654,18 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
 }
 
 #[command]
+async fn repair_instance(app: tauri::AppHandle, instance_id: String) -> Result<(), String> {
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+    fs::create_dir_all(instance_root.join("mods"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta mods: {error}"))?;
+    fs::create_dir_all(instance_root.join("config"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta config: {error}"))?;
+    fs::create_dir_all(instance_root.join("logs"))
+        .map_err(|error| format!("No se pudo asegurar la carpeta logs: {error}"))?;
+    Ok(())
+}
+
+#[command]
 async fn launch_instance(app: tauri::AppHandle, instance_id: String) -> Result<LaunchInstanceResult, String> {
     let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
     if !instance_root.exists() {
@@ -652,11 +673,7 @@ async fn launch_instance(app: tauri::AppHandle, instance_id: String) -> Result<L
     }
 
     let launch_script = instance_root.join("start-instance.sh");
-    if !launch_script.exists() {
-        let script = "#!/usr/bin/env bash\necho '[FrutiLauncher] Iniciando instancia'\nif command -v java >/dev/null 2>&1; then\n  java -version\nfi\n";
-        fs::write(&launch_script, script)
-            .map_err(|error| format!("No se pudo crear el script de arranque: {error}"))?;
-    }
+    let launch_command = instance_root.join("launch-command.txt");
 
     #[cfg(unix)]
     {
@@ -668,11 +685,40 @@ async fn launch_instance(app: tauri::AppHandle, instance_id: String) -> Result<L
         }
     }
 
-    let child = Command::new("bash")
-        .arg(&launch_script)
-        .current_dir(&instance_root)
-        .spawn()
-        .map_err(|error| format!("No se pudo iniciar Minecraft para esta instancia: {error}"))?;
+    let child = if launch_script.exists() {
+        Command::new("bash")
+            .arg(&launch_script)
+            .current_dir(&instance_root)
+            .spawn()
+            .map_err(|error| format!("No se pudo ejecutar start-instance.sh: {error}"))?
+    } else if launch_command.exists() {
+        let command_line = fs::read_to_string(&launch_command)
+            .map_err(|error| format!("No se pudo leer launch-command.txt: {error}"))?;
+        if command_line.trim().is_empty() {
+            return Err("launch-command.txt está vacío. Define un comando de inicio válido.".to_string());
+        }
+        Command::new("sh")
+            .arg("-c")
+            .arg(command_line)
+            .current_dir(&instance_root)
+            .spawn()
+            .map_err(|error| format!("No se pudo ejecutar launch-command.txt: {error}"))?
+    } else if command_available("prismlauncher") {
+        Command::new("prismlauncher")
+            .arg("--launch")
+            .arg(&instance_id)
+            .spawn()
+            .map_err(|error| format!("No se pudo iniciar PrismLauncher: {error}"))?
+    } else if command_available("minecraft-launcher") {
+        Command::new("minecraft-launcher")
+            .spawn()
+            .map_err(|error| format!("No se pudo iniciar Minecraft Launcher: {error}"))?
+    } else {
+        return Err(
+            "No se encontró un método de inicio. Crea start-instance.sh o launch-command.txt dentro de la instancia, o instala PrismLauncher/minecraft-launcher."
+                .to_string(),
+        );
+    };
 
     Ok(LaunchInstanceResult { pid: child.id() })
 }
@@ -935,6 +981,7 @@ pub fn run() {
             append_log,
             list_instances,
             create_instance,
+            repair_instance,
             launch_instance,
             manage_modpack,
             curseforge_scan_fingerprints,

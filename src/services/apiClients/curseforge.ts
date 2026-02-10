@@ -2,6 +2,10 @@ import { apiFetch } from "./client";
 import { invokeWithHandling } from "../tauriClient";
 
 const CURSEFORGE_BASE = "https://api.curseforge.com/v1";
+const CURSEFORGE_PROXY_BASES = [
+  "https://api.curse.tools/v1",
+  "https://cfproxy.bmpm.workers.dev/v1",
+];
 
 const buildHeaders = (apiKey?: string) =>
   apiKey ? { "x-api-key": apiKey } : undefined;
@@ -26,9 +30,27 @@ const requestCurseforgeV1 = async <T>(
     });
   }
 
-  return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
-    init: { headers: buildHeaders(apiKey) },
-  });
+  if (apiKey) {
+    return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
+      init: { headers: buildHeaders(apiKey) },
+    });
+  }
+
+  let lastError: unknown;
+  for (const base of CURSEFORGE_PROXY_BASES) {
+    try {
+      return await apiFetch<T>(`${base}${path}${params}`);
+    } catch (error) {
+      lastError = error;
+      console.warn("[curseforge] proxy failed", { base, path, error });
+    }
+  }
+
+  throw new Error(
+    lastError instanceof Error
+      ? `No se pudo conectar con CurseForge (proxy): ${lastError.message}`
+      : "No se pudo conectar con CurseForge (proxy).",
+  );
 };
 
 export interface CurseforgeSearchFilters {

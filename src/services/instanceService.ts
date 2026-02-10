@@ -64,3 +64,9 @@ export const launchInstance = async (instanceId: string) => {
     instance_id: instanceId,
   });
 };
+
+export const repairInstance = async (instanceId: string) => {
+  return invokeWithHandling<void>("repair_instance", {
+    instance_id: instanceId,
+  });
+};

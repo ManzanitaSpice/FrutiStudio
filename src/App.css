@@ -3507,3 +3507,24 @@ textarea {
   color: #b9f2cf;
   font-size: 12px;
 }
+
+.instance-catalog__filters {
+  display: grid;
+  grid-template-columns: 180px auto auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.instance-catalog__results {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--color-surface-strong) 80%, transparent);
+}
+
+.instance-catalog__meta {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
