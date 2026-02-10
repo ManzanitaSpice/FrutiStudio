@@ -181,6 +181,10 @@ const AppShell = () => {
     setSelectedInstanceId(instance.id);
   };
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
+  const bootProgress = Math.min(
+    100,
+    Math.round(((bootStep + 1) / loadingSteps.length) * 100),
+  );
 
   const handleGlobalSearch = (query: string) => {
     setGlobalSearchQuery(query);
@@ -195,7 +199,12 @@ const AppShell = () => {
           <div className="boot-screen" role="status" aria-live="polite">
             <div className="boot-screen__window">
               <div className="boot-screen__logo" aria-label="FrutiLauncher cargando">
+                <p className="boot-screen__eyebrow">Fruti Studio</p>
                 <span>FrutiLauncher</span>
+                <p className="boot-screen__subtitle">Inicializando núcleo del launcher</p>
+              </div>
+              <div className="boot-screen__progress" aria-hidden="true">
+                <div style={{ width: `${bootProgress}%` }} />
               </div>
               <ul>
                 {loadingSteps.map((step, index) => {

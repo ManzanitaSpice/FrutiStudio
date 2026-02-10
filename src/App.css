@@ -2259,29 +2259,32 @@ select:focus-visible {
 }
 
 .boot-screen li {
-  color: var(--color-muted);
-  opacity: 0.35;
-  transition: opacity 220ms ease;
+  color: rgba(168, 179, 201, 0.75);
+  opacity: 0.48;
+  transition: opacity 220ms ease, transform 220ms ease, color 220ms ease;
 }
 
 .boot-screen li.is-done {
   opacity: 1;
+  transform: translateX(4px);
+  color: #e7efff;
 }
 
 .boot-screen__events {
   text-align: left;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 10px 12px;
+  background: rgba(10, 14, 23, 0.62);
+  border: 1px solid rgba(129, 145, 176, 0.35);
+  border-radius: 14px;
+  padding: 12px 14px;
   min-width: 420px;
   max-width: 520px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .boot-screen__events p {
   margin: 0;
   font-size: 0.82rem;
-  color: #9ca3af;
+  color: #c2cbe0;
   animation: fadeInUp 240ms ease;
 }
 
@@ -2388,9 +2391,14 @@ textarea {
   width: min(900px, 94vw);
   min-height: 480px;
   border-radius: 26px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: linear-gradient(180deg, rgba(18, 22, 30, 0.94), rgba(12, 15, 22, 0.98));
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(142, 160, 196, 0.34);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(91, 124, 255, 0.2), transparent 42%),
+    radial-gradient(circle at 100% 100%, rgba(217, 70, 239, 0.16), transparent 44%),
+    linear-gradient(165deg, rgba(12, 16, 24, 0.97), rgba(8, 10, 16, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(240, 245, 255, 0.1),
+    0 40px 110px rgba(0, 0, 0, 0.58);
   padding: 28px;
   display: grid;
   gap: 20px;
@@ -2406,7 +2414,41 @@ textarea {
 
 .boot-screen__logo span {
   display: inline-block;
-  animation: bootPulse 1.25s ease-in-out infinite;
+  color: #f6f7fb;
+  text-shadow: 0 10px 28px rgba(15, 19, 30, 0.45);
+}
+
+.boot-screen__eyebrow {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.36em;
+  text-transform: uppercase;
+  color: rgba(173, 188, 214, 0.78);
+}
+
+.boot-screen__subtitle {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  color: rgba(209, 219, 235, 0.86);
+}
+
+.boot-screen__progress {
+  inline-size: min(560px, 100%);
+  block-size: 8px;
+  border-radius: 999px;
+  margin: 2px auto 8px;
+  border: 1px solid rgba(141, 160, 193, 0.3);
+  background: rgba(20, 25, 37, 0.72);
+  overflow: hidden;
+}
+
+.boot-screen__progress div {
+  block-size: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #65b8ff 0%, #8b5cf6 50%, #d946ef 100%);
+  box-shadow: 0 0 20px rgba(113, 132, 255, 0.65);
+  transition: width 300ms ease;
 }
 
 .boot-screen ul {
@@ -2418,20 +2460,6 @@ textarea {
   max-width: 100%;
   max-height: 180px;
   overflow: auto;
-}
-
-@keyframes bootPulse {
-  0%,
-  100% {
-    opacity: 0.72;
-    transform: scale(1);
-    text-shadow: 0 0 0 rgba(160, 112, 255, 0);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.04);
-    text-shadow: 0 0 18px rgba(160, 112, 255, 0.55);
-  }
 }
 
 /* Explorer refinements */

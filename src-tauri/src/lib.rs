@@ -9,11 +9,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use fs2::available_space;
 use once_cell::sync::Lazy;
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -121,8 +121,9 @@ fn ensure_launcher_layout(app: &tauri::AppHandle) -> Result<(), String> {
     fs::create_dir_all(&root)
         .map_err(|error| format!("No se pudo crear carpeta raíz del launcher: {error}"))?;
     for directory in REQUIRED_LAUNCHER_DIRS {
-        fs::create_dir_all(root.join(directory))
-            .map_err(|error| format!("No se pudo crear carpeta requerida ({directory}): {error}"))?;
+        fs::create_dir_all(root.join(directory)).map_err(|error| {
+            format!("No se pudo crear carpeta requerida ({directory}): {error}")
+        })?;
     }
     Ok(())
 }
@@ -156,11 +157,11 @@ async fn select_folder(app: tauri::AppHandle) -> Result<SelectFolderResult, Stri
 
 #[command]
 async fn load_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
-  ensure_launcher_layout(&app)?;
-  let config_path = config_path(&app)?;
-  if !config_path.exists() {
-    return Ok(migrate_config(AppConfig::default()));
-  }
+    ensure_launcher_layout(&app)?;
+    let config_path = config_path(&app)?;
+    if !config_path.exists() {
+        return Ok(migrate_config(AppConfig::default()));
+    }
 
     let raw = fs::read_to_string(&config_path)
         .map_err(|error| format!("No se pudo leer config.json: {error}"))?;
@@ -182,8 +183,7 @@ async fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), Str
     let raw = serde_json::to_string_pretty(&config)
         .map_err(|error| format!("No se pudo serializar config: {error}"))?;
     backup_file(&config_path)?;
-    fs::write(&config_path, raw)
-        .map_err(|error| format!("No se pudo guardar config.json: {error}"))
+    fs::write(&config_path, raw).map_err(|error| format!("No se pudo guardar config.json: {error}"))
 }
 
 fn backup_file(path: &Path) -> Result<(), String> {
@@ -201,8 +201,7 @@ fn backup_file(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("No se pudo obtener timestamp: {error}"))?
         .as_secs();
     let backup_path = backup_dir.join(format!("{BACKUP_PREFIX}{timestamp}{BACKUP_SUFFIX}"));
-    fs::copy(path, backup_path)
-        .map_err(|error| format!("No se pudo respaldar config: {error}"))?;
+    fs::copy(path, backup_path).map_err(|error| format!("No se pudo respaldar config: {error}"))?;
     cleanup_backups(&backup_dir)?;
     Ok(())
 }
@@ -240,7 +239,8 @@ fn cleanup_backups(backup_dir: &Path) -> Result<(), String> {
         .collect();
     if remaining.len() > MAX_CONFIG_BACKUPS {
         remaining.sort();
-        for old in remaining.into_iter().take(remaining.len() - MAX_CONFIG_BACKUPS) {
+        let remove_count = remaining.len() - MAX_CONFIG_BACKUPS;
+        for old in remaining.into_iter().take(remove_count) {
             let _ = fs::remove_file(old);
         }
     }
@@ -250,11 +250,11 @@ fn cleanup_backups(backup_dir: &Path) -> Result<(), String> {
 
 #[command]
 async fn save_base_dir(app: tauri::AppHandle, base_dir: String) -> Result<(), String> {
-  let config = AppConfig {
-    base_dir: Some(base_dir),
-    ..load_config(app.clone()).await?
-  };
-  save_config(app, config).await
+    let config = AppConfig {
+        base_dir: Some(base_dir),
+        ..load_config(app.clone()).await?
+    };
+    save_config(app, config).await
 }
 
 #[command]
@@ -344,7 +344,11 @@ async fn validate_base_dir(
 }
 
 #[command]
-async fn append_log(app: tauri::AppHandle, scope: String, lines: Vec<String>) -> Result<(), String> {
+async fn append_log(
+    app: tauri::AppHandle,
+    scope: String,
+    lines: Vec<String>,
+) -> Result<(), String> {
     let logs_dir = app
         .path()
         .app_config_dir()
@@ -375,8 +379,7 @@ fn rotate_log_if_needed(path: &Path) -> Result<(), String> {
         if metadata.len() > MAX_SIZE {
             let backup = path.with_extension("log.1");
             let _ = fs::remove_file(&backup);
-            fs::rename(path, backup)
-                .map_err(|error| format!("No se pudo rotar log: {error}"))?;
+            fs::rename(path, backup).map_err(|error| format!("No se pudo rotar log: {error}"))?;
         }
     }
     Ok(())
@@ -424,10 +427,7 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
 }
 
 #[command]
-async fn create_instance(
-    app: tauri::AppHandle,
-    instance: InstanceRecord,
-) -> Result<(), String> {
+async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Result<(), String> {
     let path = database_path(&app)?;
     let conn = Connection::open(path)
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
@@ -461,10 +461,14 @@ async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<
                 .map_err(|error| format!("No se pudo crear modpack: {error}"))?;
             }
             "duplicate" => {
-                let new_id = format!("{}-copy-{}", action.id, SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or(Duration::from_secs(0))
-                    .as_secs());
+                let new_id = format!(
+                    "{}-copy-{}",
+                    action.id,
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or(Duration::from_secs(0))
+                        .as_secs()
+                );
                 conn.execute(
                     "INSERT INTO modpacks (id, name, version)
                     SELECT ?1, name || ' (copia)', version FROM modpacks WHERE id = ?2",
@@ -473,11 +477,8 @@ async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<
                 .map_err(|error| format!("No se pudo duplicar modpack: {error}"))?;
             }
             "delete" => {
-                conn.execute(
-                    "DELETE FROM modpacks WHERE id = ?1",
-                    params![action.id],
-                )
-                .map_err(|error| format!("No se pudo eliminar modpack: {error}"))?;
+                conn.execute("DELETE FROM modpacks WHERE id = ?1", params![action.id])
+                    .map_err(|error| format!("No se pudo eliminar modpack: {error}"))?;
             }
             _ => return Err("Acción de modpack inválida".to_string()),
         }
