@@ -3587,3 +3587,107 @@ textarea {
   max-height: 420px;
   overflow: auto;
 }
+
+.boot-screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(
+    circle at top,
+    rgba(160, 112, 255, 0.2),
+    rgba(7, 9, 14, 0.92)
+  );
+  backdrop-filter: blur(6px);
+  z-index: 100;
+}
+
+.boot-screen__window {
+  width: min(760px, 92vw);
+  max-height: 88vh;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, #ffffff22);
+  background: linear-gradient(160deg, rgba(20, 25, 36, 0.96), rgba(11, 14, 22, 0.96));
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.boot-screen__progress {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.boot-screen__progress div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8b5cf6, #22d3ee, #4ade80);
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.55);
+  transition: width 380ms ease;
+}
+
+.boot-screen__events {
+  min-height: 160px;
+  max-height: 220px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 13, 20, 0.82);
+}
+
+.boot-screen__events p {
+  margin: 0;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 0.8rem;
+  color: #d7e3ff;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: bootLogIn 420ms ease forwards;
+}
+
+.boot-screen__tips {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.boot-screen__tips-label {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e8dcff;
+}
+
+.boot-screen__tips p {
+  margin: 2px 0 0;
+}
+
+.boot-screen__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.boot-screen__cancel {
+  border-color: rgba(248, 113, 113, 0.6);
+  background: rgba(127, 29, 29, 0.45);
+}
+
+@keyframes bootLogIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
