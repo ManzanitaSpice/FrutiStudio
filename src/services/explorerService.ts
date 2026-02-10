@@ -74,10 +74,8 @@ interface ModrinthSearchHit {
   slug: string;
   icon_url?: string;
   versions?: string[];
-  latest_version?: string;
   date_modified?: string;
   categories?: string[];
-  gallery?: Array<{ featured: boolean; url: string }>;
 }
 
 interface ModrinthSearchResponse {
@@ -86,25 +84,23 @@ interface ModrinthSearchResponse {
 }
 
 interface ModrinthProjectResponse {
-  id: string;
   title: string;
   description: string;
   body?: string;
   project_type: string;
   icon_url?: string;
-  gallery?: Array<{ featured: boolean; url: string }>;
-  versions?: string[];
+  gallery?: Array<{ url: string }>;
   categories?: string[];
   game_versions?: string[];
   downloads?: number;
   updated?: string;
-  slug?: string;
 }
 
 interface CurseforgeSearchItem {
   id: number;
   name: string;
   summary?: string;
+  classId?: number;
   downloadCount?: number;
   dateReleased?: string;
   authors?: Array<{ name?: string }>;
@@ -128,6 +124,7 @@ interface CurseforgeModResponse {
     screenshots?: Array<{ url?: string; thumbnailUrl?: string }>;
     latestFiles?: Array<{
       gameVersions?: string[];
+      sortableGameVersions?: Array<{ gameVersionName?: string }>;
       dependencies?: Array<{ modId?: number }>;
     }>;
   };
@@ -136,8 +133,8 @@ interface CurseforgeModResponse {
 const MODRINTH_BASE = "https://api.modrinth.com/v2";
 const CURSEFORGE_BASE = "https://api.curseforge.com/v1";
 const CURSE_MINECRAFT_GAME_ID = 432;
-
-const MAX_PAGE_SIZE = 24;
+const CURSE_MAX_PAGE_SIZE = 50;
+const cache = new Map<string, { expiresAt: number; value: ExplorerResult | ExplorerItemDetails }>();
 
 const categoryProjectTypes: Record<ExplorerCategory, string> = {
   Modpacks: "modpack",
@@ -163,6 +160,13 @@ const curseforgeLoaders: Record<string, number> = {
   neoforge: 6,
 };
 
+const loaderFromCurseforge: Record<number, string> = {
+  1: "forge",
+  4: "fabric",
+  5: "quilt",
+  6: "neoforge",
+};
+
 const formatDownloads = (downloads: number) =>
   new Intl.NumberFormat("es-ES", {
     notation: "compact",
@@ -180,9 +184,37 @@ const mapSort = (sort: ExplorerSort | undefined) => {
 };
 
 const normalizePageSize = (pageSize?: number) =>
-  Math.max(1, Math.min(MAX_PAGE_SIZE, pageSize ?? 12));
+  Math.max(1, Math.min(CURSE_MAX_PAGE_SIZE, pageSize ?? 24));
 
-const fetchModrinthItems = async (filters: ExplorerFilters): Promise<ExplorerResult> => {
+const getCached = <T>(key: string): T | null => {
+  const entry = cache.get(key);
+  if (!entry) {
+    return null;
+  }
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value as T;
+};
+
+const setCached = <T>(key: string, value: T, ttl = 45_000) => {
+  cache.set(key, { value: value as ExplorerResult | ExplorerItemDetails, expiresAt: Date.now() + ttl });
+};
+
+const buildCacheKey = (scope: string, filters: ExplorerFilters) =>
+  `${scope}:${JSON.stringify({
+    platform: filters.platform,
+    category: filters.category,
+    query: filters.query?.trim().toLowerCase(),
+    gameVersion: filters.gameVersion,
+    loader: filters.loader?.toLowerCase(),
+    sort: filters.sort,
+    page: filters.page,
+    pageSize: filters.pageSize,
+  })}`;
+
+const fetchModrinthPage = async (filters: ExplorerFilters): Promise<ExplorerResult> => {
   const pageSize = normalizePageSize(filters.pageSize);
   const page = Math.max(0, filters.page ?? 0);
   const facets: string[][] = [[`project_type:${categoryProjectTypes[filters.category]}`]];
@@ -235,9 +267,7 @@ const fetchModrinthItems = async (filters: ExplorerFilters): Promise<ExplorerRes
   };
 };
 
-const fetchCurseforgeItems = async (
-  filters: ExplorerFilters,
-): Promise<ExplorerResult> => {
+const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerResult> => {
   const apiKey = getCurseforgeApiKey();
   if (!apiKey) {
     return { items: [], hasMore: false, total: 0, page: filters.page ?? 0 };
@@ -277,27 +307,39 @@ const fetchCurseforgeItems = async (
     { init: { headers: { "x-api-key": apiKey } }, ttl: 45_000 },
   );
 
-  const items = (response.data ?? []).map((item) => ({
-    id: `curseforge-${item.id}`,
-    projectId: String(item.id),
-    name: item.name,
-    author: item.authors?.[0]?.name || "CurseForge",
-    downloads: item.downloadCount
-      ? `${formatDownloads(item.downloadCount)} descargas`
-      : "Descargas no disponibles",
-    rawDownloads: item.downloadCount ?? 0,
-    description: item.summary || "Sin descripción.",
-    type: filters.category,
-    source: "CurseForge" as const,
-    updatedAt: item.dateReleased,
-    versions:
-      item.latestFilesIndexes
-        ?.map((indexEntry) => indexEntry.gameVersion)
-        .filter((value): value is string => Boolean(value)) ?? [],
-    loaders: [],
-    thumbnail: item.logo?.thumbnailUrl ?? item.logo?.url,
-    url: item.links?.websiteUrl,
-  }));
+  const items = (response.data ?? [])
+    .filter((item) => item.classId === classId)
+    .map((item) => ({
+      id: `curseforge-${item.id}`,
+      projectId: String(item.id),
+      name: item.name,
+      author: item.authors?.[0]?.name || "CurseForge",
+      downloads: item.downloadCount
+        ? `${formatDownloads(item.downloadCount)} descargas`
+        : "Descargas no disponibles",
+      rawDownloads: item.downloadCount ?? 0,
+      description: item.summary || "Sin descripción.",
+      type: filters.category,
+      source: "CurseForge" as const,
+      updatedAt: item.dateReleased,
+      versions:
+        item.latestFilesIndexes
+          ?.map((indexEntry) => indexEntry.gameVersion)
+          .filter((value): value is string => Boolean(value)) ?? [],
+      loaders: Array.from(
+        new Set(
+          item.latestFilesIndexes
+            ?.map((indexEntry) =>
+              indexEntry.modLoader !== undefined
+                ? loaderFromCurseforge[indexEntry.modLoader]
+                : undefined,
+            )
+            .filter((value): value is string => Boolean(value)) ?? [],
+        ),
+      ),
+      thumbnail: item.logo?.thumbnailUrl ?? item.logo?.url,
+      url: item.links?.websiteUrl,
+    }));
 
   const total = response.pagination?.totalCount ?? items.length;
   return {
@@ -331,12 +373,20 @@ export const fetchUnifiedCatalog = async (
     pageSize: normalizePageSize(filters.pageSize),
   };
 
+  const cacheKey = buildCacheKey("catalog", effective);
+  const cached = getCached<ExplorerResult>(cacheKey);
+  if (cached) {
+    console.debug("[explorer] cache hit", cacheKey);
+    return cached;
+  }
+  console.info("[explorer] fetch catalog", effective);
+
   const tasks: Array<Promise<ExplorerResult>> = [];
   if (effective.platform === "all" || effective.platform === "modrinth") {
-    tasks.push(fetchModrinthItems(effective));
+    tasks.push(fetchModrinthPage(effective));
   }
   if (effective.platform === "all" || effective.platform === "curseforge") {
-    tasks.push(fetchCurseforgeItems(effective));
+    tasks.push(fetchCurseforgePage(effective));
   }
 
   const settled = await Promise.allSettled(tasks);
@@ -370,27 +420,44 @@ export const fetchUnifiedCatalog = async (
     Array.from(unique.values()),
     effective.sort ?? "popular",
   );
-  const total = successful.reduce((acc, entry) => acc + entry.value.total, 0);
-  const hasMore = successful.some((entry) => entry.value.hasMore);
-
-  return {
+  const result: ExplorerResult = {
     items: ordered,
-    total,
-    hasMore,
+    total: successful.reduce((acc, entry) => acc + entry.value.total, 0),
+    hasMore: successful.some((entry) => entry.value.hasMore),
     page: effective.page ?? 0,
   };
+
+  setCached(cacheKey, result, 40_000);
+  console.info("[explorer] catalog loaded", {
+    page: result.page,
+    total: result.total,
+    hasMore: result.hasMore,
+    count: result.items.length,
+  });
+  return result;
 };
 
 export const fetchExplorerItemDetails = async (
   item: ExplorerItem,
 ): Promise<ExplorerItemDetails> => {
+  const detailKey = `${item.source}:${item.projectId}`;
+  const cached = getCached<ExplorerItemDetails>(detailKey);
+  if (cached) {
+    console.debug("[explorer] detail cache hit", detailKey);
+    return cached;
+  }
+  console.info("[explorer] fetch detail", {
+    source: item.source,
+    projectId: item.projectId,
+  });
+
   if (item.source === "Modrinth") {
     const data = await apiFetch<ModrinthProjectResponse>(
       `${MODRINTH_BASE}/project/${item.projectId}`,
       { ttl: 60_000 },
     );
 
-    return {
+    const details: ExplorerItemDetails = {
       id: item.id,
       source: "Modrinth",
       title: data.title,
@@ -409,11 +476,13 @@ export const fetchExplorerItemDetails = async (
       url: item.url,
       type: data.project_type,
     };
+    setCached(detailKey, details, 60_000);
+    return details;
   }
 
   const apiKey = getCurseforgeApiKey();
   if (!apiKey) {
-    return {
+    const fallback: ExplorerItemDetails = {
       id: item.id,
       source: "CurseForge",
       title: item.name,
@@ -428,6 +497,7 @@ export const fetchExplorerItemDetails = async (
       url: item.url,
       type: item.type,
     };
+    return fallback;
   }
 
   const data = await apiFetch<CurseforgeModResponse>(
@@ -435,7 +505,7 @@ export const fetchExplorerItemDetails = async (
     { init: { headers: { "x-api-key": apiKey } }, ttl: 60_000 },
   );
 
-  return {
+  const details: ExplorerItemDetails = {
     id: item.id,
     source: "CurseForge",
     title: data.data.name,
@@ -447,7 +517,15 @@ export const fetchExplorerItemDetails = async (
         .map((screen) => screen.url ?? screen.thumbnailUrl)
         .filter((url): url is string => Boolean(url)),
     ],
-    gameVersions: data.data.latestFiles?.flatMap((file) => file.gameVersions ?? []) ?? [],
+    gameVersions:
+      data.data.latestFiles?.flatMap((file) => {
+        const fromGameVersions = file.gameVersions ?? [];
+        const fromSortable =
+          file.sortableGameVersions
+            ?.map((entry) => entry.gameVersionName)
+            .filter((value): value is string => Boolean(value)) ?? [];
+        return [...fromGameVersions, ...fromSortable];
+      }) ?? [],
     loaders: item.loaders,
     dependencies:
       data.data.latestFiles
@@ -460,6 +538,9 @@ export const fetchExplorerItemDetails = async (
     url: data.data.links?.websiteUrl ?? item.url,
     type: item.type,
   };
+
+  setCached(detailKey, details, 60_000);
+  return details;
 };
 
 export const fetchExplorerItems = async (
