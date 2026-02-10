@@ -14,6 +14,7 @@ import {
 import {
   createInstance,
   launchInstance,
+  preflightInstance,
   removeInstance,
   repairInstance,
 } from "../../services/instanceService";
@@ -198,6 +199,11 @@ export const InstancePanel = ({
   const [creatorError, setCreatorError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [launchStatus, setLaunchStatus] = useState<string | null>(null);
+  const [launchChecklistOpen, setLaunchChecklistOpen] = useState(false);
+  const [launchChecklistLogs, setLaunchChecklistLogs] = useState<string[]>([]);
+  const [launchChecklistChecks, setLaunchChecklistChecks] = useState<
+    Array<{ name: string; ok: boolean }>
+  >([]);
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
   const [editorMemory, setEditorMemory] = useState("4 GB");
@@ -299,6 +305,45 @@ export const InstancePanel = ({
     ]);
   };
 
+  const runLaunchChecklist = async (instanceId: string) => {
+    setLaunchChecklistOpen(true);
+    setLaunchChecklistChecks([]);
+    setLaunchChecklistLogs(["Abriendo verificación previa de instancia..."]);
+
+    const appendLog = (line: string) => {
+      setLaunchChecklistLogs((prev) => [...prev, line]);
+    };
+
+    appendLog("1/4: Revisando estructura y runtime de la instancia...");
+    const report = await preflightInstance(instanceId);
+    appendLog("2/4: Validando checklist técnico de arranque...");
+
+    const checks = Object.entries(report.checks).map(([name, ok]) => ({ name, ok }));
+    setLaunchChecklistChecks(checks);
+
+    checks.forEach((check) => {
+      appendLog(`${check.ok ? "✔" : "✖"} ${check.name}`);
+    });
+
+    if (report.warnings.length > 0) {
+      report.warnings.forEach((warning) => {
+        appendLog(`⚠ Aviso: ${warning}`);
+      });
+    }
+
+    if (!report.ok) {
+      report.errors.forEach((error) => {
+        appendLog(`✖ Error: ${error}`);
+      });
+      throw new Error(
+        report.errors.join("; ") || "La validación previa de la instancia falló.",
+      );
+    }
+
+    appendLog("3/4: Checklist completo, iniciando Java...");
+    return report;
+  };
+
   const instanceHealth = useMemo(() => {
     if (!selectedInstance) {
       return { icon: "✔", label: "Instancia correcta" };
@@ -326,7 +371,7 @@ export const InstancePanel = ({
             try {
               await repairInstance(selectedInstance.id);
               setLaunchStatus(
-                "Reparación completada: estructura de instancia validada sin reinstalar todo.",
+                "Reparación completada: reinstalación total ejecutada y verificada.",
               );
               onUpdateInstance(selectedInstance.id, {
                 status: "ready",
@@ -360,9 +405,15 @@ export const InstancePanel = ({
       label: "▶ Iniciar",
       disabled: false,
       action: async () => {
+        setLaunchChecklistOpen(true);
         try {
           setLaunchStatus("Iniciando Minecraft...");
+          await runLaunchChecklist(selectedInstance.id);
           const result = await launchInstance(selectedInstance.id);
+          setLaunchChecklistLogs((prev) => [
+            ...prev,
+            "4/4: Proceso de Minecraft lanzado correctamente.",
+          ]);
           onUpdateInstance(selectedInstance.id, {
             isRunning: true,
             processId: result.pid,
@@ -373,10 +424,14 @@ export const InstancePanel = ({
             lastPlayed: new Date().toISOString(),
           });
           setLaunchStatus("Instancia iniciada correctamente.");
+          window.setTimeout(() => {
+            setLaunchChecklistOpen(false);
+          }, 900);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "No se pudo iniciar la instancia.";
           setLaunchStatus(`${message} Usa "Reparar instancia" para corregirlo.`);
+          setLaunchChecklistLogs((prev) => [...prev, `✖ Inicio cancelado: ${message}`]);
         }
       },
     };
@@ -481,6 +536,32 @@ export const InstancePanel = ({
               group:
                 selectedInstance.group === "No agrupado" ? "Favoritos" : "No agrupado",
             }),
+        },
+        {
+          id: "repair",
+          label: "Reparar",
+          action: () => {
+            void (async () => {
+              try {
+                setLaunchStatus("Reinstalando instancia desde cero...");
+                await repairInstance(selectedInstance.id);
+                setLaunchStatus(
+                  "Reparación completada: reinstalación total ejecutada y verificada.",
+                );
+                onUpdateInstance(selectedInstance.id, {
+                  status: "ready",
+                  isRunning: false,
+                  processId: undefined,
+                });
+              } catch (error) {
+                setLaunchStatus(
+                  error instanceof Error
+                    ? `No se pudo reparar la instancia: ${error.message}`
+                    : "No se pudo reparar la instancia.",
+                );
+              }
+            })();
+          },
         },
         {
           id: "shortcut",
@@ -2424,6 +2505,40 @@ ${rows.join("\n")}`;
           </article>
         </div>
       )}
+
+      {launchChecklistOpen ? (
+        <div className="instance-editor__backdrop" onClick={() => undefined}>
+          <article
+            className="product-dialog product-dialog--install"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h3>Checklist de inicio de instancia</h3>
+            </header>
+            <div className="product-dialog__install-body">
+              <p>
+                Verificando punto por punto antes de abrir Minecraft. Esta ventana se cierra
+                automáticamente al finalizar.
+              </p>
+              {launchChecklistChecks.length > 0 ? (
+                <ul>
+                  {launchChecklistChecks.map((check) => (
+                    <li key={check.name}>
+                      {check.ok ? "✅" : "❌"} {check.name}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="instance-import__log" aria-live="polite">
+                {launchChecklistLogs.map((line, index) => (
+                  <p key={`${line}-${index}`}>{line}</p>
+                ))}
+              </div>
+            </div>
+          </article>
+        </div>
+      ) : null}
+
 
       {modDownloadOpen && selectedInstance ? (
         <div
