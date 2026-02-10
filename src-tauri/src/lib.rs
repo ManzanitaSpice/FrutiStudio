@@ -2011,6 +2011,34 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     Ok(())
 }
 
+async fn prepare_instance_runtime(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    reinstall: bool,
+) -> Result<(PathBuf, InstanceRecord), String> {
+    if instance_id.trim().is_empty() {
+        return Err("No hay una instancia válida seleccionada para preparar.".to_string());
+    }
+
+    let instance_root = launcher_root(app)?.join("instances").join(instance_id);
+    if reinstall && instance_root.exists() {
+        fs::remove_dir_all(&instance_root).map_err(|error| {
+            format!(
+                "No se pudo limpiar la instancia para reinstalar ({}) : {error}",
+                instance_root.display()
+            )
+        })?;
+    }
+
+    ensure_instance_layout(&instance_root)?;
+
+    let instance = read_instance_record(app, instance_id)?;
+    bootstrap_instance_runtime(app, &instance_root, &instance).await?;
+    let _ = build_launch_command(app, &instance_root, &instance)?;
+
+    Ok((instance_root, instance))
+}
+
 #[command]
 async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Result<(), String> {
     let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
@@ -2018,16 +2046,56 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
         return Err("No hay una instancia válida seleccionada para reparar.".to_string());
     }
 
-    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+    let (instance_root, instance) = prepare_instance_runtime(&app, &instance_id, true).await?;
+    let launch_plan_path = instance_root.join("launch-plan.json");
+    let launch_plan = fs::read_to_string(&launch_plan_path)
+        .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
+        .and_then(|raw| {
+            serde_json::from_str::<LaunchPlan>(&raw)
+                .map_err(|error| format!("launch-plan.json inválido: {error}"))
+        })?;
 
-    ensure_instance_layout(&instance_root)?;
+    let validation = validate_launch_plan(&instance_root, &launch_plan);
+    if !validation.ok {
+        return Err(format!(
+            "La reinstalación terminó con validaciones fallidas: {}",
+            validation.errors.join("; ")
+        ));
+    }
 
-    let instance = read_instance_record(&app, &instance_id)?;
-    bootstrap_instance_runtime(&app, &instance_root, &instance).await?;
-
-    let _ = build_launch_command(&app, &instance_root, &instance)?;
+    write_instance_state(
+        &instance_root,
+        "repaired",
+        serde_json::json!({
+            "instance": instance.id,
+            "checks": validation.checks,
+            "warnings": validation.warnings
+        }),
+    );
 
     Ok(())
+}
+
+#[command]
+async fn preflight_instance(
+    app: tauri::AppHandle,
+    args: InstanceCommandArgs,
+) -> Result<ValidationReport, String> {
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
+    if instance_id.is_empty() {
+        return Err("No hay una instancia válida seleccionada para validar.".to_string());
+    }
+
+    let (instance_root, _) = prepare_instance_runtime(&app, &instance_id, false).await?;
+    let launch_plan_path = instance_root.join("launch-plan.json");
+    let launch_plan = fs::read_to_string(&launch_plan_path)
+        .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
+        .and_then(|raw| {
+            serde_json::from_str::<LaunchPlan>(&raw)
+                .map_err(|error| format!("launch-plan.json inválido: {error}"))
+        })?;
+
+    Ok(validate_launch_plan(&instance_root, &launch_plan))
 }
 
 #[command]
@@ -2047,7 +2115,7 @@ async fn launch_instance(
         );
     }
 
-    repair_instance(
+    let validation = preflight_instance(
         app.clone(),
         InstanceCommandArgs {
             instance_id: Some(instance_id.clone()),
@@ -2058,6 +2126,13 @@ async fn launch_instance(
         },
     )
     .await?;
+
+    if !validation.ok {
+        return Err(format!(
+            "La validación previa falló: {}",
+            validation.errors.join("; ")
+        ));
+    }
 
     let launch_plan_path = instance_root.join("launch-plan.json");
     let mut launch_plan = fs::read_to_string(&launch_plan_path)
@@ -2499,6 +2574,7 @@ pub fn run() {
             create_instance,
             delete_instance,
             repair_instance,
+            preflight_instance,
             launch_instance,
             manage_modpack,
             curseforge_scan_fingerprints,

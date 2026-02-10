@@ -62,7 +62,9 @@ export const updateInstance = async (_config: Instance) => Promise.resolve();
 export const removeInstance = async (instanceId: string) => {
   const validInstanceId = assertValidInstanceId(instanceId);
   await invokeWithHandling<void>("delete_instance", {
-    instanceId: validInstanceId,
+    args: {
+      instanceId: validInstanceId,
+    },
   });
   if (cachedInstances) {
     cachedInstances = cachedInstances.filter((instance) => instance.id !== validInstanceId);
@@ -80,17 +82,37 @@ export const launchInstance = async (instanceId: string) => {
   const validInstanceId = assertValidInstanceId(instanceId);
   const activeAccount = getActiveAccount();
   return invokeWithHandling<{ pid: number }>("launch_instance", {
-    instanceId: validInstanceId,
-    username: activeAccount?.username,
-    uuid: activeAccount?.uuid,
-    accessToken: activeAccount?.session?.accessToken,
-    userType: activeAccount?.type === "msa" ? "msa" : "offline",
+    args: {
+      instanceId: validInstanceId,
+      username: activeAccount?.username,
+      uuid: activeAccount?.uuid,
+      accessToken: activeAccount?.session?.accessToken,
+      userType: activeAccount?.type === "msa" ? "msa" : "offline",
+    },
   });
 };
 
 export const repairInstance = async (instanceId: string) => {
   const validInstanceId = assertValidInstanceId(instanceId);
   return invokeWithHandling<void>("repair_instance", {
-    instanceId: validInstanceId,
+    args: {
+      instanceId: validInstanceId,
+    },
+  });
+};
+
+export interface InstancePreflightReport {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  checks: Record<string, boolean>;
+}
+
+export const preflightInstance = async (instanceId: string) => {
+  const validInstanceId = assertValidInstanceId(instanceId);
+  return invokeWithHandling<InstancePreflightReport>("preflight_instance", {
+    args: {
+      instanceId: validInstanceId,
+    },
   });
 };
