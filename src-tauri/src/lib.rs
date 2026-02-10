@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fs2::available_space;
@@ -13,6 +14,7 @@ use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
+use discord_rich_presence::{activity, DiscordIpcClient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -22,8 +24,23 @@ struct AppConfig {
     base_dir: Option<String>,
     ui_scale: Option<f32>,
     theme: Option<String>,
+    custom_theme: Option<CustomTheme>,
+    discord_client_id: Option<String>,
+    discord_presence_enabled: Option<bool>,
     version: Option<u32>,
     telemetry_opt_in: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CustomTheme {
+    background: String,
+    surface: String,
+    card: String,
+    text: String,
+    accent: String,
+    muted: String,
+    border: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,6 +84,19 @@ struct SelectFolderResult {
     path: Option<String>,
     error: Option<String>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscordActivity {
+    details: Option<String>,
+    state: Option<String>,
+    large_image_key: Option<String>,
+    large_image_text: Option<String>,
+    start_timestamp: Option<i64>,
+}
+
+static DISCORD_RPC: Lazy<Mutex<Option<DiscordIpcClient>>> =
+    Lazy::new(|| Mutex::new(None));
 
 fn config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     app.path()
@@ -237,6 +267,68 @@ async fn save_base_dir(app: tauri::AppHandle, base_dir: String) -> Result<(), St
     ..load_config(app.clone()).await?
   };
   save_config(app, config).await
+}
+
+#[command]
+fn init_discord_rpc(client_id: String) -> Result<(), String> {
+    let mut client = DiscordIpcClient::new(client_id.as_str())
+        .map_err(|error| format!("No se pudo crear cliente RPC: {error}"))?;
+    client
+        .connect()
+        .map_err(|error| format!("No se pudo conectar a Discord RPC: {error}"))?;
+    let mut rpc = DISCORD_RPC
+        .lock()
+        .map_err(|_| "No se pudo obtener el lock de Discord RPC".to_string())?;
+    *rpc = Some(client);
+    Ok(())
+}
+
+#[command]
+fn set_discord_activity(activity: DiscordActivity) -> Result<(), String> {
+    let mut rpc = DISCORD_RPC
+        .lock()
+        .map_err(|_| "No se pudo obtener el lock de Discord RPC".to_string())?;
+    let Some(client) = rpc.as_mut() else {
+        return Ok(());
+    };
+    let mut presence = activity::Activity::new();
+    if let Some(details) = activity.details.as_deref() {
+        presence = presence.details(details);
+    }
+    if let Some(state) = activity.state.as_deref() {
+        presence = presence.state(state);
+    }
+    if activity.large_image_key.is_some() || activity.large_image_text.is_some() {
+        let mut assets = activity::Assets::new();
+        if let Some(key) = activity.large_image_key.as_deref() {
+            assets = assets.large_image(key);
+        }
+        if let Some(text) = activity.large_image_text.as_deref() {
+            assets = assets.large_text(text);
+        }
+        presence = presence.assets(assets);
+    }
+    if let Some(start_timestamp) = activity.start_timestamp {
+        let timestamps = activity::Timestamps::new().start(start_timestamp);
+        presence = presence.timestamps(timestamps);
+    }
+    client
+        .set_activity(presence)
+        .map_err(|error| format!("No se pudo actualizar la actividad: {error}"))?;
+    Ok(())
+}
+
+#[command]
+fn clear_discord_activity() -> Result<(), String> {
+    let mut rpc = DISCORD_RPC
+        .lock()
+        .map_err(|_| "No se pudo obtener el lock de Discord RPC".to_string())?;
+    if let Some(client) = rpc.as_mut() {
+        client
+            .clear_activity()
+            .map_err(|error| format!("No se pudo limpiar la actividad: {error}"))?;
+    }
+    Ok(())
 }
 
 #[command]
@@ -478,6 +570,9 @@ pub fn run() {
             save_base_dir,
             default_base_dir,
             validate_base_dir,
+            init_discord_rpc,
+            set_discord_activity,
+            clear_discord_activity,
             append_log,
             list_instances,
             create_instance,

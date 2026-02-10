@@ -14,6 +14,10 @@ import { useUI } from "./hooks/useUI";
 import { featureFlags } from "./config/featureFlags";
 import { fetchInstances } from "./services/instanceService";
 import { loadConfig, saveConfig } from "./services/configService";
+import {
+  initDiscordPresence,
+  setDiscordActivity,
+} from "./services/discordPresenceService";
 import type { Instance } from "./types/models";
 import "./App.css";
 
@@ -53,6 +57,8 @@ const AppShell = () => {
     toggleFocus,
     setTheme,
     theme,
+    customTheme,
+    setCustomTheme,
     goBack,
     goForward,
     canGoBack,
@@ -62,6 +68,7 @@ const AppShell = () => {
     null,
   );
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [presenceStart] = useState(() => new Date());
 
   useEffect(() => {
     const loadInstances = async () => {
@@ -94,20 +101,75 @@ const AppShell = () => {
         setScale(config.uiScale);
       }
       if (config.theme) {
-        setTheme(config.theme);
+        const mappedTheme =
+          config.theme === "dark"
+            ? "default"
+            : config.theme === "light"
+              ? "light"
+              : config.theme;
+        setTheme(mappedTheme as typeof theme);
+      }
+      if (config.customTheme) {
+        setCustomTheme(config.customTheme);
       }
     };
     void applyConfig();
-  }, [setScale, setTheme]);
+  }, [setScale, setTheme, setCustomTheme, theme]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    const customThemeVars = [
+      ["--color-bg", customTheme.background],
+      ["--color-surface", customTheme.surface],
+      ["--color-surface-strong", customTheme.card],
+      ["--color-card", customTheme.card],
+      ["--color-text", customTheme.text],
+      ["--color-accent", customTheme.accent],
+      ["--color-muted", customTheme.muted],
+      ["--color-border", customTheme.border],
+    ] as const;
+    if (theme === "custom") {
+      customThemeVars.forEach(([property, value]) => {
+        root.style.setProperty(property, value);
+      });
+    } else {
+      customThemeVars.forEach(([property]) => {
+        root.style.removeProperty(property);
+      });
+    }
     const persist = async () => {
       const config = await loadConfig();
-      await saveConfig({ ...config, theme });
+      await saveConfig({ ...config, theme, customTheme });
     };
     void persist();
-  }, [theme]);
+  }, [customTheme, theme]);
+
+  useEffect(() => {
+    const updatePresence = async () => {
+      try {
+        const config = await loadConfig();
+        if (!config.discordPresenceEnabled || !config.discordClientId) {
+          return;
+        }
+        await initDiscordPresence(config.discordClientId);
+        const details = selectedInstance
+          ? `Modpack: ${selectedInstance.name}`
+          : activeSection === "mis-modpacks"
+            ? "Explorando modpacks"
+            : `Sección: ${activeSection}`;
+        const state = isFocusMode ? "Modo enfoque" : "Launcher abierto";
+        await setDiscordActivity({
+          details,
+          state,
+          startTimestamp: Math.floor(presenceStart.getTime() / 1000),
+        });
+      } catch (error) {
+        console.error("Discord RPC no disponible", error);
+      }
+    };
+    void updatePresence();
+  }, [activeSection, isFocusMode, presenceStart, selectedInstance]);
 
   useKeyboardShortcuts({
     onSelectSection: setSection,
