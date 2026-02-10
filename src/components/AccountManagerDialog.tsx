@@ -77,7 +77,7 @@ export const AccountManagerDialog = ({ open, onClose }: AccountManagerDialogProp
         <header className="account-manager__header">
           <div>
             <h3>Administrar cuentas</h3>
-            <p>Sesiones Microsoft y perfiles offline, con control rápido de estado y perfil activo.</p>
+            <p>Centro de cuentas con estado en tiempo real, perfil predeterminado y acciones seguras.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Cerrar">✕</button>
         </header>
@@ -93,7 +93,7 @@ export const AccountManagerDialog = ({ open, onClose }: AccountManagerDialogProp
           </article>
           <article>
             <strong>{sortedAccounts.filter((account) => account.id === activeAccountId).length ? "Sí" : "No"}</strong>
-            <span>Cuenta predeterminada</span>
+            <span>Perfil activo</span>
           </article>
         </div>
 
@@ -102,7 +102,7 @@ export const AccountManagerDialog = ({ open, onClose }: AccountManagerDialogProp
             <span>Cuenta</span>
             <span>Tipo</span>
             <span>Estado</span>
-            <span>Acciones</span>
+            <span>Gestión</span>
           </div>
           {sortedAccounts.length ? sortedAccounts.map((account) => (
             <div className="account-manager__row" key={account.id}>
@@ -113,9 +113,9 @@ export const AccountManagerDialog = ({ open, onClose }: AccountManagerDialogProp
               <span>{account.type === "msa" ? "MSA" : "Offline"}</span>
               <span className={`account-status account-status--${account.status}`}>{statusLabel[account.status]}</span>
               <span className="account-manager__actions">
-                <button type="button" onClick={() => void runAction(async () => { setActiveAccount(account.id); })}>Predeterminada</button>
+                <button type="button" onClick={() => void runAction(async () => { setActiveAccount(account.id); })} disabled={account.id === activeAccountId}>Predeterminada</button>
                 <button type="button" onClick={() => void runAction(async () => { await refreshAccount(account.id); })}>Refrescar</button>
-                <button type="button" onClick={() => void runAction(async () => { removeAccount(account.id); })}>Eliminar</button>
+                <button type="button" onClick={() => void runAction(async () => { removeAccount(account.id); })} className="account-manager__danger">Eliminar</button>
               </span>
             </div>
           )) : (

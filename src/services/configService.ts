@@ -48,6 +48,7 @@ export interface AppConfig {
   iconsPath?: string;
   javaPath?: string;
   skinsPath?: string;
+  fontFamily?: "inter" | "system" | "poppins" | "jetbrains" | "fira";
   explorerFilters?: {
     query?: string;
     gameVersion?: string;

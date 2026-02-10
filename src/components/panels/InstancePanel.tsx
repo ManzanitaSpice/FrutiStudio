@@ -37,6 +37,10 @@ import { installModFileToInstance } from "../../services/modService";
 import { buildJvmRecommendation } from "../../services/jvmTuningService";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
 import importGuide from "../../assets/import-guide.svg";
+import {
+  createInstanceDesktopShortcut,
+  openInstancePath,
+} from "../../services/instanceWorkspaceService";
 
 interface InstancePanelProps {
   instances: Instance[];
@@ -565,6 +569,40 @@ export const InstancePanel = ({
     setContextMenu(null);
   };
 
+
+  const openInstanceSubPath = async (subPath?: string, label?: string) => {
+    if (!selectedInstance) {
+      return;
+    }
+    try {
+      await openInstancePath(selectedInstance.id, subPath);
+      if (label) {
+        setLaunchStatus(`Abriendo ${label} de ${selectedInstance.name}...`);
+      }
+    } catch (error) {
+      setLaunchStatus(
+        error instanceof Error
+          ? `No se pudo abrir ${label ?? "la carpeta"}: ${error.message}`
+          : `No se pudo abrir ${label ?? "la carpeta"}.`,
+      );
+    }
+  };
+
+  const createDesktopShortcutForSelected = async () => {
+    if (!selectedInstance) {
+      return;
+    }
+    try {
+      const createdPath = await createInstanceDesktopShortcut(selectedInstance.id);
+      setLaunchStatus(`Atajo creado en el escritorio: ${createdPath}`);
+    } catch (error) {
+      setLaunchStatus(
+        error instanceof Error
+          ? `No se pudo crear el atajo: ${error.message}`
+          : "No se pudo crear el atajo en escritorio.",
+      );
+    }
+  };
   const quickActions = useMemo(() => {
     if (!selectedInstance) {
       return { frequent: [], management: [] };
@@ -575,7 +613,9 @@ export const InstancePanel = ({
         {
           id: "folder",
           label: "Carpeta",
-          action: () => window.alert(`Abrir carpeta de ${selectedInstance.name}`),
+          action: () => {
+            void openInstanceSubPath(undefined, "la carpeta de instancia");
+          },
         },
         {
           id: "mods",
@@ -663,12 +703,19 @@ export const InstancePanel = ({
         {
           id: "shortcut",
           label: "Crear atajo",
-          action: () =>
-            window.alert(`Crear atajo con --instanceId=${selectedInstance.id}`),
+          action: () => {
+            void createDesktopShortcutForSelected();
+          },
         },
       ],
     };
-  }, [onCreateInstance, onUpdateInstance, selectedInstance]);
+  }, [
+    createDesktopShortcutForSelected,
+    onCreateInstance,
+    onUpdateInstance,
+    openInstanceSubPath,
+    selectedInstance,
+  ]);
 
   const handleCreatorBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
@@ -2233,7 +2280,6 @@ export const InstancePanel = ({
               </div>
               <div className="instance-menu__scroll">
                 <div className="instance-menu__section">
-                  <h4>Acciones rápidas</h4>
                   <p className="instance-menu__health">
                     {instanceHealth.icon} {instanceHealth.label}
                   </p>
@@ -2278,9 +2324,6 @@ export const InstancePanel = ({
                     ))}
                   </div>
 
-                  <button type="button" onClick={openCreator}>
-                    ➕ Crear nueva
-                  </button>
                   <hr className="instance-menu__danger-separator" />
                   <button
                     type="button"
@@ -2445,19 +2488,17 @@ export const InstancePanel = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                window.alert(
-                                  `Abrir carpeta de mods de ${selectedInstance?.name ?? "instancia"}`,
-                                )
-                              }
+                              onClick={() => {
+                                void openInstanceSubPath("minecraft/mods", "la carpeta de mods");
+                              }}
                             >
                               Ver carpeta
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                window.alert("Abrir carpeta de configuraciones de mods")
-                              }
+                              onClick={() => {
+                                void openInstanceSubPath("minecraft/config", "la carpeta de configuración");
+                              }}
                             >
                               Ver configuraciones
                             </button>
@@ -2501,7 +2542,9 @@ ${rows.join("\n")}`;
                             </button>
                             <button
                               type="button"
-                              onClick={() => window.alert("Abrir carpeta shaderpacks")}
+                              onClick={() => {
+                                void openInstanceSubPath("minecraft/shaderpacks", "la carpeta shaderpacks");
+                              }}
                             >
                               Ver carpeta
                             </button>
@@ -2523,7 +2566,9 @@ ${rows.join("\n")}`;
                             </button>
                             <button
                               type="button"
-                              onClick={() => window.alert("Abrir carpeta resourcepacks")}
+                              onClick={() => {
+                                void openInstanceSubPath("minecraft/resourcepacks", "la carpeta resourcepacks");
+                              }}
                             >
                               Ver carpeta
                             </button>
@@ -2598,11 +2643,9 @@ ${rows.join("\n")}`;
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  window.alert("Atajo rápido: Crear instancia vanilla 1.21.1")
-                }
+                onClick={() => void createDesktopShortcutForSelected()}
               >
-                Atajo: instancia rápida
+                Atajo en escritorio
               </button>
             </>
           )}

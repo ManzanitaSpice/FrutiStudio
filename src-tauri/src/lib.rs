@@ -6,6 +6,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use reqwest::header::{HeaderMap, HeaderValue};
 
@@ -135,6 +137,14 @@ struct InstanceCommandArgs {
     access_token: Option<String>,
     #[serde(alias = "user_type")]
     user_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstancePathArgs {
+    #[serde(alias = "instance_id", alias = "id")]
+    instance_id: Option<String>,
+    sub_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2947,6 +2957,130 @@ async fn curseforge_v1_get(
         .map_err(|error| format!("Respuesta JSON inválida de CurseForge: {error}"))
 }
 
+fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut cmd = Command::new("explorer");
+        cmd.arg(path);
+        cmd
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut cmd = Command::new("open");
+        cmd.arg(path);
+        cmd
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut cmd = Command::new("xdg-open");
+        cmd.arg(path);
+        cmd
+    };
+
+    command
+        .spawn()
+        .map_err(|error| format!("No se pudo abrir el explorador de archivos: {error}"))?;
+
+    Ok(())
+}
+
+#[command]
+async fn open_instance_path(app: tauri::AppHandle, args: InstancePathArgs) -> Result<(), String> {
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
+    if instance_id.is_empty() {
+        return Err("instance_id es requerido".to_string());
+    }
+
+    let mut target = launcher_root(&app)?.join("instances").join(&instance_id);
+    if let Some(raw_sub_path) = args.sub_path {
+        let trimmed = raw_sub_path.trim();
+        if !trimmed.is_empty() {
+            let sub_path = Path::new(trimmed);
+            if sub_path.is_absolute()
+                || sub_path
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                return Err("sub_path inválido".to_string());
+            }
+            target = target.join(sub_path);
+        }
+    }
+
+    fs::create_dir_all(&target)
+        .map_err(|error| format!("No se pudo preparar la carpeta solicitada: {error}"))?;
+    open_path_in_file_manager(&target)
+}
+
+#[command]
+async fn create_instance_shortcut(app: tauri::AppHandle, instance_id: String) -> Result<String, String> {
+    let id = instance_id.trim();
+    if id.is_empty() {
+        return Err("instance_id es requerido".to_string());
+    }
+
+    let desktop = app
+        .path()
+        .desktop_dir()
+        .map_err(|error| format!("No se pudo resolver el escritorio del usuario: {error}"))?;
+
+    fs::create_dir_all(&desktop)
+        .map_err(|error| format!("No se pudo preparar el escritorio: {error}"))?;
+
+    let exe = std::env::current_exe()
+        .map_err(|error| format!("No se pudo obtener la ruta del launcher: {error}"))?;
+
+    #[cfg(target_os = "windows")]
+    let (shortcut_path, content) = {
+        let path = desktop.join(format!("FrutiLauncher - {id}.bat"));
+        let data = format!(
+            "@echo off\r\nstart \"\" \"{}\" --instanceId={}\r\n",
+            exe.display(),
+            id
+        );
+        (path, data)
+    };
+
+    #[cfg(target_os = "macos")]
+    let (shortcut_path, content) = {
+        let path = desktop.join(format!("FrutiLauncher - {id}.command"));
+        let data = format!(
+            "#!/bin/bash\n\"{}\" --instanceId={}\n",
+            exe.display(),
+            id
+        );
+        (path, data)
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let (shortcut_path, content) = {
+        let path = desktop.join(format!("FrutiLauncher - {id}.desktop"));
+        let data = format!(
+            "[Desktop Entry]\nType=Application\nName=FrutiLauncher ({id})\nExec=\"{}\" --instanceId={}\nTerminal=false\n",
+            exe.display(),
+            id
+        );
+        (path, data)
+    };
+
+    fs::write(&shortcut_path, content)
+        .map_err(|error| format!("No se pudo crear el atajo: {error}"))?;
+
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&shortcut_path)
+            .map_err(|error| format!("No se pudo leer permisos del atajo: {error}"))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&shortcut_path, perms)
+            .map_err(|error| format!("No se pudo marcar el atajo como ejecutable: {error}"))?;
+    }
+
+    Ok(shortcut_path.display().to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -2955,6 +3089,8 @@ pub fn run() {
             load_config,
             save_config,
             collect_startup_files,
+            open_instance_path,
+            create_instance_shortcut,
             save_base_dir,
             default_base_dir,
             validate_base_dir,
