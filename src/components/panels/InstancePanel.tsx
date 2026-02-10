@@ -150,31 +150,6 @@ export const InstancePanel = ({
     });
   }, [instances]);
 
-
-  const quickActions = useMemo(() => {
-    if (!selectedInstance) {
-      return [];
-    }
-    const hasPid = typeof selectedInstance.processId === "number";
-    return [
-      { id: "launch", label: "▶ Iniciar", disabled: selectedInstance.isRunning, action: () => onUpdateInstance(selectedInstance.id, { isRunning: true, processId: Date.now(), status: "ready", isDownloading: false, downloadProgress: 100, downloadStage: "finalizando" }) },
-      { id: "stop", label: "⏹ Forzar cierre", disabled: !selectedInstance.isRunning || !hasPid, action: () => onUpdateInstance(selectedInstance.id, { isRunning: false, processId: undefined, status: "stopped" }) },
-      { id: "edit", label: "✏ Editar", disabled: selectedInstance.isRunning, action: openEditor },
-      { id: "group", label: "🔁 Cambiar grupo", disabled: false, action: () => onUpdateInstance(selectedInstance.id, { group: selectedInstance.group === "No agrupado" ? "Favoritos" : "No agrupado" }) },
-      { id: "folder", label: "📁 Carpeta", disabled: false, action: () => window.alert(`Abrir carpeta de ${selectedInstance.name}`) },
-      { id: "export", label: "📦 Exportar", disabled: false, action: () => window.alert(`Exportar ${selectedInstance.name} (mods/config/manifest.json)`) },
-      { id: "copy", label: "📋 Copiar", disabled: false, action: () => onCreateInstance({ ...selectedInstance, id: `${selectedInstance.id}-copy-${Date.now()}`, name: `${selectedInstance.name} (Copia)`, isRunning: false, processId: undefined, status: "stopped" }) },
-      { id: "delete", label: "🗑 Borrar", disabled: false, action: () => setDeleteConfirmId(selectedInstance.id) },
-      { id: "shortcut", label: "🔗 Crear atajo", disabled: false, action: () => window.alert(`Crear atajo con --instanceId=${selectedInstance.id}`) },
-    ];
-  }, [onCreateInstance, onUpdateInstance, selectedInstance]);
-
-  const handleCreatorBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
-      setCreatorOpen(false);
-    }
-  };
-
   const openEditor = () => {
     setEditorOpen(true);
     setContextMenu(null);
@@ -187,6 +162,100 @@ export const InstancePanel = ({
   const openCreator = () => {
     setCreatorOpen(true);
     setContextMenu(null);
+  };
+
+  const quickActions = useMemo(() => {
+    if (!selectedInstance) {
+      return [];
+    }
+    const hasPid = typeof selectedInstance.processId === "number";
+    return [
+      {
+        id: "launch",
+        label: "▶ Iniciar",
+        disabled: selectedInstance.isRunning,
+        action: () =>
+          onUpdateInstance(selectedInstance.id, {
+            isRunning: true,
+            processId: Date.now(),
+            status: "ready",
+            isDownloading: false,
+            downloadProgress: 100,
+            downloadStage: "finalizando",
+          }),
+      },
+      {
+        id: "stop",
+        label: "⏹ Forzar cierre",
+        disabled: !selectedInstance.isRunning || !hasPid,
+        action: () =>
+          onUpdateInstance(selectedInstance.id, {
+            isRunning: false,
+            processId: undefined,
+            status: "stopped",
+          }),
+      },
+      {
+        id: "edit",
+        label: "✏ Editar",
+        disabled: selectedInstance.isRunning,
+        action: openEditor,
+      },
+      {
+        id: "group",
+        label: "🔁 Cambiar grupo",
+        disabled: false,
+        action: () =>
+          onUpdateInstance(selectedInstance.id, {
+            group: selectedInstance.group === "No agrupado" ? "Favoritos" : "No agrupado",
+          }),
+      },
+      {
+        id: "folder",
+        label: "📁 Carpeta",
+        disabled: false,
+        action: () => window.alert(`Abrir carpeta de ${selectedInstance.name}`),
+      },
+      {
+        id: "export",
+        label: "📦 Exportar",
+        disabled: false,
+        action: () =>
+          window.alert(`Exportar ${selectedInstance.name} (mods/config/manifest.json)`),
+      },
+      {
+        id: "copy",
+        label: "📋 Copiar",
+        disabled: false,
+        action: () =>
+          onCreateInstance({
+            ...selectedInstance,
+            id: `${selectedInstance.id}-copy-${Date.now()}`,
+            name: `${selectedInstance.name} (Copia)`,
+            isRunning: false,
+            processId: undefined,
+            status: "stopped",
+          }),
+      },
+      {
+        id: "delete",
+        label: "🗑 Borrar",
+        disabled: false,
+        action: () => setDeleteConfirmId(selectedInstance.id),
+      },
+      {
+        id: "shortcut",
+        label: "🔗 Crear atajo",
+        disabled: false,
+        action: () => window.alert(`Crear atajo con --instanceId=${selectedInstance.id}`),
+      },
+    ];
+  }, [onCreateInstance, onUpdateInstance, selectedInstance]);
+
+  const handleCreatorBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      setCreatorOpen(false);
+    }
   };
 
   useEffect(() => {
@@ -736,7 +805,7 @@ export const InstancePanel = ({
                       Ver
                     </a>
                   ) : null}
-                  <button type="button">Descargar</button>
+                  <button type="button">Instalar</button>
                 </div>
               </div>
             ))}
@@ -935,7 +1004,9 @@ export const InstancePanel = ({
                         {action.label}
                       </button>
                     ))}
-                    <button type="button" onClick={openCreator}>➕ Crear nueva</button>
+                    <button type="button" onClick={openCreator}>
+                      ➕ Crear nueva
+                    </button>
                   </div>
                 </div>
               </div>
@@ -944,52 +1015,56 @@ export const InstancePanel = ({
         )}
         {selectedInstance && editorOpen && (
           <div className="instance-editor__backdrop" onClick={closeEditor}>
-            <section className="instance-editor-panel" onClick={(event) => event.stopPropagation()}>
-            <header className="instance-editor__header">
-              <div>
-                <h3>Editar {selectedInstance.name}</h3>
-                <p>Minecraft {selectedInstance.version}</p>
-              </div>
-              <button type="button" onClick={closeEditor}>
-                Volver
-              </button>
-            </header>
-            <div className="instance-editor__body">
-              <aside className="instance-editor__sidebar">
-                {editorSections.map((section) => (
-                  <button
-                    key={section}
-                    type="button"
-                    onClick={() => setActiveEditorSection(section)}
-                    className={
-                      activeEditorSection === section
-                        ? "instance-editor__tab instance-editor__tab--active"
-                        : "instance-editor__tab"
-                    }
-                  >
-                    {section}
-                  </button>
-                ))}
-              </aside>
-              <div className="instance-editor__content">
-                <div className="instance-editor__heading">
-                  <div>
-                    <h4>{activeEditorSection}</h4>
-                    <p>Gestiona esta sección con herramientas avanzadas.</p>
+            <section
+              className="instance-editor-panel"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="instance-editor__header">
+                <div>
+                  <h3>Editar {selectedInstance.name}</h3>
+                  <p>Minecraft {selectedInstance.version}</p>
+                </div>
+                <button type="button" onClick={closeEditor}>
+                  Volver
+                </button>
+              </header>
+              <div className="instance-editor__body">
+                <aside className="instance-editor__sidebar">
+                  {editorSections.map((section) => (
+                    <button
+                      key={section}
+                      type="button"
+                      onClick={() => setActiveEditorSection(section)}
+                      className={
+                        activeEditorSection === section
+                          ? "instance-editor__tab instance-editor__tab--active"
+                          : "instance-editor__tab"
+                      }
+                    >
+                      {section}
+                    </button>
+                  ))}
+                </aside>
+                <div className="instance-editor__content">
+                  <div className="instance-editor__heading">
+                    <div>
+                      <h4>{activeEditorSection}</h4>
+                      <p>Gestiona esta sección con herramientas avanzadas.</p>
+                    </div>
+                    <input type="search" placeholder="Buscar en la sección..." />
                   </div>
-                  <input type="search" placeholder="Buscar en la sección..." />
-                </div>
-                <div className="instance-editor__workspace">
-                  <div className="instance-editor__panel">{renderEditorBody()}</div>
-                  <aside className="instance-editor__rail">
-                    <h5>Estado</h5>
-                    <p className="instance-editor__status-note">
-                      Esta sección muestra información real de la instancia seleccionada.
-                    </p>
-                  </aside>
+                  <div className="instance-editor__workspace">
+                    <div className="instance-editor__panel">{renderEditorBody()}</div>
+                    <aside className="instance-editor__rail">
+                      <h5>Estado</h5>
+                      <p className="instance-editor__status-note">
+                        Esta sección muestra información real de la instancia
+                        seleccionada.
+                      </p>
+                    </aside>
+                  </div>
                 </div>
               </div>
-            </div>
             </section>
           </div>
         )}
@@ -1012,7 +1087,10 @@ export const InstancePanel = ({
               <button type="button" onClick={openCreator}>
                 Crear otra instancia
               </button>
-              <button type="button" onClick={() => setDeleteConfirmId(contextMenu.instance?.id ?? null)}>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmId(contextMenu.instance?.id ?? null)}
+              >
                 Eliminar instancia
               </button>
             </>
@@ -1027,8 +1105,14 @@ export const InstancePanel = ({
         </div>
       )}
       {deleteConfirmId && (
-        <div className="instance-editor__backdrop" onClick={() => setDeleteConfirmId(null)}>
-          <article className="product-dialog product-dialog--install" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="instance-editor__backdrop"
+          onClick={() => setDeleteConfirmId(null)}
+        >
+          <article
+            className="product-dialog product-dialog--install"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header>
               <h3>Confirmación</h3>
             </header>

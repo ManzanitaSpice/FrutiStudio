@@ -1,6 +1,4 @@
 import { useMemo, useState } from "react";
-import { getCurseforgeApiKey } from "../services/curseforgeKeyService";
-import { resolveCurseforgeDownloadAction } from "../services/curseforgeComplianceService";
 import { sanitizeLauncherHtml } from "../utils/sanitizeRichText";
 
 import type {
@@ -55,7 +53,10 @@ export const ProductDetailsDialog = ({
   onInstall,
 }: ProductDetailsDialogProps) => {
   const [tab, setTab] = useState<DetailTab>("descripcion");
-  const [installMessage, setInstallMessage] = useState<string | null>(null);
+  const [versionSearch, setVersionSearch] = useState("");
+  const [releaseFilter, setReleaseFilter] = useState<
+    "all" | "release" | "beta" | "alpha"
+  >("all");
 
   const descriptionHtml = useMemo(
     () => sanitizeLauncherHtml(details?.body ?? details?.description ?? item.description),
@@ -72,63 +73,23 @@ export const ProductDetailsDialog = ({
   }, [details?.body, details?.changelog]);
 
   const versions = details?.versions ?? [];
-
-  const handleDownload = async (version?: ExplorerItemFileVersion) => {
-    setInstallMessage("Preparando descarga...");
-    try {
-      if (item.source === "Modrinth") {
-        const url = version?.downloadUrl ?? details?.url ?? item.url;
-        if (!url) {
-          throw new Error("No se encontró un enlace de descarga en Modrinth.");
-        }
-        window.open(url, "_blank", "noopener,noreferrer");
-        setInstallMessage("Descarga iniciada en navegador.");
-        return;
+  const filteredVersions = useMemo(() => {
+    const needle = versionSearch.trim().toLowerCase();
+    return versions.filter((version) => {
+      const matchesRelease =
+        releaseFilter === "all" || version.releaseType === releaseFilter;
+      if (!matchesRelease) {
+        return false;
       }
-
-      if (item.source === "CurseForge") {
-        const apiKey = getCurseforgeApiKey();
-        const modId = Number(version?.modId ?? item.projectId);
-        const fileId = Number(version?.fileId);
-
-        if (!apiKey) {
-          const fallback = details?.url ?? item.url;
-          if (fallback) {
-            window.open(fallback, "_blank", "noopener,noreferrer");
-            setInstallMessage("Abierto en CurseForge (configura API key para descarga directa).");
-            return;
-          }
-          throw new Error("Configura la API key de CurseForge para descargar automáticamente.");
-        }
-
-        if (!Number.isFinite(modId) || !Number.isFinite(fileId)) {
-          const fallback = details?.url ?? item.url;
-          if (fallback) {
-            window.open(fallback, "_blank", "noopener,noreferrer");
-            setInstallMessage("No se encontró fileId; abierto en la página oficial.");
-            return;
-          }
-          throw new Error("No se pudo resolver el archivo de CurseForge para descarga.");
-        }
-
-        const action = await resolveCurseforgeDownloadAction(modId, fileId, apiKey);
-        const url = action.kind === "auto" ? action.downloadUrl : action.websiteUrl;
-        if (!url) {
-          throw new Error("CurseForge no devolvió URL de descarga/manual.");
-        }
-        window.open(url, "_blank", "noopener,noreferrer");
-        setInstallMessage(
-          action.kind === "auto"
-            ? "Descarga directa de CurseForge iniciada."
-            : "Este archivo requiere descarga manual en CurseForge.",
-        );
+      if (!needle) {
+        return true;
       }
-    } catch (error) {
-      setInstallMessage(
-        error instanceof Error ? error.message : "No se pudo iniciar la descarga.",
-      );
-    }
-  };
+      const minecraftVersion = version.gameVersions[0] ?? "";
+      return `${version.name} ${minecraftVersion} ${version.loaders.join(" ")}`
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [releaseFilter, versionSearch, versions]);
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -179,14 +140,7 @@ export const ProductDetailsDialog = ({
               <button type="button" onClick={() => onInstall(item)}>
                 Instalar
               </button>
-              <button type="button" className="product-dialog__secondary" onClick={() => void handleDownload()}>
-                Descargar
-              </button>
-              <button
-                type="button"
-                className="product-dialog__close"
-                onClick={onClose}
-              >
+              <button type="button" className="product-dialog__close" onClick={onClose}>
                 ✕
               </button>
             </div>
@@ -255,35 +209,53 @@ export const ProductDetailsDialog = ({
           ) : null}
           {!loading && details && tab === "versiones" ? (
             <div className="product-dialog__versions-list">
-              {versions.length ? (
-                versions.map((version) => (
+              <div className="product-dialog__versions-filters">
+                <input
+                  type="search"
+                  placeholder="Filtrar por nombre, versión o loader"
+                  value={versionSearch}
+                  onChange={(event) => setVersionSearch(event.target.value)}
+                />
+                <select
+                  value={releaseFilter}
+                  onChange={(event) =>
+                    setReleaseFilter(
+                      event.target.value as "all" | "release" | "beta" | "alpha",
+                    )
+                  }
+                >
+                  <option value="all">Todos los lanzamientos</option>
+                  <option value="release">Release</option>
+                  <option value="beta">Beta</option>
+                  <option value="alpha">Alpha</option>
+                </select>
+              </div>
+              {filteredVersions.length ? (
+                filteredVersions.map((version) => (
                   <article key={version.id} className="product-dialog__version-item">
                     <div>
                       <strong>{version.name}</strong>
                       <p>
-                        {releaseLabel[version.releaseType]} · {formatDate(version.publishedAt)}
+                        {releaseLabel[version.releaseType]} ·{" "}
+                        {formatDate(version.publishedAt)}
                       </p>
                       <p>
                         {formatLoader(version.loaders[0])}
-                        {version.loaderVersion ? ` ${version.loaderVersion}` : ""} · Minecraft{" "}
-                        {version.gameVersions[0] ?? "Sin datos"}
+                        {version.loaderVersion ? ` ${version.loaderVersion}` : ""} ·
+                        Minecraft {version.gameVersions[0] ?? "Sin datos"}
                       </p>
                     </div>
                     <button type="button" onClick={() => onInstall(item, version)}>
                       Instalar
                     </button>
-                    <button type="button" className="product-dialog__secondary" onClick={() => void handleDownload(version)}>
-                      Descargar
-                    </button>
                   </article>
                 ))
               ) : (
-                <p>No hay versiones disponibles en este momento.</p>
+                <p>No hay versiones que coincidan con el filtro actual.</p>
               )}
             </div>
           ) : null}
         </div>
-        {installMessage ? <small>{installMessage}</small> : null}
       </article>
     </div>
   );
@@ -335,11 +307,13 @@ export const ProductInstallDialog = ({
           </div>
           {isModpackInstall ? (
             <small>
-              Los modpacks se instalan en una instancia nueva para mantener compatibilidad.
+              Los modpacks se instalan en una instancia nueva para mantener
+              compatibilidad.
             </small>
           ) : (
             <small>
-              Elige una instancia compatible con loader y versión detectados para instalar.
+              Elige una instancia compatible con loader y versión detectados para
+              instalar.
             </small>
           )}
         </div>

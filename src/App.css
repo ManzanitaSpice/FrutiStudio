@@ -242,7 +242,11 @@ select:focus-visible {
   width: 18px;
   height: 18px;
   border-radius: 6px;
-  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, #ffffff));
+  background: linear-gradient(
+    135deg,
+    var(--color-accent),
+    color-mix(in srgb, var(--color-accent) 45%, #ffffff)
+  );
   box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.4);
 }
 
@@ -865,7 +869,11 @@ select:focus-visible {
 
 .instance-card__cover {
   height: 88px;
-  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, #ffffff));
+  background: linear-gradient(
+    135deg,
+    var(--color-accent),
+    color-mix(in srgb, var(--color-accent) 45%, #ffffff)
+  );
   display: flex;
   align-items: flex-end;
   padding: 8px 10px;
@@ -954,7 +962,11 @@ select:focus-visible {
   width: 52px;
   height: 52px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 35%, #ec4899));
+  background: linear-gradient(
+    135deg,
+    var(--color-accent),
+    color-mix(in srgb, var(--color-accent) 35%, #ec4899)
+  );
 }
 
 .instance-menu__header h3 {
@@ -1604,7 +1616,11 @@ select:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, #ffffff));
+  background: linear-gradient(
+    135deg,
+    var(--color-accent),
+    color-mix(in srgb, var(--color-accent) 45%, #ffffff)
+  );
 }
 
 .news-hero__content {
@@ -2261,7 +2277,10 @@ select:focus-visible {
 .boot-screen li {
   color: rgba(168, 179, 201, 0.75);
   opacity: 0.48;
-  transition: opacity 220ms ease, transform 220ms ease, color 220ms ease;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease,
+    color 220ms ease;
 }
 
 .boot-screen li.is-done {
@@ -2562,32 +2581,152 @@ textarea {
   color: rgba(255, 255, 255, 0.68);
 }
 
-.topbar__search-wrap { position: relative; }
-.topbar__search-suggestions { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 8px; z-index: 30; display: grid; gap: 6px; max-height: 260px; overflow: auto; box-shadow: 0 18px 32px rgba(0, 0, 0, 0.45); }
-.topbar__search-suggestions button { text-align: left; border: 0; background: transparent; padding: 8px; border-radius: 8px; display: grid; }
-.topbar__search-suggestions button:hover { background: rgba(160,112,255,0.12); }
+.topbar__search-wrap {
+  position: relative;
+}
+.topbar__search-suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 8px;
+  z-index: 30;
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.45);
+}
+.topbar__search-suggestions button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px;
+  border-radius: 8px;
+  display: grid;
+}
+.topbar__search-suggestions button:hover {
+  background: rgba(160, 112, 255, 0.12);
+}
 
-.dialog-backdrop { position: fixed; inset: 0; background: rgba(6, 9, 18, 0.7); display: flex; align-items: center; justify-content: center; padding: 32px; z-index: 100; }
-.product-dialog { width: min(1040px, 92vw); max-height: 88vh; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 18px; display: grid; grid-template-rows: auto auto 1fr; }
-.product-dialog__top { padding: 20px; border-bottom: 1px solid var(--color-border); }
-.product-dialog__hero-card { display: grid; grid-template-columns: 220px 1fr auto; gap: 16px; align-items: start; }
-.product-dialog__hero-card img, .product-dialog__placeholder { width: 220px; height: 220px; object-fit: cover; border-radius: 14px; background: var(--color-surface-strong); }
-.product-dialog__hero-info dl { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 8px 16px; }
-.product-dialog__hero-info dt { font-size: 12px; opacity: .7; }
-.product-dialog__hero-info dd { margin: 2px 0 0; font-weight: 600; }
-.product-dialog__hero-actions { display: grid; gap: 10px; }
-.product-dialog__hero-actions button { height: 40px; }
-.product-dialog__tabs { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--color-border); }
-.product-dialog__tabs button { border: 1px solid var(--color-border); background: transparent; border-radius: 10px; padding: 8px 12px; }
-.product-dialog__tabs .is-active { background: rgba(160,112,255,0.18); border-color: #a070ff; }
-.product-dialog__content { padding: 20px; overflow: auto; }
-.product-dialog__gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-.product-dialog__gallery-grid img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 10px; }
-.product-dialog__versions { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.product-dialog--install { width: min(620px, 92vw); grid-template-rows: auto 1fr; }
-.product-dialog--install header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--color-border); }
-.product-dialog__install-body { padding: 20px; display: grid; gap: 12px; }
-.product-dialog__close { border: 0; background: transparent; font-size: 18px; }
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 9, 18, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  z-index: 100;
+}
+.product-dialog {
+  width: min(1040px, 92vw);
+  max-height: 88vh;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+.product-dialog__top {
+  padding: 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+.product-dialog__hero-card {
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  gap: 16px;
+  align-items: start;
+}
+.product-dialog__hero-card img,
+.product-dialog__placeholder {
+  width: 220px;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 14px;
+  background: var(--color-surface-strong);
+}
+.product-dialog__hero-info dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 8px 16px;
+}
+.product-dialog__hero-info dt {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.product-dialog__hero-info dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+.product-dialog__hero-actions {
+  display: grid;
+  gap: 10px;
+}
+.product-dialog__hero-actions button {
+  height: 40px;
+}
+.product-dialog__tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+.product-dialog__tabs button {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.product-dialog__tabs .is-active {
+  background: rgba(160, 112, 255, 0.18);
+  border-color: #a070ff;
+}
+.product-dialog__content {
+  padding: 20px;
+  overflow: auto;
+}
+.product-dialog__gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+.product-dialog__gallery-grid img {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.product-dialog__versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.product-dialog--install {
+  width: min(620px, 92vw);
+  grid-template-rows: auto 1fr;
+}
+.product-dialog--install header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+.product-dialog__install-body {
+  padding: 20px;
+  display: grid;
+  gap: 12px;
+}
+.product-dialog__close {
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+}
 
 .account-manager {
   width: min(980px, 92vw);
@@ -2773,7 +2912,9 @@ textarea {
 .boot-screen__window {
   background: #000;
   border: 3px solid #2f2f2f;
-  box-shadow: 0 0 0 3px #0d0d0d, 0 24px 80px rgba(0, 0, 0, 0.8);
+  box-shadow:
+    0 0 0 3px #0d0d0d,
+    0 24px 80px rgba(0, 0, 0, 0.8);
   min-height: auto;
   width: min(760px, 94vw);
   border-radius: 4px;
@@ -2825,6 +2966,17 @@ textarea {
 .product-dialog__versions-list {
   display: grid;
   gap: 10px;
+}
+
+.product-dialog__versions-filters {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 10px;
+}
+
+.product-dialog__versions-filters input,
+.product-dialog__versions-filters select {
+  width: 100%;
 }
 
 .product-dialog__version-item {
@@ -2986,47 +3138,37 @@ textarea {
   transition: transform 0.2s ease;
 }
 
-.news-kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+.news-carousel {
+  position: relative;
+  min-height: 210px;
 }
 
-.news-kpis__card {
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 12px;
-  background: color-mix(in srgb, var(--color-surface-strong) 75%, transparent);
-  display: grid;
-  gap: 6px;
+.news-carousel__item {
+  display: none;
 }
 
-.news-kpis__card small {
-  color: var(--color-muted);
-}
-
-.news-kpis__card strong {
-  font-size: 1.15rem;
-}
-
-.news-marquee {
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-surface-strong) 70%, transparent);
-}
-
-.news-marquee__track {
+.news-carousel__item.is-active {
   display: flex;
-  gap: 24px;
-  width: max-content;
-  padding: 10px 14px;
-  animation: carouselScroll 20s linear infinite;
 }
 
-.news-marquee__track span {
-  color: var(--color-muted);
-  white-space: nowrap;
+.news-carousel__dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.news-carousel__dots button {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-strong) 75%, transparent);
+  padding: 0;
+}
+
+.news-carousel__dots button.is-active {
+  background: var(--color-accent);
 }
 
 .product-dialog__secondary {
