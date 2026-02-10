@@ -43,12 +43,16 @@ export const ServersPanel = () => {
   const filteredServers = useMemo(
     () =>
       servers.filter((server) => {
+        const normalizedQuery = query.toLowerCase();
         const matchesQuery =
           !query.trim() ||
-          server.name.toLowerCase().includes(query.toLowerCase()) ||
-          server.ip.toLowerCase().includes(query.toLowerCase());
+          server.name.toLowerCase().includes(normalizedQuery) ||
+          server.ip.toLowerCase().includes(normalizedQuery) ||
+          server.description.toLowerCase().includes(normalizedQuery);
         const matchesMode =
-          mode === "all" || server.tags.some((tag) => tag.toLowerCase() === mode);
+          mode === "all" ||
+          server.tags.some((tag) => tag.toLowerCase() === mode) ||
+          server.serverType.toLowerCase() === mode;
         return matchesQuery && matchesMode;
       }),
     [mode, query, servers],
@@ -60,8 +64,8 @@ export const ServersPanel = () => {
         <div>
           <h2>Servers</h2>
           <p>
-            Catálogo consistente con búsqueda y filtros para navegar servers
-            compatibles.
+            Catálogo real con estado, versión, tipo y tarjetas visuales para descubrir
+            servidores.
           </p>
         </div>
       </div>
@@ -70,19 +74,21 @@ export const ServersPanel = () => {
         <div className="servers-toolbar__filters">
           <input
             type="search"
-            placeholder="Buscar por nombre o IP"
+            placeholder="Buscar por nombre, IP o descripción"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
         <div className="servers-toolbar__filters">
-          <span>Modo:</span>
+          <span>Tipo:</span>
           <select value={mode} onChange={(event) => setMode(event.target.value)}>
             <option value="all">Todos</option>
             <option value="survival">Survival</option>
             <option value="skyblock">SkyBlock</option>
             <option value="pvp">PvP</option>
             <option value="minijuegos">Minijuegos</option>
+            <option value="modded">Modded</option>
+            <option value="multimodo">Multimodo</option>
           </select>
         </div>
       </div>
@@ -94,10 +100,15 @@ export const ServersPanel = () => {
           filteredServers.map((server) => (
             <article key={server.id} className="server-card">
               <div className="server-card__info">
-                <div className="server-card__logo" />
+                <img
+                  className="server-card__logo"
+                  src={server.banner}
+                  alt={server.name}
+                />
                 <div>
                   <h3>{server.name}</h3>
                   <p>{server.ip}</p>
+                  <p className="server-card__description">{server.description}</p>
                   <div className="server-card__tags">
                     {server.tags.map((tag) => (
                       <span key={tag}>{tag}</span>
@@ -106,15 +117,19 @@ export const ServersPanel = () => {
                 </div>
               </div>
               <div className="server-card__meta">
-                <span className="server-card__players">
-                  {server.players} jugadores
-                </span>
+                <span className="server-card__players">{server.players} jugadores</span>
                 <span className="server-card__status">{server.status}</span>
+                <span className="server-card__version">{server.version}</span>
+                <span className="server-card__type">{server.serverType}</span>
                 <div className="server-card__actions">
                   <a href={server.website} target="_blank" rel="noreferrer">
                     Sitio oficial
                   </a>
-                  <button type="button" className="server-card__copy">
+                  <button
+                    type="button"
+                    className="server-card__copy"
+                    onClick={() => navigator.clipboard.writeText(server.ip)}
+                  >
                     Copiar IP
                   </button>
                 </div>

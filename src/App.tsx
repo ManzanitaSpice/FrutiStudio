@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
 import { BaseDirProvider } from "./context/BaseDirContext";
 import { UIProvider } from "./context/UIContext";
@@ -87,16 +87,16 @@ const AppShell = () => {
     canGoBack,
     canGoForward,
   } = useUI();
-  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
-    null,
-  );
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [bootReady, setBootReady] = useState(false);
   const [bootStep, setBootStep] = useState(0);
   const [bootEvents, setBootEvents] = useState<string[]>([]);
+  const bootStartedAt = useRef<number>(Date.now());
 
   useEffect(() => {
     const runBoot = async () => {
+      bootStartedAt.current = Date.now();
       setBootStep(0);
       const config = await loadConfig();
       setBootStep(1);
@@ -130,7 +130,10 @@ const AppShell = () => {
       setInstances(loadedInstances);
       setBootStep(4);
       setBootEvents((prev) => [...prev, loadingEvents[4]]);
-      window.setTimeout(() => setBootReady(true), 900);
+      const elapsed = Date.now() - bootStartedAt.current;
+      const minimumBootDuration = 10_000;
+      const remaining = Math.max(0, minimumBootDuration - elapsed);
+      window.setTimeout(() => setBootReady(true), remaining);
     };
     void runBoot();
   }, [setScale, setTheme]);
@@ -166,8 +169,7 @@ const AppShell = () => {
   });
 
   const selectedInstance = useMemo(
-    () =>
-      instances.find((instance) => instance.id === selectedInstanceId) ?? null,
+    () => instances.find((instance) => instance.id === selectedInstanceId) ?? null,
     [instances, selectedInstanceId],
   );
 
@@ -183,22 +185,25 @@ const AppShell = () => {
       <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
         {!bootReady && (
           <div className="boot-screen" role="status" aria-live="polite">
-            <div className="boot-screen__logo">FrutiLauncher</div>
-            <h2>Cargando APIs y secciones</h2>
-            <ul>
-              {loadingSteps.map((step, index) => {
-                const done = index <= bootStep;
-                return (
-                  <li key={step} className={done ? "is-done" : ""}>
-                    {step}
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="boot-screen__events">
-              {bootEvents.map((event) => (
-                <p key={event}>{event}</p>
-              ))}
+            <div className="boot-screen__window">
+              <div className="boot-screen__logo" aria-label="FrutiLauncher cargando">
+                <span>FrutiLauncher</span>
+              </div>
+              <ul>
+                {loadingSteps.map((step, index) => {
+                  const done = index <= bootStep;
+                  return (
+                    <li key={step} className={done ? "is-done" : ""}>
+                      {step}
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="boot-screen__events">
+                {bootEvents.map((event) => (
+                  <p key={event}>{event}</p>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -228,15 +233,11 @@ const AppShell = () => {
                   onToggleFocusMode={toggleFocus}
                 />
               )}
-              {activeSection === "novedades" && featureFlags.news && (
-                <NewsPanel />
-              )}
+              {activeSection === "novedades" && featureFlags.news && <NewsPanel />}
               {activeSection === "explorador" && featureFlags.explorer && (
                 <ExplorerPanel />
               )}
-              {activeSection === "servers" && featureFlags.servers && (
-                <ServersPanel />
-              )}
+              {activeSection === "servers" && featureFlags.servers && <ServersPanel />}
               {activeSection === "configuracion" && featureFlags.settings && (
                 <SettingsPanel />
               )}

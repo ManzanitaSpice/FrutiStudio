@@ -17,10 +17,7 @@ import {
   fetchExternalInstances,
 } from "../../services/externalInstanceService";
 import { fetchATLauncherPacks } from "../../services/atmlService";
-import {
-  type ExplorerItem,
-  fetchUnifiedCatalog,
-} from "../../services/explorerService";
+import { type ExplorerItem, fetchUnifiedCatalog } from "../../services/explorerService";
 import { fetchLoaderVersions } from "../../services/loaderVersionService";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
 import importGuide from "../../assets/import-guide.svg";
@@ -57,7 +54,6 @@ const creatorSections = [
   "Modrinth",
 ];
 
-
 export const InstancePanel = ({
   instances,
   selectedInstanceId,
@@ -69,16 +65,10 @@ export const InstancePanel = ({
 }: InstancePanelProps) => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
-  const [activeEditorSection, setActiveEditorSection] = useState(
-    editorSections[1],
-  );
-  const [activeCreatorSection, setActiveCreatorSection] = useState(
-    creatorSections[0],
-  );
+  const [activeEditorSection, setActiveEditorSection] = useState(editorSections[1]);
+  const [activeCreatorSection, setActiveCreatorSection] = useState(creatorSections[0]);
   const [creatorPosition, setCreatorPosition] = useState({ x: 0, y: 0 });
-  const [availableVersions, setAvailableVersions] = useState<
-    MinecraftVersion[]
-  >([]);
+  const [availableVersions, setAvailableVersions] = useState<MinecraftVersion[]>([]);
   const [versionsStatus, setVersionsStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
@@ -102,9 +92,7 @@ export const InstancePanel = ({
   const [loaderError, setLoaderError] = useState<string | null>(null);
   const [importUrl, setImportUrl] = useState("");
   const [importFileName, setImportFileName] = useState("");
-  const [externalInstances, setExternalInstances] = useState<
-    ExternalInstance[]
-  >([]);
+  const [externalInstances, setExternalInstances] = useState<ExternalInstance[]>([]);
   const [externalStatus, setExternalStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
@@ -168,10 +156,7 @@ export const InstancePanel = ({
     if (!creatorOpen) {
       return;
     }
-    if (
-      event.target instanceof HTMLElement &&
-      event.target.closest("button")
-    ) {
+    if (event.target instanceof HTMLElement && event.target.closest("button")) {
       return;
     }
     event.preventDefault();
@@ -356,9 +341,7 @@ export const InstancePanel = ({
                 projectId: String(pack.id),
                 name: pack.name,
                 author: "ATLauncher",
-                downloads: pack.versions
-                  ? `${pack.versions} versiones`
-                  : "Disponible",
+                downloads: pack.versions ? `${pack.versions} versiones` : "Disponible",
                 rawDownloads: 0,
                 description: "Pack disponible en ATLauncher",
                 type: "Modpack",
@@ -372,15 +355,27 @@ export const InstancePanel = ({
           }
           return;
         }
-        const modpacks = await fetchUnifiedCatalog({
-          category: "Modpacks",
-          platform: activeCreatorSection === "Modrinth" ? "modrinth" : "curseforge",
-          sort: "popular",
-          page: 0,
-          pageSize: 24,
-        });
+        const targetPlatform =
+          activeCreatorSection === "Modrinth" ? "modrinth" : "curseforge";
+        const aggregated: ExplorerItem[] = [];
+        let page = 0;
+        let keepLoading = true;
+
+        while (keepLoading && page < 8) {
+          const pageResult = await fetchUnifiedCatalog({
+            category: "Modpacks",
+            platform: targetPlatform,
+            sort: "popular",
+            page,
+            pageSize: 24,
+          });
+          aggregated.push(...pageResult.items);
+          keepLoading = pageResult.hasMore;
+          page += 1;
+        }
+
         if (isActive) {
-          setCreatorItems(modpacks.items);
+          setCreatorItems(aggregated);
           setCreatorStatus("ready");
         }
       } catch (error) {
@@ -629,8 +624,7 @@ export const InstancePanel = ({
           <div className="instance-creator__hint">
             {versionsStatus === "loading" && "Cargando versiones oficiales..."}
             {versionsStatus === "error" &&
-              (versionsError ??
-                "No se pudieron cargar las versiones oficiales.")}
+              (versionsError ?? "No se pudieron cargar las versiones oficiales.")}
             {loaderStatus === "error" &&
               (loaderError ?? "No se pudieron cargar las versiones del loader.")}
             {(versionsStatus === "ready" || versionsStatus === "idle") &&
@@ -648,8 +642,8 @@ export const InstancePanel = ({
             <div>
               <h5>Importar instancias y modpacks</h5>
               <p>
-                Usa un link directo o selecciona un archivo local compatible
-                con CurseForge, Modrinth, Prism o Technic.
+                Usa un link directo o selecciona un archivo local compatible con
+                CurseForge, Modrinth, Prism o Technic.
               </p>
             </div>
           </div>
@@ -673,9 +667,7 @@ export const InstancePanel = ({
               </label>
             </div>
             {importFileName ? (
-              <span className="instance-import__filename">
-                Archivo: {importFileName}
-              </span>
+              <span className="instance-import__filename">Archivo: {importFileName}</span>
             ) : null}
           </div>
           <div className="instance-import__supported">
@@ -783,9 +775,7 @@ export const InstancePanel = ({
     const resolvedName =
       trimmedName.length > 0 ? trimmedName : `Nueva instancia ${resolvedVersion}`;
     const resolvedLoaderVersion =
-      instanceLoader === "Vanilla"
-        ? "—"
-        : instanceLoaderVersion.trim() || "latest";
+      instanceLoader === "Vanilla" ? "—" : instanceLoaderVersion.trim() || "latest";
     const newInstance: Instance = {
       id:
         typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -887,9 +877,7 @@ export const InstancePanel = ({
                       event.stopPropagation();
                       onSelectInstance(instance.id);
                     }}
-                    onContextMenu={(event) =>
-                      handleContextMenu(event, instance)
-                    }
+                    onContextMenu={(event) => handleContextMenu(event, instance)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
@@ -1026,9 +1014,7 @@ export const InstancePanel = ({
             </>
           ) : (
             <>
-              <span className="instance-context-menu__title">
-                Opciones del panel
-              </span>
+              <span className="instance-context-menu__title">Opciones del panel</span>
               <button type="button" onClick={openCreator}>
                 Crear instancia
               </button>
