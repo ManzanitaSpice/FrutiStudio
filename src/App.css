@@ -1304,6 +1304,35 @@ select:focus-visible {
   text-align: left;
 }
 
+.instance-button {
+  border-radius: 10px;
+  padding: 0.55rem 0.95rem;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.instance-button:hover {
+  transform: translateY(-1px);
+}
+
+.instance-button--primary {
+  background: linear-gradient(120deg, #6e4dff, #8f74ff);
+  border-color: #7f65ff;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(111, 83, 255, 0.35);
+}
+
+.instance-button--ghost {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-muted);
+}
+
+.instance-button--ghost:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
 .instance-editor__header {
   display: flex;
   justify-content: space-between;
@@ -1423,6 +1452,13 @@ select:focus-visible {
 .instance-editor__actions button {
   background: #1f2432;
   text-align: left;
+}
+
+.instance-editor__mods-menu button,
+.instance-creator__actions button,
+.instance-editor__actions button {
+  border-radius: 10px;
+  font-weight: 600;
 }
 
 .instance-editor__status-note {

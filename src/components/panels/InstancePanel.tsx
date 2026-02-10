@@ -56,25 +56,25 @@ interface InstancePanelProps {
 }
 
 const editorSections = [
-  "Registro de Minecraft",
   "Versión",
   "Mods",
   "Resource Packs",
   "Shader Packs",
-  "Notas",
   "Mundos",
   "Servidores",
-  "Capturas de pantalla",
   "Configuración",
+  "Notas",
+  "Capturas de pantalla",
+  "Registro de Minecraft",
   "Otros registros",
 ];
 
 const creatorSections = [
   "Personalizado",
-  "Importar",
-  "ATLauncher",
-  "CurseForge",
   "Modrinth",
+  "CurseForge",
+  "ATLauncher",
+  "Importar",
 ];
 
 const instanceConfigTabs = [
@@ -2373,7 +2373,7 @@ export const InstancePanel = ({
                   <h3>Editar {selectedInstance.name}</h3>
                   <p>Minecraft {selectedInstance.version}</p>
                 </div>
-                <button type="button" onClick={closeEditor}>
+                <button type="button" className="instance-button instance-button--ghost" onClick={closeEditor}>
                   Volver
                 </button>
               </header>
@@ -2964,7 +2964,11 @@ ${rows.join("\n")}`;
                 <h3>Nueva instancia</h3>
                 <p>Elige el origen y configura tu perfil.</p>
               </div>
-              <button type="button" onClick={() => setCreatorOpen(false)}>
+              <button
+                type="button"
+                className="instance-button instance-button--ghost"
+                onClick={() => setCreatorOpen(false)}
+              >
                 Cerrar
               </button>
             </header>
@@ -3001,11 +3005,16 @@ ${rows.join("\n")}`;
                       <button
                         type="button"
                         onClick={handleCreateInstance}
+                        className="instance-button instance-button--primary"
                         disabled={versionsStatus === "error"}
                       >
                         Crear instancia
                       </button>
-                      <button type="button" onClick={() => setCreatorOpen(false)}>
+                      <button
+                        type="button"
+                        className="instance-button instance-button--ghost"
+                        onClick={() => setCreatorOpen(false)}
+                      >
                         Cerrar
                       </button>
                     </div>

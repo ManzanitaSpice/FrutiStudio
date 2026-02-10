@@ -32,14 +32,11 @@ export const SettingsPanel = () => {
   const { t } = useI18n();
   const { theme, setTheme, uiScale, setScale } = useUI();
   const [telemetryOptIn, setTelemetryOptIn] = useState(false);
-  const [autoUpdates, setAutoUpdates] = useState(true);
   const [backgroundDownloads, setBackgroundDownloads] = useState(true);
-  const [showVerificationWindow, setShowVerificationWindow] = useState(false);
   const [curseforgeKey, setCurseforgeKey] = useState("");
   const [customTheme, setCustomTheme] = useState(customDefaults);
   const [neverRenameFolder, setNeverRenameFolder] = useState(false);
   const [replaceToolbarByMenu, setReplaceToolbarByMenu] = useState(false);
-  const [updateCheckIntervalHours, setUpdateCheckIntervalHours] = useState(24);
   const [modsTrackMetadata, setModsTrackMetadata] = useState(true);
   const [modsInstallDependencies, setModsInstallDependencies] = useState(true);
   const [modsSuggestPackUpdates, setModsSuggestPackUpdates] = useState(true);
@@ -63,12 +60,9 @@ export const SettingsPanel = () => {
     const run = async () => {
       const config = await loadConfig();
       setTelemetryOptIn(Boolean(config.telemetryOptIn));
-      setAutoUpdates(config.autoUpdates ?? true);
       setBackgroundDownloads(config.backgroundDownloads ?? true);
-      setShowVerificationWindow(config.showVerificationWindow ?? false);
       setNeverRenameFolder(config.neverRenameFolder ?? false);
       setReplaceToolbarByMenu(config.replaceToolbarByMenu ?? false);
-      setUpdateCheckIntervalHours(config.updateCheckIntervalHours ?? 24);
       setModsTrackMetadata(config.modsTrackMetadata ?? true);
       setModsInstallDependencies(config.modsInstallDependencies ?? true);
       setModsSuggestPackUpdates(config.modsSuggestPackUpdates ?? true);
@@ -153,7 +147,6 @@ export const SettingsPanel = () => {
       <div className="panel-view__header">
         <div>
           <h2>Configuración</h2>
-          <p>Ajustes globales del launcher organizados por categorías.</p>
         </div>
       </div>
 
@@ -524,57 +517,6 @@ export const SettingsPanel = () => {
                 />
                 Mantener descargas en segundo plano
               </label>
-            </article>
-            <article
-              className="settings-card settings-card--glow"
-              onContextMenu={(event) => handleCardContextMenu(event, "updates")}
-            >
-              <div className="settings-card__header">
-                <h3>Actualizaciones</h3>
-              </div>
-              <label className="panel-view__toggle">
-                <input
-                  type="checkbox"
-                  checked={autoUpdates}
-                  onChange={(event) => {
-                    const next = event.target.checked;
-                    setAutoUpdates(next);
-                    void updateConfig({ autoUpdates: next });
-                  }}
-                />
-                Comprobar actualizaciones al iniciar
-              </label>
-              <label className="settings-card__field">
-                <span>Frecuencia</span>
-                <select
-                  value={updateCheckIntervalHours}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    setUpdateCheckIntervalHours(next);
-                    void updateConfig({ updateCheckIntervalHours: next });
-                  }}
-                >
-                  <option value={6}>Cada 6 horas</option>
-                  <option value={12}>Cada 12 horas</option>
-                  <option value={24}>Cada 24 horas</option>
-                  <option value={48}>Cada 48 horas</option>
-                </select>
-              </label>
-              <label className="panel-view__toggle">
-                <input
-                  type="checkbox"
-                  checked={showVerificationWindow}
-                  onChange={(event) => {
-                    const next = event.target.checked;
-                    setShowVerificationWindow(next);
-                    void updateConfig({ showVerificationWindow: next });
-                  }}
-                />
-                Mostrar ventana de verificación al iniciar
-              </label>
-              <small>
-                Recomendado para diagnosticar arranque. Por defecto está desactivada.
-              </small>
             </article>
           </div>
         </section>

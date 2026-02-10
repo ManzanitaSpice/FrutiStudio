@@ -1439,16 +1439,18 @@ fn ensure_single_game_arg(plan: &mut LaunchPlan, flag: &str, value: &str) {
 }
 
 fn normalize_critical_game_args(plan: &mut LaunchPlan, version: &str) {
-    ensure_single_game_arg(plan, "--username", &plan.auth.username);
+    let username = plan.auth.username.clone();
+    let uuid = plan.auth.uuid.clone();
+    let access_token = plan.auth.access_token.clone();
+    let user_type = plan.auth.user_type.clone();
+    let version_type = extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiStudio");
+
+    ensure_single_game_arg(plan, "--username", &username);
     ensure_single_game_arg(plan, "--version", version);
-    ensure_single_game_arg(plan, "--uuid", &plan.auth.uuid);
-    ensure_single_game_arg(plan, "--accessToken", &plan.auth.access_token);
-    ensure_single_game_arg(plan, "--userType", &plan.auth.user_type);
-    ensure_single_game_arg(
-        plan,
-        "--versionType",
-        &extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiStudio"),
-    );
+    ensure_single_game_arg(plan, "--uuid", &uuid);
+    ensure_single_game_arg(plan, "--accessToken", &access_token);
+    ensure_single_game_arg(plan, "--userType", &user_type);
+    ensure_single_game_arg(plan, "--versionType", &version_type);
 }
 
 fn extract_or_fallback_arg(args: &[String], flag: &str, fallback: &str) -> String {
@@ -2611,12 +2613,7 @@ async fn launch_instance(
         return Err("No hay una instancia válida seleccionada para iniciar.".to_string());
     }
 
-    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
-    if !instance_root.exists() {
-        return Err(
-            "La carpeta de la instancia no existe. Crea la instancia nuevamente.".to_string(),
-        );
-    }
+    let (instance_root, instance) = prepare_instance_runtime(&app, &instance_id, false).await?;
 
     let validation = preflight_instance(
         app.clone(),
