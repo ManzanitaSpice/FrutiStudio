@@ -3995,3 +3995,147 @@ textarea {
   border-color: color-mix(in srgb, #ef4444 40%, var(--color-border));
   color: #ef4444;
 }
+
+/* Visual refresh: Mojang-like boot + polished controls/cards */
+.boot-screen {
+  background: #111;
+  color: #f5f5f5;
+}
+
+.boot-screen__window {
+  background: #191919;
+  border: 1px solid #2d2d2d;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.boot-screen__logo span,
+.boot-screen__subtitle,
+.boot-screen__eyebrow {
+  color: #e8e8e8;
+}
+
+.boot-screen__progress,
+.boot-screen__step-progress {
+  background: #2b2b2b;
+  border-radius: 6px;
+}
+
+.boot-screen__progress > div,
+.boot-screen__step-progress > div {
+  background: linear-gradient(90deg, #58a62f, #7dcf4b);
+}
+
+.topbar__button,
+.topbar__search button,
+button,
+select,
+input[type="search"],
+input[type="text"] {
+  border-radius: 10px;
+}
+
+.topbar__button {
+  border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
+  transition: transform 120ms ease, box-shadow 160ms ease;
+}
+
+.topbar__button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
+}
+
+.topbar__button--active {
+  background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface));
+}
+
+.card,
+.instance-card,
+.server-card,
+.news-category,
+.news-latest__card,
+.news-carousel__card,
+.news-list-card {
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+.servers-toolbar input,
+.servers-toolbar select,
+.topbar__search input {
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+  background: color-mix(in srgb, var(--color-surface-strong) 55%, var(--color-surface));
+}
+
+/* Community module */
+.community-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.community-card {
+  border: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 95%, transparent);
+  border-radius: 16px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.community-chat-log {
+  border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  border-radius: 12px;
+  padding: 0.75rem;
+  max-height: 180px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--color-surface-strong) 70%, var(--color-surface));
+}
+
+.community-chat-input,
+.community-toolbar,
+.community-post-form,
+.community-grid,
+.community-tags,
+.community-post footer {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.community-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.community-grid--small {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.community-pill,
+.community-tags span {
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  padding: 0.2rem 0.6rem;
+}
+
+.community-post {
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+}
+
+/* Checklist modal stability */
+.product-dialog--checklist {
+  max-height: 86vh;
+}
+
+.product-dialog--checklist .product-dialog__install-body {
+  min-height: 360px;
+  overflow-y: auto;
+}
+
+.product-dialog__checklist-panels {
+  align-items: stretch;
+}

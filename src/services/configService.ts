@@ -29,7 +29,8 @@ export interface AppConfig {
   backgroundDownloads?: boolean;
   activeSection?:
     | "mis-modpacks"
-    | "novedades"
+    | "features"
+    | "comunidad"
     | "explorador"
     | "servers"
     | "configuracion";

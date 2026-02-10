@@ -33,7 +33,7 @@ const ExplorerPanel = lazy(() =>
     default: module.ExplorerPanel,
   })),
 );
-const NewsPanel = lazy(() =>
+const FeaturesPanel = lazy(() =>
   import("./components/panels/NewsPanel").then((module) => ({
     default: module.NewsPanel,
   })),
@@ -41,6 +41,11 @@ const NewsPanel = lazy(() =>
 const ServersPanel = lazy(() =>
   import("./components/panels/ServersPanel").then((module) => ({
     default: module.ServersPanel,
+  })),
+);
+const CommunityPanel = lazy(() =>
+  import("./components/panels/CommunityPanel").then((module) => ({
+    default: module.CommunityPanel,
   })),
 );
 const SettingsPanel = lazy(() =>
@@ -60,10 +65,10 @@ const loadingSteps = [
 const launcherTips = [
   "Tip: Minecraft 1.21 mejora el rendimiento del mundo con optimizaciones en el motor de chunks.",
   "Tip: Puedes combinar Modrinth y CurseForge desde el explorador para encontrar mods más rápido.",
-  "Novedad FrutiLauncher: la cola de descargas mantiene progreso en segundo plano.",
+  "Consejo FrutiLauncher: la cola de descargas mantiene progreso en segundo plano.",
   "Tip: Revisa la pestaña de servidores para detectar listados con versión compatible automáticamente.",
   "Minecraft Live: revisa snapshots y pruebas experimentales para bloques y biomas nuevos.",
-  "Novedad FrutiLauncher: puedes ajustar la escala UI para pantallas HiDPI en Configuración.",
+  "Consejo FrutiLauncher: puedes ajustar la escala UI para pantallas HiDPI en Configuración.",
 ];
 
 const defaultCustomTheme = {
@@ -177,7 +182,9 @@ const AppShell = () => {
           setTheme(config.theme);
         }
         if (config.activeSection) {
-          setSection(config.activeSection);
+          const normalizedSection =
+            (config.activeSection as string) === "novedades" ? "features" : config.activeSection;
+          setSection(normalizedSection as Parameters<typeof setSection>[0]);
         }
         if (typeof config.focusMode === "boolean") {
           if (config.focusMode !== isFocusMode) {
@@ -338,7 +345,7 @@ const AppShell = () => {
                 <p className="boot-screen__eyebrow">Fruti Studio</p>
                 <span>FrutiLauncher</span>
                 <p className="boot-screen__subtitle">
-                  Verificando entorno y archivos de inicio
+                  Preparando entorno de juego
                 </p>
               </div>
               <div className="boot-screen__progress" aria-hidden="true">
@@ -387,7 +394,7 @@ const AppShell = () => {
                     className="boot-screen__cancel"
                     onClick={() => void handleCancelBoot()}
                   >
-                    Cancelar verificación
+                    Salir del launcher
                   </button>
                 </div>
               ) : null}
@@ -423,7 +430,8 @@ const AppShell = () => {
                   onToggleFocusMode={toggleFocus}
                 />
               )}
-              {activeSection === "novedades" && featureFlags.news && <NewsPanel />}
+              {activeSection === "features" && featureFlags.news && <FeaturesPanel />}
+              {activeSection === "comunidad" && featureFlags.community && <CommunityPanel />}
               {activeSection === "explorador" && featureFlags.explorer && (
                 <ExplorerPanel
                   externalQuery={globalSearchQuery}

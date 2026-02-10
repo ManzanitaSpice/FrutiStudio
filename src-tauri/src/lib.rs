@@ -3,11 +3,11 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 
 use reqwest::header::{HeaderMap, HeaderValue};
 
@@ -1405,6 +1405,60 @@ fn apply_auth_to_launch_plan(plan: &mut LaunchPlan, auth: LaunchAuth) {
     plan.auth = auth;
 }
 
+fn ensure_single_game_arg(plan: &mut LaunchPlan, flag: &str, value: &str) {
+    let mut index = 0;
+    let mut first_match: Option<usize> = None;
+    while index < plan.game_args.len() {
+        if plan.game_args[index] == flag {
+            if first_match.is_none() {
+                first_match = Some(index);
+                if let Some(slot) = plan.game_args.get_mut(index + 1) {
+                    *slot = value.to_string();
+                } else {
+                    plan.game_args.push(value.to_string());
+                }
+                index += 2;
+                continue;
+            }
+
+            let remove_count = if index + 1 < plan.game_args.len() {
+                2
+            } else {
+                1
+            };
+            plan.game_args.drain(index..index + remove_count);
+            continue;
+        }
+        index += 1;
+    }
+
+    if first_match.is_none() {
+        plan.game_args.push(flag.to_string());
+        plan.game_args.push(value.to_string());
+    }
+}
+
+fn normalize_critical_game_args(plan: &mut LaunchPlan, version: &str) {
+    ensure_single_game_arg(plan, "--username", &plan.auth.username);
+    ensure_single_game_arg(plan, "--version", version);
+    ensure_single_game_arg(plan, "--uuid", &plan.auth.uuid);
+    ensure_single_game_arg(plan, "--accessToken", &plan.auth.access_token);
+    ensure_single_game_arg(plan, "--userType", &plan.auth.user_type);
+    ensure_single_game_arg(
+        plan,
+        "--versionType",
+        &extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiStudio"),
+    );
+}
+
+fn extract_or_fallback_arg(args: &[String], flag: &str, fallback: &str) -> String {
+    args.iter()
+        .position(|arg| arg == flag)
+        .and_then(|index| args.get(index + 1))
+        .cloned()
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 async fn bootstrap_instance_runtime(
     app: &tauri::AppHandle,
     instance_root: &Path,
@@ -1912,10 +1966,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             "assets_descargados",
             is_non_empty_dir(&Path::new(&plan.assets_dir).join("objects")),
         ),
-        (
-            "natives_extraidos",
-            Path::new(&plan.natives_dir).exists(),
-        ),
+        ("natives_extraidos", Path::new(&plan.natives_dir).exists()),
         (
             "runtime_java_compatible",
             Path::new(&plan.java_path).exists() || plan.java_path == "java",
@@ -2642,6 +2693,10 @@ async fn launch_instance(
         },
     );
 
+    let current_version =
+        extract_or_fallback_arg(&launch_plan.game_args, "--version", &instance.version);
+    normalize_critical_game_args(&mut launch_plan, &current_version);
+
     let validation = validate_launch_plan(&instance_root, &launch_plan);
     if !validation.ok {
         return Err(format!(
@@ -3164,7 +3219,10 @@ async fn open_instance_path(app: tauri::AppHandle, args: InstancePathArgs) -> Re
 }
 
 #[command]
-async fn create_instance_shortcut(app: tauri::AppHandle, instance_id: String) -> Result<String, String> {
+async fn create_instance_shortcut(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<String, String> {
     let id = instance_id.trim();
     if id.is_empty() {
         return Err("instance_id es requerido".to_string());
@@ -3195,11 +3253,7 @@ async fn create_instance_shortcut(app: tauri::AppHandle, instance_id: String) ->
     #[cfg(target_os = "macos")]
     let (shortcut_path, content) = {
         let path = desktop.join(format!("FrutiLauncher - {id}.command"));
-        let data = format!(
-            "#!/bin/bash\n\"{}\" --instanceId={}\n",
-            exe.display(),
-            id
-        );
+        let data = format!("#!/bin/bash\n\"{}\" --instanceId={}\n", exe.display(), id);
         (path, data)
     };
 
