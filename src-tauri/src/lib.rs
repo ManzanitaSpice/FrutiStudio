@@ -18,6 +18,7 @@ use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
+use zip::ZipArchive;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1020,6 +1021,83 @@ fn maven_path(name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+fn minecraft_rule_allows_current_os(rule: &Value) -> bool {
+    let os_name = rule
+        .get("os")
+        .and_then(|v| v.get("name"))
+        .and_then(|v| v.as_str());
+    let arch = rule
+        .get("os")
+        .and_then(|v| v.get("arch"))
+        .and_then(|v| v.as_str());
+
+    let os_ok = os_name
+        .map(|name| name == current_minecraft_os())
+        .unwrap_or(true);
+    let arch_ok = arch
+        .map(|target| std::env::consts::ARCH.contains(target))
+        .unwrap_or(true);
+
+    os_ok && arch_ok
+}
+
+fn argument_allowed_for_current_os(arg: &Value) -> bool {
+    let Some(rules) = arg.get("rules").and_then(|v| v.as_array()) else {
+        return true;
+    };
+
+    let mut allowed = false;
+    for rule in rules {
+        let action = rule
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("allow");
+        if minecraft_rule_allows_current_os(rule) {
+            allowed = action == "allow";
+        }
+    }
+    allowed
+}
+
+fn append_argument_values(target: &mut Vec<String>, argument_node: &Value) {
+    if let Some(text) = argument_node.as_str() {
+        target.push(text.to_string());
+        return;
+    }
+
+    let Some(obj) = argument_node.as_object() else {
+        return;
+    };
+
+    if !argument_allowed_for_current_os(argument_node) {
+        return;
+    }
+
+    let Some(value) = obj.get("value") else {
+        return;
+    };
+
+    match value {
+        Value::String(single) => target.push(single.to_string()),
+        Value::Array(values) => {
+            for item in values {
+                if let Some(single) = item.as_str() {
+                    target.push(single.to_string());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn expand_launch_placeholders(value: &str, variables: &HashMap<&str, String>) -> String {
+    let mut expanded = value.to_string();
+    for (key, replacement) in variables {
+        expanded = expanded.replace(&format!("${{{key}}}"), replacement);
+    }
+    expanded
+}
+
 async fn download_to(url: &str, path: &Path) -> Result<(), String> {
     if path.exists() {
         return Ok(());
@@ -1038,7 +1116,52 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
         .map_err(|error| format!("No se pudo guardar archivo {}: {error}", path.display()))
 }
 
-fn extract_native_library(_jar_path: &Path, _natives_dir: &Path) -> Result<(), String> {
+fn extract_native_library(jar_path: &Path, natives_dir: &Path) -> Result<(), String> {
+    let file = fs::File::open(jar_path)
+        .map_err(|error| format!("No se pudo abrir nativo {}: {error}", jar_path.display()))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|error| format!("Jar nativo inválido: {error}"))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("No se pudo leer entrada nativa #{index}: {error}"))?;
+        let Some(enclosed) = entry.enclosed_name().map(|name| name.to_path_buf()) else {
+            continue;
+        };
+
+        let normalized = enclosed.to_string_lossy();
+        if normalized.starts_with("META-INF/") || normalized.ends_with('/') {
+            continue;
+        }
+
+        let is_native = normalized.ends_with(".dll")
+            || normalized.ends_with(".so")
+            || normalized.ends_with(".dylib")
+            || normalized.ends_with(".jnilib");
+        if !is_native {
+            continue;
+        }
+
+        let Some(file_name) = enclosed.file_name() else {
+            continue;
+        };
+        let target = natives_dir.join(file_name);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("No se pudo preparar carpeta de nativos: {error}"))?;
+        }
+        let mut output = fs::File::create(&target)
+            .map_err(|error| format!("No se pudo crear nativo {}: {error}", target.display()))?;
+        std::io::copy(&mut entry, &mut output).map_err(|error| {
+            format!(
+                "No se pudo extraer nativo {} a {}: {error}",
+                normalized,
+                target.display()
+            )
+        })?;
+    }
+
     Ok(())
 }
 
@@ -1224,7 +1347,26 @@ async fn bootstrap_instance_runtime(
         }
     }
 
+    if game_arguments.as_array().is_none() {
+        if let Some(legacy_args) = base_version_json
+            .get("minecraftArguments")
+            .and_then(|v| v.as_str())
+        {
+            game_arguments = Value::Array(
+                legacy_args
+                    .split_whitespace()
+                    .map(|value| Value::String(value.to_string()))
+                    .collect(),
+            );
+        }
+    }
+
+    if jvm_arguments.as_array().is_none() {
+        jvm_arguments = Value::Array(Vec::new());
+    }
+
     let mut classpath_entries = Vec::new();
+    let mut classpath_seen = HashSet::new();
     let natives_dir = minecraft_root.join("natives");
     fs::create_dir_all(&natives_dir)
         .map_err(|error| format!("No se pudo crear natives dir: {error}"))?;
@@ -1257,7 +1399,9 @@ async fn bootstrap_instance_runtime(
             if let (Some(url), Some(rel)) = (url, path) {
                 let target = minecraft_root.join("libraries").join(rel);
                 download_to(url, &target).await?;
-                classpath_entries.push(target);
+                if classpath_seen.insert(target.clone()) {
+                    classpath_entries.push(target);
+                }
             }
         }
 
@@ -1278,7 +1422,9 @@ async fn bootstrap_instance_runtime(
         }
     }
 
-    classpath_entries.push(client_jar.clone());
+    if classpath_seen.insert(client_jar.clone()) {
+        classpath_entries.push(client_jar.clone());
+    }
 
     let java_major = base_version_json
         .get("javaVersion")
@@ -1350,18 +1496,55 @@ async fn bootstrap_instance_runtime(
         classpath_entries_raw.join(&cp_separator.to_string()),
     ];
 
+    let auth_player_name = user.to_string();
+    let auth_uuid = uuid.clone();
+    let auth_access_token = "offline".to_string();
+    let version_name = version.to_string();
+    let game_dir = minecraft_root.to_string_lossy().to_string();
+    let assets_root = minecraft_root.join("assets").to_string_lossy().to_string();
+    let library_directory = minecraft_root
+        .join("libraries")
+        .to_string_lossy()
+        .to_string();
+    let classpath_value = classpath_entries_raw.join(&cp_separator.to_string());
+
+    let replacements = HashMap::from([
+        (
+            "natives_directory",
+            natives_dir.to_string_lossy().to_string(),
+        ),
+        ("launcher_name", "FrutiStudio".to_string()),
+        ("launcher_version", "1.0.0".to_string()),
+        ("classpath", classpath_value.clone()),
+        ("classpath_separator", cp_separator.to_string()),
+        ("auth_player_name", auth_player_name.clone()),
+        ("version_name", version_name.clone()),
+        ("game_directory", game_dir.clone()),
+        ("assets_root", assets_root.clone()),
+        ("assets_index_name", asset_index_id.to_string()),
+        ("auth_uuid", auth_uuid.clone()),
+        ("auth_access_token", auth_access_token.clone()),
+        ("user_type", "offline".to_string()),
+        ("version_type", "FrutiStudio".to_string()),
+        ("library_directory", library_directory.clone()),
+    ]);
+
     if let Some(values) = jvm_arguments.as_array() {
         for value in values {
-            if let Some(arg) = value.as_str() {
-                java_args.push(arg.replace("${natives_directory}", &natives_dir.to_string_lossy()));
+            let mut resolved = Vec::new();
+            append_argument_values(&mut resolved, value);
+            for argument in resolved {
+                java_args.push(expand_launch_placeholders(&argument, &replacements));
             }
         }
     }
 
     if let Some(values) = game_arguments.as_array() {
         for value in values {
-            if let Some(arg) = value.as_str() {
-                game_args.push(arg.to_string());
+            let mut resolved = Vec::new();
+            append_argument_values(&mut resolved, value);
+            for argument in resolved {
+                game_args.push(expand_launch_placeholders(&argument, &replacements));
             }
         }
     }
@@ -1390,7 +1573,7 @@ async fn bootstrap_instance_runtime(
         auth: LaunchAuth {
             username: user.to_string(),
             uuid,
-            access_token: "offline".to_string(),
+            access_token: auth_access_token,
             user_type: "offline".to_string(),
         },
         env: HashMap::from([(
@@ -1807,7 +1990,7 @@ async fn launch_instance(
         .map_err(|error| format!("No se pudo crear log stderr: {error}"))?;
 
     let mut cmd = Command::new(&launch_plan.java_path);
-    cmd.current_dir(&instance_root)
+    cmd.current_dir(Path::new(&launch_plan.game_dir))
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
 
