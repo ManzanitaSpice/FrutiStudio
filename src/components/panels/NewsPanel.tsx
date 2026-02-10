@@ -145,9 +145,9 @@ export const NewsPanel = () => {
     <section className="panel-view panel-view--news">
       <div className="panel-view__header">
         <div>
-          <h2>Novedades</h2>
+          <h2>Actualizaciones</h2>
           <p>
-            Novedades seleccionadas y combinadas de Modrinth + CurseForge.
+            Resumen de actualizaciones recientes del ecosistema.
           </p>
         </div>
       </div>

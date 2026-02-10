@@ -12,6 +12,8 @@ import {
   fetchMinecraftVersions,
 } from "../../services/minecraftVersionService";
 import { createInstance, launchInstance } from "../../services/instanceService";
+import { searchModrinth } from "../../services/modrinthService";
+import { searchCurseforge } from "../../services/curseService";
 import {
   type ExternalInstance,
   fetchExternalInstances,
@@ -125,16 +127,12 @@ const defaultInstanceConfig = (): InstanceConfigState => ({
   envVariables: "JAVA_HOME=\nMC_PROFILE=instance",
 });
 
-const buildDefaultMods = (instance: Instance): Mod[] => {
-  const totalMods = Math.max(1, Math.min(instance.mods || 0, 12));
-  return Array.from({ length: totalMods }, (_, index) => ({
-    id: `${instance.id}-mod-${index + 1}`,
-    name: `Mod ${index + 1}`,
-    version: "1.0.0",
-    enabled: true,
-    source: "local",
-  }));
-};
+interface CatalogMod {
+  id: string;
+  name: string;
+  version: string;
+  provider: "modrinth" | "curseforge";
+}
 
 export const InstancePanel = ({
   instances,
@@ -194,6 +192,14 @@ export const InstancePanel = ({
     Record<string, Mod[]>
   >({});
   const [selectedModId, setSelectedModId] = useState<string | null>(null);
+  const [modQuery, setModQuery] = useState("");
+  const [modDownloadOpen, setModDownloadOpen] = useState(false);
+  const [modReviewOpen, setModReviewOpen] = useState(false);
+  const [modProvider, setModProvider] = useState<"modrinth" | "curseforge">("modrinth");
+  const [catalogMods, setCatalogMods] = useState<CatalogMod[]>([]);
+  const [selectedCatalogMods, setSelectedCatalogMods] = useState<CatalogMod[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -216,7 +222,7 @@ export const InstancePanel = ({
   };
 
   const installedMods = selectedInstance
-    ? (installedModsByInstance[selectedInstance.id] ?? buildDefaultMods(selectedInstance))
+    ? (installedModsByInstance[selectedInstance.id] ?? [])
     : [];
   const selectedInstalledMod =
     installedMods.find((mod) => mod.id === selectedModId) ?? null;
@@ -291,12 +297,23 @@ export const InstancePanel = ({
         label: "🔧 Reparar instancia",
         disabled: false,
         action: () => {
-          setLaunchStatus("Reparación completada: estructura y archivos verificados.");
-          onUpdateInstance(selectedInstance.id, {
-            status: "ready",
-            isRunning: false,
-            processId: undefined,
-          });
+          void (async () => {
+            try {
+              await createInstance(selectedInstance);
+              setLaunchStatus("Reparación completada: instancia regenerada y lista para iniciar.");
+              onUpdateInstance(selectedInstance.id, {
+                status: "ready",
+                isRunning: false,
+                processId: undefined,
+              });
+            } catch (error) {
+              setLaunchStatus(
+                error instanceof Error
+                  ? `No se pudo reparar la instancia: ${error.message}`
+                  : "No se pudo reparar la instancia.",
+              );
+            }
+          })();
         },
       };
     }
@@ -665,7 +682,7 @@ export const InstancePanel = ({
       }
       return {
         ...prev,
-        [selectedInstance.id]: buildDefaultMods(selectedInstance),
+        [selectedInstance.id]: [],
       };
     });
     setInstanceConfigById((prev) => {
@@ -732,6 +749,65 @@ export const InstancePanel = ({
     };
   }, [contextMenu]);
 
+  const loadCatalogMods = async () => {
+    if (!selectedInstance) {
+      return;
+    }
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      if (modProvider === "modrinth") {
+        const found = await searchModrinth({
+          query: modQuery.trim(),
+          gameVersion: selectedInstance.version,
+          loader: selectedInstance.loaderName.toLowerCase(),
+        });
+        setCatalogMods(
+          found.slice(0, 20).map((item) => ({
+            id: item.id,
+            name: item.title,
+            version: selectedInstance.version,
+            provider: "modrinth",
+          })),
+        );
+      } else {
+        const loaderType: Record<string, number> = {
+          forge: 1,
+          fabric: 4,
+          quilt: 5,
+          neoforge: 6,
+        };
+        const found = await searchCurseforge({
+          query: modQuery.trim(),
+          gameVersion: selectedInstance.version,
+          modLoaderType: loaderType[selectedInstance.loaderName.toLowerCase()],
+          classId: 6,
+          pageSize: 20,
+        });
+        setCatalogMods(
+          found.map((item) => ({
+            id: String(item.id),
+            name: item.name,
+            version: selectedInstance.version,
+            provider: "curseforge",
+          })),
+        );
+      }
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : "No se pudo buscar mods.");
+      setCatalogMods([]);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!modDownloadOpen) {
+      return;
+    }
+    void loadCatalogMods();
+  }, [modDownloadOpen, modProvider]);
+
   const renderEditorBody = () => {
     if (activeEditorSection === "Registro de Minecraft" && selectedInstance) {
       const logs = runtimeLogByInstance[selectedInstance.id] ?? [];
@@ -775,9 +851,10 @@ export const InstancePanel = ({
       return (
         <div className="instance-editor__table">
           <div className="instance-editor__table-header">
-            <span>Mod instalado</span>
-            <span>Versión / Estado</span>
+            <span>Estado · Mod · Versión</span>
+            <span>Proveedor</span>
           </div>
+          {installedMods.length === 0 ? <p>No hay mods instalados en esta instancia.</p> : null}
           {installedMods.map((mod) => (
             <button
               key={mod.id}
@@ -789,9 +866,9 @@ export const InstancePanel = ({
               }
               onClick={() => setSelectedModId(mod.id)}
             >
-              <span>{mod.name}</span>
+              <span>{mod.enabled ? "✔️" : "⏸️"} {mod.name} · {mod.version}</span>
               <span>
-                {mod.version} · {mod.enabled ? "Activo" : "Desactivado"}
+                {mod.source === "modrinth" ? "Modrinth" : mod.source === "curseforge" ? "CurseForge" : "Desconocido"}
               </span>
             </button>
           ))}
@@ -1805,9 +1882,7 @@ export const InstancePanel = ({
                           <div className="instance-editor__mods-menu">
                             <button
                               type="button"
-                              onClick={() =>
-                                window.alert("Descarga de mods próximamente.")
-                              }
+                              onClick={() => setModDownloadOpen(true)}
                             >
                               Descargar mods
                             </button>
@@ -1820,6 +1895,15 @@ export const InstancePanel = ({
                               }
                             >
                               Buscar actualizaciones
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!selectedInstalledMod}
+                              onClick={() =>
+                                window.alert("Selecciona versión del mod en su proveedor.")
+                              }
+                            >
+                              Cambiar versión
                             </button>
                             <label className="instance-editor__import-btn">
                               Añadir archivo
@@ -1891,6 +1975,22 @@ export const InstancePanel = ({
                               }
                             >
                               Ver página de inicio
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.alert(`Abrir carpeta de mods de ${selectedInstance?.name ?? "instancia"}`)
+                              }
+                            >
+                              Ver carpeta
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.alert("Abrir carpeta de configuraciones de mods")
+                              }
+                            >
+                              Ver configuraciones
                             </button>
                             <button
                               type="button"
@@ -2026,6 +2126,92 @@ ${rows.join("\n")}`;
           </article>
         </div>
       )}
+
+      {modDownloadOpen && selectedInstance ? (
+        <div className="instance-editor__backdrop" onClick={() => setModDownloadOpen(false)}>
+          <article className="product-dialog product-dialog--install" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <h3>Descargar mods</h3>
+              <button type="button" onClick={() => setModDownloadOpen(false)}>Cancelar</button>
+            </header>
+            <div className="product-dialog__install-body">
+              <p>Compatible con {selectedInstance.loaderName} en Minecraft {selectedInstance.version}.</p>
+              <div className="instance-import__actions">
+                <button type="button" onClick={() => setModProvider("curseforge")}>CurseForge</button>
+                <button type="button" onClick={() => setModProvider("modrinth")}>Modrinth</button>
+                <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder="Buscar mod..." />
+                <button type="button" onClick={() => void loadCatalogMods()} disabled={catalogLoading}>Buscar</button>
+              </div>
+              {catalogError ? <p>{catalogError}</p> : null}
+              {catalogLoading ? <p>Buscando mods compatibles...</p> : null}
+              <div className="instance-editor__table">
+                {catalogMods.map((mod) => {
+                  const alreadySelected = selectedCatalogMods.some((item) => item.id === mod.id && item.provider === mod.provider);
+                  return (
+                    <div key={`${mod.provider}-${mod.id}`} className="instance-editor__table-row">
+                      <span>{mod.name}</span>
+                      <button type="button" disabled={alreadySelected} onClick={() => setSelectedCatalogMods((prev) => [...prev, mod])}>
+                        {alreadySelected ? "Seleccionado" : "Agregar"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="instance-import__actions">
+                <button type="button" disabled={!selectedCatalogMods.length} onClick={() => setModReviewOpen(true)}>Revisar y continuar</button>
+                <button type="button" onClick={() => setModDownloadOpen(false)}>Cancelar</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      ) : null}
+
+      {modReviewOpen && selectedInstance ? (
+        <div className="instance-editor__backdrop" onClick={() => setModReviewOpen(false)}>
+          <article className="product-dialog product-dialog--install" onClick={(event) => event.stopPropagation()}>
+            <header><h3>Revisar mods seleccionados</h3></header>
+            <div className="product-dialog__install-body">
+              <ul>
+                {selectedCatalogMods.map((mod) => (
+                  <li key={`${mod.provider}-${mod.id}`}>{mod.name} · {mod.provider}</li>
+                ))}
+              </ul>
+              <div className="instance-import__actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextMods = [
+                      ...(installedModsByInstance[selectedInstance.id] ?? []),
+                      ...selectedCatalogMods.map((mod) => ({
+                        id: `${selectedInstance.id}-${mod.provider}-${mod.id}`,
+                        name: mod.name,
+                        version: mod.version,
+                        enabled: true,
+                        source: mod.provider,
+                      })),
+                    ];
+                    setInstalledModsByInstance((prev) => ({
+                      ...prev,
+                      [selectedInstance.id]: nextMods,
+                    }));
+                    onUpdateInstance(selectedInstance.id, {
+                      mods: nextMods.length,
+                    });
+                    setModReviewOpen(false);
+                    setModDownloadOpen(false);
+                    setSelectedCatalogMods([]);
+                    setLaunchStatus("Mods descargados e instalados en la instancia.");
+                  }}
+                >
+                  OK / Instalar
+                </button>
+                <button type="button" onClick={() => setModReviewOpen(false)}>Cancelar</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      ) : null}
+
 
       {creatorOpen && (
         <div className="instance-editor__backdrop" onClick={handleCreatorBackdropClick}>

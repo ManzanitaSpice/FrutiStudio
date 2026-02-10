@@ -10,7 +10,6 @@ export const ServersPanel = () => {
   const [mode, setMode] = useState("all");
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; server: ServerListing } | null>(null);
 
   useEffect(() => {
@@ -23,7 +22,6 @@ export const ServersPanel = () => {
         if (isActive) {
           setServers((prev) => (page === 0 ? data.items : [...prev, ...data.items]));
           setHasMore(data.hasMore);
-          setTotal(data.total);
         }
       } catch (loadError) {
         if (isActive) {
@@ -86,9 +84,9 @@ export const ServersPanel = () => {
     <section className="panel-view panel-view--servers">
       <div className="panel-view__header">
         <div>
-          <h2>Servers</h2>
-          <p>Servidores públicos con estado en vivo, versión y tipo.</p>
-          <small>{total} servidores detectados</small>
+          <h2>Servidores</h2>
+          <p>Listado de servidores.</p>
+          
         </div>
       </div>
 
