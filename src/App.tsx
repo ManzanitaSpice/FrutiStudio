@@ -69,6 +69,11 @@ const AppShell = () => {
   );
   const [instances, setInstances] = useState<Instance[]>([]);
   const [presenceStart] = useState(() => new Date());
+  const selectedInstance = useMemo(
+    () =>
+      instances.find((instance) => instance.id === selectedInstanceId) ?? null,
+    [instances, selectedInstanceId],
+  );
 
   useEffect(() => {
     const loadInstances = async () => {
@@ -175,12 +180,6 @@ const AppShell = () => {
     onSelectSection: setSection,
     onToggleFocus: toggleFocus,
   });
-
-  const selectedInstance = useMemo(
-    () =>
-      instances.find((instance) => instance.id === selectedInstanceId) ?? null,
-    [instances, selectedInstanceId],
-  );
 
   const handleClearSelection = () => setSelectedInstanceId(null);
   const handleCreateInstance = (instance: Instance) => {
