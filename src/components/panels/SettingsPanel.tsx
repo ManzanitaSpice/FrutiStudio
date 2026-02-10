@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useState } from "react";
 
 import { useUI } from "../../hooks/useUI";
 import { useBaseDir } from "../../hooks/useBaseDir";
@@ -29,6 +29,7 @@ export const SettingsPanel = () => {
   const [backgroundDownloads, setBackgroundDownloads] = useState(true);
   const [curseforgeKey, setCurseforgeKey] = useState("");
   const [customTheme, setCustomTheme] = useState(customDefaults);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; card: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -94,6 +95,24 @@ export const SettingsPanel = () => {
     setTheme("custom");
   };
 
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
+
+  const handleCardContextMenu = (event: ReactMouseEvent<HTMLElement>, card: string) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, card });
+  };
+
   const handleCurseforgeKeyChange = (value: string) => {
     setCurseforgeKey(value);
     saveCurseforgeApiKey(value);
@@ -109,7 +128,7 @@ export const SettingsPanel = () => {
       </div>
       <div className="panel-view__body">
         <div className="settings-grid">
-          <article className="settings-card">
+          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "base")}>
             <div className="settings-card__header">
               <h3>{t("baseDir").title}</h3>
               <p>{t("baseDir").placeholder}</p>
@@ -122,7 +141,7 @@ export const SettingsPanel = () => {
               {status === "idle" ? t("baseDir").statusIdle : null}
             </p>
           </article>
-          <article className="settings-card">
+          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "apariencia")}>
             <div className="settings-card__header">
               <h3>Apariencia y accesibilidad</h3>
               <p>Define tema, zoom y contraste del launcher.</p>
@@ -242,7 +261,7 @@ export const SettingsPanel = () => {
               </div>
             )}
           </article>
-          <article className="settings-card">
+          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "cuentas")}>
             <div className="settings-card__header">
               <h3>Cuentas y perfiles</h3>
               <p>Administra sesiones, perfiles y atajos rápidos.</p>
@@ -253,7 +272,7 @@ export const SettingsPanel = () => {
               <button type="button">Cambiar cuenta principal</button>
             </div>
           </article>
-          <article className="settings-card">
+          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "java")}>
             <div className="settings-card__header">
               <h3>Java &amp; memoria</h3>
               <p>Ajusta el rendimiento global para todas las instancias.</p>
@@ -266,7 +285,7 @@ export const SettingsPanel = () => {
           </article>
         </div>
         <div className="settings-grid settings-grid--secondary">
-          <article className="settings-card">
+          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "red")}>
             <div className="settings-card__header">
               <h3>Red y descargas</h3>
               <p>Controla mirrors, ancho de banda y modo offline.</p>
@@ -293,7 +312,7 @@ export const SettingsPanel = () => {
               <button type="button">Limpiar caché</button>
             </div>
           </article>
-          <article className="settings-card">
+          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "updates")}>
             <div className="settings-card__header">
               <h3>Actualizaciones y plugins</h3>
               <p>Define cuándo actualizar el launcher y sus extensiones.</p>
@@ -311,7 +330,7 @@ export const SettingsPanel = () => {
               <button type="button">Ver historial de cambios</button>
             </div>
           </article>
-          <article className="settings-card">
+          <article className="settings-card settings-card--glow" onContextMenu={(event) => handleCardContextMenu(event, "privacy")}>
             <div className="settings-card__header">
               <h3>Privacidad</h3>
               <p>Decide qué datos comparte el launcher contigo.</p>
@@ -331,6 +350,16 @@ export const SettingsPanel = () => {
           </article>
         </div>
       </div>
+      
+      {contextMenu ? (
+        <div className="section-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <span className="section-context-menu__title">Atajos de {contextMenu.card}</span>
+          <button type="button" onClick={() => window.alert("Atajo guardado en barra lateral")}>Anclar acceso</button>
+          <button type="button" onClick={() => window.alert("Abrir en ventana flotante")}>Abrir rápido</button>
+          <button type="button" onClick={() => navigator.clipboard.writeText(`fruti://settings/${contextMenu.card}`)}>Copiar deep-link</button>
+        </div>
+      ) : null}
+
     </section>
   );
 };

@@ -56,6 +56,74 @@ const creatorSections = [
   "Modrinth",
 ];
 
+const instanceConfigTabs = [
+  "General",
+  "Java",
+  "Ajustes",
+  "Comandos Personalizados",
+  "Variables de Entorno",
+] as const;
+
+type InstanceConfigTab = (typeof instanceConfigTabs)[number];
+
+interface InstanceConfigState {
+  launchMaximized: boolean;
+  windowSize: string;
+  hideLauncherOnGameOpen: boolean;
+  quitLauncherOnGameClose: boolean;
+  showConsoleOnLaunch: boolean;
+  showConsoleOnCrash: boolean;
+  hideConsoleOnQuit: boolean;
+  globalDatapacksPath: string;
+  showPlaytime: boolean;
+  recordPlaytime: boolean;
+  overrideAccount: string;
+  autoJoinEnabled: boolean;
+  autoJoinServer: string;
+  autoJoinWorld: string;
+  overrideLoader: string;
+  javaOverrideEnabled: boolean;
+  javaExecutable: string;
+  skipJavaCompatibilityChecks: boolean;
+  minMemory: number;
+  maxMemory: number;
+  permGen: string;
+  javaArgs: string;
+  customPreLaunchCommand: string;
+  customPostExitCommand: string;
+  customCrashCommand: string;
+  envVariables: string;
+}
+
+const defaultInstanceConfig = (): InstanceConfigState => ({
+  launchMaximized: false,
+  windowSize: "1280x720",
+  hideLauncherOnGameOpen: true,
+  quitLauncherOnGameClose: false,
+  showConsoleOnLaunch: false,
+  showConsoleOnCrash: true,
+  hideConsoleOnQuit: true,
+  globalDatapacksPath: "",
+  showPlaytime: true,
+  recordPlaytime: true,
+  overrideAccount: "Cuenta global",
+  autoJoinEnabled: false,
+  autoJoinServer: "",
+  autoJoinWorld: "",
+  overrideLoader: "Auto",
+  javaOverrideEnabled: false,
+  javaExecutable: "",
+  skipJavaCompatibilityChecks: false,
+  minMemory: 1024,
+  maxMemory: 4096,
+  permGen: "128M (Legacy)",
+  javaArgs: "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
+  customPreLaunchCommand: "",
+  customPostExitCommand: "",
+  customCrashCommand: "",
+  envVariables: "JAVA_HOME=\nMC_PROFILE=instance",
+});
+
 
 const buildDefaultMods = (instance: Instance): Mod[] => {
   const totalMods = Math.max(1, Math.min(instance.mods || 0, 12));
@@ -129,6 +197,9 @@ export const InstancePanel = ({
     y: number;
     instance: Instance | null;
   } | null>(null);
+  const [activeConfigTab, setActiveConfigTab] = useState<InstanceConfigTab>("General");
+  const [instanceConfigById, setInstanceConfigById] = useState<Record<string, InstanceConfigState>>({});
+  const [runtimeLogByInstance, setRuntimeLogByInstance] = useState<Record<string, string[]>>({});
   const selectedInstance =
     instances.find((instance) => instance.id === selectedInstanceId) ?? null;
   const statusLabels: Record<Instance["status"], string> = {
@@ -142,6 +213,25 @@ export const InstancePanel = ({
     ? installedModsByInstance[selectedInstance.id] ?? buildDefaultMods(selectedInstance)
     : [];
   const selectedInstalledMod = installedMods.find((mod) => mod.id === selectedModId) ?? null;
+  const selectedConfig = selectedInstance
+    ? instanceConfigById[selectedInstance.id] ?? defaultInstanceConfig()
+    : defaultInstanceConfig();
+
+  const updateSelectedConfig = <K extends keyof InstanceConfigState>(
+    key: K,
+    value: InstanceConfigState[K],
+  ) => {
+    if (!selectedInstance) {
+      return;
+    }
+    setInstanceConfigById((prev) => ({
+      ...prev,
+      [selectedInstance.id]: {
+        ...(prev[selectedInstance.id] ?? defaultInstanceConfig()),
+        [key]: value,
+      },
+    }));
+  };
 
   const instanceHealth = useMemo(() => {
     if (!selectedInstance) {
@@ -499,7 +589,41 @@ export const InstancePanel = ({
         [selectedInstance.id]: buildDefaultMods(selectedInstance),
       };
     });
+    setInstanceConfigById((prev) => {
+      if (prev[selectedInstance.id]) {
+        return prev;
+      }
+      return { ...prev, [selectedInstance.id]: defaultInstanceConfig() };
+    });
+    setRuntimeLogByInstance((prev) => {
+      if (prev[selectedInstance.id]) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [selectedInstance.id]: [
+          `[${new Date().toLocaleTimeString()}] [Launcher] Instancia preparada: ${selectedInstance.name}`,
+        ],
+      };
+    });
   }, [selectedInstance]);
+
+  useEffect(() => {
+    if (!selectedInstance?.isRunning) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      setRuntimeLogByInstance((prev) => {
+        const currentLogs = prev[selectedInstance.id] ?? [];
+        const newLine = `[${new Date().toLocaleTimeString()}] [Minecraft] Tick ${Date.now().toString().slice(-5)} · TPS estable`;
+        return {
+          ...prev,
+          [selectedInstance.id]: [...currentLogs.slice(-199), newLine],
+        };
+      });
+    }, 1200);
+    return () => window.clearInterval(interval);
+  }, [selectedInstance?.id, selectedInstance?.isRunning]);
 
   useEffect(() => {
     if (!selectedInstance && editorOpen) {
@@ -530,6 +654,25 @@ export const InstancePanel = ({
   }, [contextMenu]);
 
   const renderEditorBody = () => {
+    if (activeEditorSection === "Registro de Minecraft" && selectedInstance) {
+      const logs = runtimeLogByInstance[selectedInstance.id] ?? [];
+      return (
+        <div className="instance-live-log">
+          <div className="instance-live-log__toolbar">
+            <strong>Registro en tiempo real</strong>
+            <span>{selectedInstance.isRunning ? "En ejecución" : "Instancia detenida"}</span>
+          </div>
+          <div className="instance-live-log__stream" aria-live="polite">
+            {logs.length ? (
+              logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)
+            ) : (
+              <p>Sin eventos todavía.</p>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     if (activeEditorSection === "Versión") {
       return (
         <div className="instance-editor__table">
@@ -571,33 +714,119 @@ export const InstancePanel = ({
 
     if (activeEditorSection === "Configuración" && selectedInstance) {
       return (
-        <div className="instance-editor__form">
-          <label>
-            Nombre
-            <input value={editorName} onChange={(event) => setEditorName(event.target.value)} />
-          </label>
-          <label>
-            Grupo
-            <input value={editorGroup} onChange={(event) => setEditorGroup(event.target.value)} />
-          </label>
-          <label>
-            Memoria
-            <input value={editorMemory} onChange={(event) => setEditorMemory(event.target.value)} placeholder="4 GB" />
-          </label>
-          <div className="instance-editor__actions">
-            <button
-              type="button"
-              onClick={() =>
-                onUpdateInstance(selectedInstance.id, {
-                  name: editorName.trim() || selectedInstance.name,
-                  group: editorGroup.trim() || "No agrupado",
-                  memory: editorMemory.trim() || "4 GB",
-                })
-              }
-            >
-              Guardar cambios
-            </button>
+        <div className="instance-config">
+          <div className="instance-config__intro">
+            <h5>📦 Configuración de Instancia</h5>
+            <p>Este panel sobrescribe ajustes globales solo para esta instancia.</p>
+            <p>Nada aquí afecta a otras instancias.</p>
+            <button type="button" className="explorer-item__secondary">🔗 Open Global Settings</button>
           </div>
+          <div className="instance-config__tabs" role="tablist" aria-label="Pestañas de configuración">
+            {instanceConfigTabs.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={activeConfigTab === tab}
+                className={activeConfigTab === tab ? "instance-config__tab instance-config__tab--active" : "instance-config__tab"}
+                onClick={() => setActiveConfigTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {activeConfigTab === "General" ? (
+            <div className="instance-config__grid">
+              <article className="instance-config__card">
+                <h6>🪟 Game Window</h6>
+                <label><input type="checkbox" checked={selectedConfig.launchMaximized} onChange={(event) => updateSelectedConfig("launchMaximized", event.target.checked)} /> Iniciar Minecraft maximizado</label>
+                <label>Window Size (Ancho × Alto)<input value={selectedConfig.windowSize} onChange={(event) => updateSelectedConfig("windowSize", event.target.value)} placeholder="1280x720" disabled={selectedConfig.launchMaximized} /></label>
+                <label><input type="checkbox" checked={selectedConfig.hideLauncherOnGameOpen} onChange={(event) => updateSelectedConfig("hideLauncherOnGameOpen", event.target.checked)} /> When the game window opens, hide the launcher</label>
+                <label><input type="checkbox" checked={selectedConfig.quitLauncherOnGameClose} onChange={(event) => updateSelectedConfig("quitLauncherOnGameClose", event.target.checked)} /> When the game window closes, quit the launcher</label>
+              </article>
+              <article className="instance-config__card">
+                <h6>🖥 Console Window</h6>
+                <label><input type="checkbox" checked={selectedConfig.showConsoleOnLaunch} onChange={(event) => updateSelectedConfig("showConsoleOnLaunch", event.target.checked)} /> When the game is launched, show the console window</label>
+                <label><input type="checkbox" checked={selectedConfig.showConsoleOnCrash} onChange={(event) => updateSelectedConfig("showConsoleOnCrash", event.target.checked)} /> When the game crashes, show the console window</label>
+                <label><input type="checkbox" checked={selectedConfig.hideConsoleOnQuit} onChange={(event) => updateSelectedConfig("hideConsoleOnQuit", event.target.checked)} /> When the game quits, hide the console window</label>
+              </article>
+              <article className="instance-config__card">
+                <h6>📁 Global Data Packs</h6>
+                <label>Folder Path<input value={selectedConfig.globalDatapacksPath} onChange={(event) => updateSelectedConfig("globalDatapacksPath", event.target.value)} placeholder="/datapacks/global" /></label>
+                <small>⚠ Requiere mods específicos · ⚠ No es vanilla-friendly</small>
+              </article>
+              <article className="instance-config__card">
+                <h6>⏱ Game Time</h6>
+                <label><input type="checkbox" checked={selectedConfig.showPlaytime} onChange={(event) => updateSelectedConfig("showPlaytime", event.target.checked)} /> Show time playing this instance</label>
+                <label><input type="checkbox" checked={selectedConfig.recordPlaytime} onChange={(event) => updateSelectedConfig("recordPlaytime", event.target.checked)} /> Record time playing this instance</label>
+              </article>
+              <article className="instance-config__card">
+                <h6>👤 Override Default Account</h6>
+                <label>Cuenta<select value={selectedConfig.overrideAccount} onChange={(event) => updateSelectedConfig("overrideAccount", event.target.value)}><option>Cuenta global</option><option>ManzanitaSpace</option><option>Testing-Alt</option></select></label>
+              </article>
+              <article className="instance-config__card">
+                <h6>🔌 Enable Auto-join</h6>
+                <label><input type="checkbox" checked={selectedConfig.autoJoinEnabled} onChange={(event) => updateSelectedConfig("autoJoinEnabled", event.target.checked)} /> Activar auto-join</label>
+                <label>Dirección del servidor<input value={selectedConfig.autoJoinServer} onChange={(event) => updateSelectedConfig("autoJoinServer", event.target.value)} placeholder="play.servidor.net:25565" /></label>
+                <label>Singleplayer world<input value={selectedConfig.autoJoinWorld} onChange={(event) => updateSelectedConfig("autoJoinWorld", event.target.value)} placeholder="Nombre del mundo" /></label>
+              </article>
+            </div>
+          ) : null}
+
+          {activeConfigTab === "Java" ? (
+            <div className="instance-config__grid">
+              <article className="instance-config__card">
+                <h6>☕ Instalación de Java</h6>
+                <label><input type="checkbox" checked={selectedConfig.javaOverrideEnabled} onChange={(event) => updateSelectedConfig("javaOverrideEnabled", event.target.checked)} /> Instalación de Java (override)</label>
+                <label>Java Executable<input value={selectedConfig.javaExecutable} onChange={(event) => updateSelectedConfig("javaExecutable", event.target.value)} placeholder=".../java-runtime/bin/javaw.exe" /></label>
+                <div className="instance-config__inline-actions"><button type="button">Detect</button><button type="button">Browse</button><button type="button">Test Settings</button><button type="button">Open Java Downloader</button></div>
+                <label className="instance-config__warning"><input type="checkbox" checked={selectedConfig.skipJavaCompatibilityChecks} onChange={(event) => updateSelectedConfig("skipJavaCompatibilityChecks", event.target.checked)} /> Omitir las comprobaciones de compatibilidad de Java</label>
+              </article>
+              <article className="instance-config__card">
+                <h6>🧠 Memoria</h6>
+                <label>Minimum Memory Usage (Xms)<input type="number" min={256} max={16384} value={selectedConfig.minMemory} onChange={(event) => updateSelectedConfig("minMemory", Number(event.target.value))} /></label>
+                <label>Maximum Memory Usage (Xmx)<input type="number" min={512} max={32768} value={selectedConfig.maxMemory} onChange={(event) => updateSelectedConfig("maxMemory", Number(event.target.value))} /></label>
+                <label>PermGen Size (-XX:PermSize)<input value={selectedConfig.permGen} onChange={(event) => updateSelectedConfig("permGen", event.target.value)} /></label>
+              </article>
+              <article className="instance-config__card">
+                <h6>🧾 Argumentos de Java</h6>
+                <textarea value={selectedConfig.javaArgs} onChange={(event) => updateSelectedConfig("javaArgs", event.target.value)} rows={4} />
+                <small>Se validarán flags duplicadas de Xms/Xmx en próximas versiones.</small>
+              </article>
+            </div>
+          ) : null}
+
+          {activeConfigTab === "Ajustes" ? (
+            <div className="instance-editor__form">
+              <label>Nombre<input value={editorName} onChange={(event) => setEditorName(event.target.value)} /></label>
+              <label>Grupo<input value={editorGroup} onChange={(event) => setEditorGroup(event.target.value)} /></label>
+              <label>Memoria<input value={editorMemory} onChange={(event) => setEditorMemory(event.target.value)} placeholder="4 GB" /></label>
+              <div className="instance-editor__actions">
+                <button type="button" onClick={() => onUpdateInstance(selectedInstance.id, { name: editorName.trim() || selectedInstance.name, group: editorGroup.trim() || "No agrupado", memory: editorMemory.trim() || "4 GB" })}>Guardar cambios</button>
+              </div>
+            </div>
+          ) : null}
+
+          {activeConfigTab === "Comandos Personalizados" ? (
+            <div className="instance-config__grid">
+              <article className="instance-config__card">
+                <h6>🟩 Comandos Personalizados</h6>
+                <label>Antes de lanzar<textarea rows={2} value={selectedConfig.customPreLaunchCommand} onChange={(event) => updateSelectedConfig("customPreLaunchCommand", event.target.value)} /></label>
+                <label>Después de cerrar<textarea rows={2} value={selectedConfig.customPostExitCommand} onChange={(event) => updateSelectedConfig("customPostExitCommand", event.target.value)} /></label>
+                <label>En crash<textarea rows={2} value={selectedConfig.customCrashCommand} onChange={(event) => updateSelectedConfig("customCrashCommand", event.target.value)} /></label>
+              </article>
+            </div>
+          ) : null}
+
+          {activeConfigTab === "Variables de Entorno" ? (
+            <div className="instance-config__grid">
+              <article className="instance-config__card">
+                <h6>🟪 Variables de Entorno</h6>
+                <textarea rows={6} value={selectedConfig.envVariables} onChange={(event) => updateSelectedConfig("envVariables", event.target.value)} />
+              </article>
+            </div>
+          ) : null}
         </div>
       );
     }
@@ -1260,6 +1489,12 @@ ${rows.join("\n")}`;
               <button type="button" onClick={openCreator}>
                 Crear otra instancia
               </button>
+              <button type="button" onClick={() => { setActiveEditorSection("Mods"); openEditor(); }}>
+                Atajo: Gestionar mods
+              </button>
+              <button type="button" onClick={() => { setActiveEditorSection("Registro de Minecraft"); openEditor(); }}>
+                Atajo: Ver logs en vivo
+              </button>
               <button
                 type="button"
                 onClick={() => setDeleteConfirmId(contextMenu.instance?.id ?? null)}
@@ -1273,6 +1508,7 @@ ${rows.join("\n")}`;
               <button type="button" onClick={openCreator}>
                 Crear instancia
               </button>
+              <button type="button" onClick={() => window.alert("Atajo rápido: Crear instancia vanilla 1.21.1")}>Atajo: instancia rápida</button>
             </>
           )}
         </div>

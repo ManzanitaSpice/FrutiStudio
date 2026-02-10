@@ -3333,3 +3333,162 @@ textarea {
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
+
+/* Visual refresh + context shortcuts */
+.panel-view--news .panel-view__header,
+.panel-view--explorer .panel-view__header,
+.panel-view--servers .panel-view__header,
+.panel-view--settings .panel-view__header {
+  background: linear-gradient(135deg, rgba(116, 76, 255, 0.16), rgba(52, 208, 255, 0.12));
+  border: 1px solid rgba(160, 112, 255, 0.3);
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 16px 38px rgba(24, 21, 34, 0.18);
+}
+
+.explorer-item--card,
+.server-card,
+.settings-card--glow,
+.panel-view--news .news-carousel__item {
+  border: 1px solid rgba(160, 112, 255, 0.25);
+  box-shadow: 0 12px 30px rgba(34, 24, 54, 0.14);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.explorer-item--card:hover,
+.server-card:hover,
+.settings-card--glow:hover,
+.panel-view--news .news-carousel__item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(160, 112, 255, 0.65);
+  box-shadow: 0 18px 36px rgba(29, 20, 51, 0.2);
+}
+
+.section-context-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 210px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(160, 112, 255, 0.45);
+  background: rgba(24, 20, 33, 0.96);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 14px 30px rgba(7, 6, 12, 0.45);
+}
+
+.section-context-menu__title {
+  font-size: 12px;
+  color: #e7dcff;
+  margin-bottom: 4px;
+}
+
+.section-context-menu button {
+  border: 1px solid rgba(160, 112, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2ecff;
+  text-align: left;
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.instance-live-log {
+  display: grid;
+  gap: 10px;
+}
+
+.instance-live-log__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(160, 112, 255, 0.16);
+}
+
+.instance-live-log__stream {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid rgba(160, 112, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(7, 9, 14, 0.86);
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.instance-live-log__stream p {
+  margin: 0 0 6px;
+  color: #d6f4ff;
+}
+
+.instance-config {
+  display: grid;
+  gap: 14px;
+}
+
+.instance-config__intro {
+  border: 1px solid rgba(160, 112, 255, 0.28);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(160, 112, 255, 0.08);
+}
+
+.instance-config__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.instance-config__tab {
+  border: 1px solid rgba(160, 112, 255, 0.3);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: transparent;
+}
+
+.instance-config__tab--active {
+  background: rgba(160, 112, 255, 0.25);
+}
+
+.instance-config__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.instance-config__card {
+  display: grid;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(160, 112, 255, 0.25);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.instance-config__card label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.instance-config__card input,
+.instance-config__card select,
+.instance-config__card textarea {
+  border-radius: 8px;
+  border: 1px solid rgba(160, 112, 255, 0.22);
+  background: rgba(14, 14, 20, 0.72);
+  color: inherit;
+  padding: 6px 8px;
+}
+
+.instance-config__inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.instance-config__warning {
+  color: #ffcf9d;
+}
