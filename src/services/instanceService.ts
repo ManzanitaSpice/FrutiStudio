@@ -13,8 +13,8 @@ export const fetchInstances = async (): Promise<Instance[]> => {
       id: local.id,
       name: local.name,
       version: local.version,
-      loaderName: "Vanilla",
-      loaderVersion: "—",
+      loaderName: local.loaderName ?? local.loader_name ?? "Vanilla",
+      loaderVersion: local.loaderVersion ?? local.loader_version ?? "latest",
       mods: 0,
       memory: "4 GB",
       status: "ready",
@@ -47,8 +47,8 @@ export const createInstance = async (config: Instance) => {
       id: config.id,
       name: config.name,
       version: config.version,
-      loader_name: config.loaderName,
-      loader_version: config.loaderVersion,
+      loaderName: config.loaderName,
+      loaderVersion: config.loaderVersion,
     },
   });
   if (cachedInstances) {
