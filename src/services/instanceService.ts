@@ -101,6 +101,33 @@ export const repairInstance = async (instanceId: string) => {
   });
 };
 
+export const exportInstance = async (instanceId: string, archivePath: string) => {
+  const validInstanceId = assertValidInstanceId(instanceId);
+  const targetPath = archivePath.trim();
+  if (!targetPath) {
+    throw new Error("Debes seleccionar una ruta de destino para exportar.");
+  }
+  return invokeWithHandling<string>("export_instance", {
+    args: {
+      instanceId: validInstanceId,
+      archivePath: targetPath,
+    },
+  });
+};
+
+export const importInstance = async (archivePath: string, instanceId?: string) => {
+  const sourcePath = archivePath.trim();
+  if (!sourcePath) {
+    throw new Error("Debes seleccionar un archivo para importar.");
+  }
+  return invokeWithHandling<LocalInstance>("import_instance", {
+    args: {
+      archivePath: sourcePath,
+      instanceId: instanceId?.trim() || undefined,
+    },
+  });
+};
+
 export interface InstancePreflightReport {
   ok: boolean;
   errors: string[];

@@ -13,11 +13,14 @@ import {
 } from "../../services/minecraftVersionService";
 import {
   createInstance,
+  exportInstance,
+  importInstance,
   launchInstance,
   preflightInstance,
   removeInstance,
   repairInstance,
 } from "../../services/instanceService";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   type ExternalInstance,
   fetchExternalInstances,
@@ -563,8 +566,27 @@ export const InstancePanel = ({
         {
           id: "export",
           label: "Exportar",
-          action: () =>
-            window.alert(`Exportar ${selectedInstance.name} (mods/config/manifest.json)`),
+          action: () => {
+            void (async () => {
+              try {
+                const target = await save({
+                  defaultPath: `${selectedInstance.id}.zip`,
+                  filters: [{ name: "Instancia", extensions: ["zip"] }],
+                });
+                if (!target || Array.isArray(target)) {
+                  return;
+                }
+                await exportInstance(selectedInstance.id, target);
+                setLaunchStatus(`Instancia exportada correctamente a ${target}.`);
+              } catch (error) {
+                setLaunchStatus(
+                  error instanceof Error
+                    ? `No se pudo exportar la instancia: ${error.message}`
+                    : "No se pudo exportar la instancia.",
+                );
+              }
+            })();
+          },
         },
         {
           id: "group",
@@ -1631,6 +1653,47 @@ export const InstancePanel = ({
     setImportFileName(file ? file.name : "");
   };
 
+  const handleImportArchive = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Modpack/Instancia", extensions: ["zip", "mrpack"] }],
+      });
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+
+      const imported = await importInstance(selected);
+      const newInstance: Instance = {
+        id: imported.id,
+        name: imported.name,
+        version: imported.version,
+        loaderName: imported.loaderName ?? imported.loader_name ?? "vanilla",
+        loaderVersion: imported.loaderVersion ?? imported.loader_version ?? "latest",
+        mods: 0,
+        memory: "4 GB",
+        status: "ready",
+        group: "No agrupado",
+        lastPlayed: "Nunca",
+        playtime: "0 min",
+        playtimeMinutes: 0,
+        isDownloading: false,
+        isRunning: false,
+      };
+      onCreateInstance(newInstance);
+      onSelectInstance(newInstance.id);
+      setImportFileName(selected.split(/[\\/]/).pop() ?? "");
+      setLaunchStatus(`Instancia importada: ${newInstance.name}.`);
+      setCreatorOpen(false);
+    } catch (error) {
+      setLaunchStatus(
+        error instanceof Error
+          ? `No se pudo importar la instancia: ${error.message}`
+          : "No se pudo importar la instancia.",
+      );
+    }
+  };
+
   const renderCreatorBody = () => {
     if (activeCreatorSection === "Personalizado") {
       return (
@@ -1860,7 +1923,9 @@ export const InstancePanel = ({
                         {instance.launcher} · {instance.version}
                       </span>
                     </div>
-                    <button type="button">Importar</button>
+                    <button type="button" onClick={handleImportArchive}>
+                      Importar
+                    </button>
                   </div>
                 ))}
               </div>
@@ -2020,7 +2085,15 @@ export const InstancePanel = ({
           <button type="button" onClick={openCreator}>
             Crear instancia
           </button>
-          <button type="button">Importar</button>
+          <button
+            type="button"
+            onClick={() => {
+              setCreatorOpen(true);
+              setActiveCreatorSection("Importar");
+            }}
+          >
+            Importar
+          </button>
           <button
             type="button"
             className="panel-view__focus-toggle"
