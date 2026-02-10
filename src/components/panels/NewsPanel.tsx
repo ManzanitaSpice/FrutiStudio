@@ -45,6 +45,7 @@ export const NewsPanel = () => {
   const trendingItems = news?.trendingItems ?? [];
   const latestItems = news?.latestItems ?? [];
   const curatedLists = news?.curatedLists ?? [];
+  const carousels = news?.carousels ?? [];
   const categories = news?.categories ?? [];
   const warnings = news?.warnings ?? [];
 
@@ -54,8 +55,8 @@ export const NewsPanel = () => {
         <div>
           <h2>Novedades</h2>
           <p>
-            Descubre nuevos modpacks, mods, texturas, shaders y servidores con
-            tendencia.
+            Descubre nuevos modpacks, mods, datapacks y mapas combinando
+            CurseForge, Modrinth y PlanetMinecraft.
           </p>
         </div>
       </div>
@@ -100,6 +101,35 @@ export const NewsPanel = () => {
           No hay destacados disponibles en este momento.
         </div>
       )}
+
+      {carousels.map((section) => (
+        <div key={section.id} className="news-section">
+          <div className="news-section__header">
+            <h3>{section.title}</h3>
+            <span className="news-section__meta">Fuentes combinadas</span>
+          </div>
+          <div className="news-carousel">
+            <div className="news-carousel__track">
+              {section.items.map((item) => (
+                <article key={item.id} className="news-carousel__card">
+                  <div className="news-carousel__icon" />
+                  <div>
+                    <h4>{item.title}</h4>
+                    <p>
+                      {item.subtitle} · {item.source}
+                    </p>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        Abrir
+                      </a>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
 
       {trendingItems.length ? (
         <div className="news-section">

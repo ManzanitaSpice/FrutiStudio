@@ -18,10 +18,12 @@ import {
 } from "../../services/externalInstanceService";
 import { fetchATLauncherPacks } from "../../services/atmlService";
 import {
+  type ExplorerCategory,
   type ExplorerItem,
   fetchExplorerItems,
 } from "../../services/explorerService";
 import { fetchLoaderVersions } from "../../services/loaderVersionService";
+import { selectFolder } from "../../services/tauri";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
 import importGuide from "../../assets/import-guide.svg";
 
@@ -59,6 +61,67 @@ const creatorSections = [
   "Modrinth",
   "Technic",
 ];
+
+const creatorCategories: ExplorerCategory[] = [
+  "Modpacks",
+  "Mods",
+  "Resource Packs",
+  "Data Packs",
+  "Worlds",
+];
+
+const creatorStaticItems: Record<string, ExplorerItem[]> = {
+  "FTB Legacy": [
+    {
+      id: "ftb-revelation",
+      name: "FTB Revelation",
+      author: "FTB Team",
+      downloads: "Curado",
+      type: "Modpack",
+      source: "FTB",
+      url: "https://www.feed-the-beast.com/modpacks",
+    },
+    {
+      id: "ftb-endeavour",
+      name: "FTB Endeavour",
+      author: "FTB Team",
+      downloads: "Curado",
+      type: "Modpack",
+      source: "FTB",
+      url: "https://www.feed-the-beast.com/modpacks",
+    },
+  ],
+  "Importar app de FTB": [
+    {
+      id: "ftb-app",
+      name: "Sincronizar con app de FTB",
+      author: "FTB",
+      downloads: "Automático",
+      type: "Modpack",
+      source: "FTB App",
+    },
+  ],
+  Technic: [
+    {
+      id: "technic-classic",
+      name: "Tekkit Classic",
+      author: "Technic",
+      downloads: "Popular",
+      type: "Modpack",
+      source: "Technic",
+      url: "https://technicpack.net/modpack",
+    },
+    {
+      id: "technic-hexit",
+      name: "Hexxit",
+      author: "Technic",
+      downloads: "Popular",
+      type: "Modpack",
+      source: "Technic",
+      url: "https://technicpack.net/modpack",
+    },
+  ],
+};
 
 const sectionToolbars: Record<string, string[]> = {
   "Registro de Minecraft": ["Pausar", "Limpiar", "Guardar log"],
@@ -144,11 +207,14 @@ export const InstancePanel = ({
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [creatorError, setCreatorError] = useState<string | null>(null);
+  const [creatorCategory, setCreatorCategory] =
+    useState<ExplorerCategory>("Modpacks");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     instance: Instance | null;
   } | null>(null);
+  const [externalScanPath, setExternalScanPath] = useState<string>("");
   const selectedInstance =
     instances.find((instance) => instance.id === selectedInstanceId) ?? null;
   const toolbarActions =
@@ -158,6 +224,46 @@ export const InstancePanel = ({
     "pending-update": "Actualización pendiente",
     stopped: "Detenida",
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const stored = window.localStorage.getItem("fruti.creator-settings");
+    if (!stored) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored) as {
+        versionFilters?: typeof versionFilters;
+        instanceLoader?: string;
+        creatorCategory?: ExplorerCategory;
+      };
+      if (parsed.versionFilters) {
+        setVersionFilters(parsed.versionFilters);
+      }
+      if (parsed.instanceLoader) {
+        setInstanceLoader(parsed.instanceLoader);
+      }
+      if (parsed.creatorCategory) {
+        setCreatorCategory(parsed.creatorCategory);
+      }
+    } catch (error) {
+      console.warn("No se pudo restaurar el estado del creador.", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const payload = JSON.stringify({
+      versionFilters,
+      instanceLoader,
+      creatorCategory,
+    });
+    window.localStorage.setItem("fruti.creator-settings", payload);
+  }, [creatorCategory, instanceLoader, versionFilters]);
 
   const versionRows = [
     { name: "Minecraft", version: selectedInstance?.version ?? "—" },
@@ -368,8 +474,17 @@ export const InstancePanel = ({
     if (!creatorOpen) {
       return;
     }
+    if (creatorStaticItems[activeCreatorSection]) {
+      setCreatorItems(creatorStaticItems[activeCreatorSection]);
+      setCreatorStatus("ready");
+      setCreatorError(null);
+      return;
+    }
     const sourceSections = ["Modrinth", "CurseForge", "ATLauncher"];
     if (!sourceSections.includes(activeCreatorSection)) {
+      setCreatorItems([]);
+      setCreatorStatus("idle");
+      setCreatorError(null);
       return;
     }
     let isActive = true;
@@ -397,11 +512,10 @@ export const InstancePanel = ({
           }
           return;
         }
-        const modpacks = await fetchExplorerItems("Modpacks");
-        const sourceLabel =
-          activeCreatorSection === "Modrinth" ? "Modrinth" : "CurseForge";
+        const items = await fetchExplorerItems(creatorCategory);
+        const sourceLabel = activeCreatorSection;
         if (isActive) {
-          setCreatorItems(modpacks.filter((item) => item.source === sourceLabel));
+          setCreatorItems(items.filter((item) => item.source === sourceLabel));
           setCreatorStatus("ready");
         }
       } catch (error) {
@@ -421,7 +535,7 @@ export const InstancePanel = ({
     return () => {
       isActive = false;
     };
-  }, [activeCreatorSection, creatorOpen]);
+  }, [activeCreatorSection, creatorCategory, creatorOpen]);
 
   useEffect(() => {
     if (!selectedInstance && editorOpen) {
@@ -480,7 +594,16 @@ export const InstancePanel = ({
     setExternalStatus("loading");
     setExternalError(null);
     try {
-      const results = await fetchExternalInstances();
+      const selection = await selectFolder();
+      if (!selection.ok || !selection.path) {
+        setExternalStatus("error");
+        setExternalError(
+          selection.error ?? "Selecciona una carpeta para iniciar la búsqueda.",
+        );
+        return;
+      }
+      setExternalScanPath(selection.path);
+      const results = await fetchExternalInstances(selection.path);
       setExternalInstances(results);
       setExternalStatus("ready");
     } catch (error) {
@@ -715,6 +838,11 @@ export const InstancePanel = ({
                 Buscar instancias
               </button>
             </div>
+            {externalScanPath ? (
+              <p className="instance-import__path">
+                Buscando desde: {externalScanPath}
+              </p>
+            ) : null}
             {externalStatus === "loading" ? (
               <p>Buscando instancias en Prism, CurseForge y otros launchers...</p>
             ) : null}
@@ -750,13 +878,61 @@ export const InstancePanel = ({
     ) {
       return (
         <div className="instance-creator__panel">
+          {activeCreatorSection !== "ATLauncher" ? (
+            <div className="instance-creator__field">
+              <label htmlFor="creator-category">Categoría</label>
+              <select
+                id="creator-category"
+                value={creatorCategory}
+                onChange={(event) =>
+                  setCreatorCategory(event.target.value as ExplorerCategory)
+                }
+              >
+                {creatorCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="instance-creator__hint">
-            {creatorStatus === "loading" && "Cargando modpacks..."}
+            {creatorStatus === "loading" && "Cargando contenido..."}
             {creatorStatus === "error" &&
-              (creatorError ?? "No se pudieron cargar los modpacks.")}
+              (creatorError ?? "No se pudo cargar el contenido de la fuente.")}
             {creatorStatus === "ready" && creatorItems.length === 0
-              ? "No hay modpacks disponibles en esta fuente."
+              ? "No hay resultados disponibles en esta fuente."
               : null}
+          </div>
+          <div className="instance-import__list">
+            {creatorItems.map((item) => (
+              <div key={item.id} className="instance-import__item">
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>
+                    {item.type} · {item.source}
+                  </span>
+                </div>
+                <div className="instance-import__actions">
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      Ver
+                    </a>
+                  ) : null}
+                  <button type="button">Descargar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (creatorStaticItems[activeCreatorSection]) {
+      return (
+        <div className="instance-creator__panel">
+          <div className="instance-creator__hint">
+            Contenido destacado para {activeCreatorSection}.
           </div>
           <div className="instance-import__list">
             {creatorItems.map((item) => (
@@ -862,7 +1038,6 @@ export const InstancePanel = ({
           <button type="button" onClick={openCreator}>
             Crear instancia
           </button>
-          <button type="button">Importar</button>
           <button
             type="button"
             className="panel-view__focus-toggle"

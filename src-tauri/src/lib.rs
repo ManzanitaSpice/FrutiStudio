@@ -41,6 +41,16 @@ struct InstanceRecord {
     version: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExternalInstance {
+    id: String,
+    name: String,
+    version: String,
+    launcher: String,
+    path: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ModpackAction {
@@ -129,6 +139,42 @@ async fn select_folder(app: tauri::AppHandle) -> Result<SelectFolderResult, Stri
 
     rx.await
         .unwrap_or_else(|_| Err("Error al recibir la ruta".to_string()))
+}
+
+#[command]
+async fn list_external_instances(base_dir: String) -> Result<Vec<ExternalInstance>, String> {
+    let root = PathBuf::from(base_dir.trim());
+    if root.as_os_str().is_empty() {
+        return Err("Selecciona una carpeta para iniciar la búsqueda.".to_string());
+    }
+    if !root.exists() {
+        return Err("La carpeta seleccionada no existe.".to_string());
+    }
+
+    let entries = fs::read_dir(&root)
+        .map_err(|error| format!("No se pudo leer la carpeta: {error}"))?;
+    let mut results = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "Instancia externa".to_string());
+            results.push(ExternalInstance {
+                id: name.clone(),
+                name,
+                version: "Desconocida".to_string(),
+                launcher: "Escaneo local".to_string(),
+                path: Some(path.display().to_string()),
+            });
+        }
+        if results.len() >= 60 {
+            break;
+        }
+    }
+
+    Ok(results)
 }
 
 #[command]
@@ -426,6 +472,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             select_folder,
+            list_external_instances,
             load_config,
             save_config,
             save_base_dir,

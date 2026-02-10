@@ -1,6 +1,7 @@
 import { apiFetch } from "./apiClients/client";
 import { searchCurseforge } from "./curseService";
 import { getCurseforgeApiKey } from "./curseforgeKeyService";
+import { fetchExplorerItems, type ExplorerCategory } from "./explorerService";
 import { fetchPlanetMinecraftModpacks } from "./planetMinecraftService";
 
 interface ModrinthSearchHit {
@@ -52,11 +53,26 @@ export interface NewsCuratedList {
   url?: string;
 }
 
+export interface NewsCarouselItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  source: string;
+  url?: string;
+}
+
+export interface NewsCarouselSection {
+  id: string;
+  title: string;
+  items: NewsCarouselItem[];
+}
+
 export interface NewsOverview {
   featuredItems: NewsHeroItem[];
   trendingItems: NewsTrendingItem[];
   latestItems: NewsLatestItem[];
   curatedLists: NewsCuratedList[];
+  carousels: NewsCarouselSection[];
   categories: string[];
   warnings: string[];
 }
@@ -83,6 +99,27 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
   const modrinthModpacks = await fetchModrinthSearch("modpack", "modpack");
   const modrinthMods = await fetchModrinthSearch("mod", "mod");
   const planetModpacks = await fetchPlanetMinecraftModpacks();
+
+  const safeExplorer = async (category: ExplorerCategory, label: string) => {
+    try {
+      return await fetchExplorerItems(category);
+    } catch (error) {
+      warnings.push(
+        error instanceof Error
+          ? `${label}: ${error.message}`
+          : `${label}: error al conectar.`,
+      );
+      return [];
+    }
+  };
+
+  const [explorerModpacks, explorerMods, explorerDataPacks, explorerWorlds] =
+    await Promise.all([
+      safeExplorer("Modpacks", "Modpacks"),
+      safeExplorer("Mods", "Mods"),
+      safeExplorer("Data Packs", "Data Packs"),
+      safeExplorer("Worlds", "Worlds"),
+    ]);
 
   const featuredItems = modrinthModpacks.slice(0, 3).map((item) => ({
     id: item.project_id,
@@ -147,11 +184,59 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
     "Worlds",
   ];
 
+  const carousels: NewsCarouselSection[] = [
+    {
+      id: "modpacks",
+      title: "Modpacks destacados",
+      items: explorerModpacks.slice(0, 10).map((item) => ({
+        id: item.id,
+        title: item.name,
+        subtitle: `${item.type} · ${item.downloads}`,
+        source: item.source,
+        url: item.url,
+      })),
+    },
+    {
+      id: "mods",
+      title: "Mods recomendados",
+      items: explorerMods.slice(0, 10).map((item) => ({
+        id: item.id,
+        title: item.name,
+        subtitle: `${item.type} · ${item.downloads}`,
+        source: item.source,
+        url: item.url,
+      })),
+    },
+    {
+      id: "datapacks",
+      title: "Data packs y utilidades",
+      items: explorerDataPacks.slice(0, 10).map((item) => ({
+        id: item.id,
+        title: item.name,
+        subtitle: `${item.type} · ${item.downloads}`,
+        source: item.source,
+        url: item.url,
+      })),
+    },
+    {
+      id: "worlds",
+      title: "Mapas y mundos nuevos",
+      items: explorerWorlds.slice(0, 10).map((item) => ({
+        id: item.id,
+        title: item.name,
+        subtitle: `${item.type} · ${item.downloads}`,
+        source: item.source,
+        url: item.url,
+      })),
+    },
+  ].filter((section) => section.items.length > 0);
+
   return {
     featuredItems,
     trendingItems,
     latestItems,
     curatedLists,
+    carousels,
     categories,
     warnings,
   };
