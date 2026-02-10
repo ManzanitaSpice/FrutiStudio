@@ -61,6 +61,6 @@ export const removeInstance = async (_instanceId: string) => Promise.resolve();
 
 export const launchInstance = async (instanceId: string) => {
   return invokeWithHandling<{ pid: number }>("launch_instance", {
-    instanceId,
+    instance_id: instanceId,
   });
 };

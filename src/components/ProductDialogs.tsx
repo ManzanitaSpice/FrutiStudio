@@ -40,9 +40,9 @@ const formatLoader = (loader?: string) => {
 };
 
 const releaseLabel = {
-  alpha: "Alpha",
+  alpha: "Alfa",
   beta: "Beta",
-  release: "Release",
+  release: "Estable",
 } as const;
 
 const toPlainText = (value: string) =>
@@ -128,7 +128,6 @@ export const ProductDetailsDialog = ({
             )}
             <div className="product-dialog__hero-info">
               <h3>{item.name}</h3>
-              <p>{details?.description ?? item.description}</p>
               <dl>
                 <div>
                   <dt>Autor</dt>
@@ -178,28 +177,28 @@ export const ProductDetailsDialog = ({
             className={tab === "descripcion" ? "is-active" : ""}
             onClick={() => setTab("descripcion")}
           >
-            Descripción
+Descripción completa
           </button>
           <button
             type="button"
             className={tab === "novedades" ? "is-active" : ""}
             onClick={() => setTab("novedades")}
           >
-            Novedades
+Notas de cambios
           </button>
           <button
             type="button"
             className={tab === "galeria" ? "is-active" : ""}
             onClick={() => setTab("galeria")}
           >
-            Galería
+Galería
           </button>
           <button
             type="button"
             className={tab === "versiones" ? "is-active" : ""}
             onClick={() => setTab("versiones")}
           >
-            Versiones
+Versiones
           </button>
         </nav>
 
@@ -249,10 +248,10 @@ export const ProductDetailsDialog = ({
                     )
                   }
                 >
-                  <option value="all">Todos los lanzamientos</option>
-                  <option value="release">Release</option>
+                  <option value="all">Todos los tipos</option>
+                  <option value="release">Estable</option>
                   <option value="beta">Beta</option>
-                  <option value="alpha">Alpha</option>
+                  <option value="alpha">Alfa</option>
                 </select>
               </div>
               {filteredVersions.length ? (
