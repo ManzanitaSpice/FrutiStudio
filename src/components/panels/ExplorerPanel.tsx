@@ -230,9 +230,9 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
     <section className="panel-view panel-view--explorer">
       <div className="panel-view__header">
         <div>
-          <h2>Explorador unificado</h2>
+          <h2>Explorar</h2>
           <p>
-            Descubre contenido de Modrinth y CurseForge con filtros avanzados e instalación rápida.
+            Catálogo integrado con filtros y acciones de instalación.
           </p>
         </div>
       </div>

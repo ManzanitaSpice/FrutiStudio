@@ -122,8 +122,8 @@ export const SettingsPanel = () => {
     <section className="panel-view panel-view--settings">
       <div className="panel-view__header">
         <div>
-          <h2>Configuración del launcher</h2>
-          <p>Ajusta apariencia, cuenta y rendimiento del launcher.</p>
+          <h2>Configuración</h2>
+          <p>Preferencias generales de la aplicación.</p>
         </div>
       </div>
       <div className="panel-view__body">
