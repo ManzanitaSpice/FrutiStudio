@@ -11,6 +11,7 @@ carpeta principal.
 │   ├── components/       # Componentes reutilizables de UI.
 │   ├── context/          # Contextos globales (estado compartido).
 │   ├── hooks/            # Hooks personalizados de React.
+│   ├── core/             # Núcleo desacoplado (providers y orquestación).
 │   ├── services/         # Servicios para IO, configuración y Tauri.
 │   ├── utils/            # Helpers puros sin side-effects.
 │   ├── App.tsx           # Layout principal de la aplicación.
@@ -30,3 +31,10 @@ carpeta principal.
 
 Mantén esta estructura al añadir nuevos módulos (por ejemplo, nuevos servicios
 o componentes deben vivir en sus carpetas respectivas).
+
+## Extensiones recientes
+
+- `src/core/content/providers`: proveedores intercambiables (`curseforge`, `modrinth`, `private`).
+- `src/services/profileService.ts`: perfiles multiusuario (no solo cuentas).
+- `src/services/localServerService.ts`: catálogo local equivalente a `servers.dat` lógico.
+- `src/services/remoteServerService.ts`: catálogo remoto/patrocinado y ping de estado.

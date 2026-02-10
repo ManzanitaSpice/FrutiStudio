@@ -26,3 +26,11 @@
 
 - Snapshot tests para componentes clave.
 - Pruebas de integración para flujo de selección de carpeta base.
+
+## Nueva capa core (modular)
+
+- `src/core/content`: registro de proveedores con interfaz única (`search`, `download`, `resolveDependencies`).
+- Proveedores implementados: `curseforge`, `modrinth`, `private` (packs internos).
+- `curseforgeModpackService`: resuelve manifests de modpack y detecta dependencias faltantes por proyecto.
+- `profileService`: sincroniza perfiles multiusuario desde cuentas activas (separando cuenta/autenticación de perfil de juego).
+- `serverService`: ahora combina capa local y remota mediante `localServerService` + `remoteServerService`.
