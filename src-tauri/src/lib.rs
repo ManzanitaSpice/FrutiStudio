@@ -125,7 +125,7 @@ struct ValidationReport {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InstanceCommandArgs {
-    #[serde(alias = "instance_id", alias = "id", alias = "uuid")]
+    #[serde(alias = "instance_id", alias = "id")]
     instance_id: Option<String>,
     #[serde(alias = "playerName")]
     username: Option<String>,
@@ -407,6 +407,11 @@ fn database_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map(|dir| dir.join("frutistudio.db"))
         .map_err(|error| format!("No se pudo obtener el directorio de datos: {error}"))
+}
+
+fn database_connection(app: &tauri::AppHandle) -> Result<Connection, String> {
+    let path = database_path(app)?;
+    Connection::open(path).map_err(|error| format!("No se pudo abrir la base de datos: {error}"))
 }
 
 fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
