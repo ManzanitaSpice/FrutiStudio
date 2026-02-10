@@ -4,11 +4,7 @@ import { useUI } from "../../hooks/useUI";
 import { useBaseDir } from "../../hooks/useBaseDir";
 import { useI18n } from "../../i18n/useI18n";
 import { loadConfig, saveConfig } from "../../services/configService";
-import {
-  clearDiscordActivity,
-  initDiscordPresence,
-  setDiscordActivity,
-} from "../../services/discordPresenceService";
+import { clearDiscordActivity } from "../../services/discordPresenceService";
 import {
   getCurseforgeApiKey,
   saveCurseforgeApiKey,
@@ -25,7 +21,7 @@ export const SettingsPanel = () => {
   const [backgroundDownloads, setBackgroundDownloads] = useState(true);
   const [curseforgeKey, setCurseforgeKey] = useState("");
   const [discordClientId, setDiscordClientId] = useState("");
-  const [discordPresenceEnabled, setDiscordPresenceEnabled] = useState(true);
+  const discordPresenceEnabled = false;
 
   useEffect(() => {
     const load = async () => {
@@ -34,12 +30,7 @@ export const SettingsPanel = () => {
       if (config.customTheme) {
         setCustomTheme(config.customTheme);
       }
-      if (config.discordClientId) {
-        setDiscordClientId(config.discordClientId);
-      }
-      if (typeof config.discordPresenceEnabled === "boolean") {
-        setDiscordPresenceEnabled(config.discordPresenceEnabled);
-      }
+      setDiscordClientId(config.discordClientId ?? "");
       setCurseforgeKey(getCurseforgeApiKey());
     };
     void load();
@@ -78,30 +69,17 @@ export const SettingsPanel = () => {
   const handleDiscordClientIdChange = async (value: string) => {
     setDiscordClientId(value);
     const config = await loadConfig();
-    await saveConfig({ ...config, discordClientId: value });
-    if (value && discordPresenceEnabled) {
-      await initDiscordPresence(value);
-      await setDiscordActivity({
-        details: "Launcher abierto",
-        state: "Configurando FrutiStudio",
-      });
-    }
+    await saveConfig({
+      ...config,
+      discordClientId: value,
+      discordPresenceEnabled: false,
+    });
   };
 
   const toggleDiscordPresence = async () => {
-    const nextValue = !discordPresenceEnabled;
-    setDiscordPresenceEnabled(nextValue);
     const config = await loadConfig();
-    await saveConfig({ ...config, discordPresenceEnabled: nextValue });
-    if (nextValue && discordClientId) {
-      await initDiscordPresence(discordClientId);
-      await setDiscordActivity({
-        details: "Launcher abierto",
-        state: "Configurando FrutiStudio",
-      });
-    } else {
-      await clearDiscordActivity();
-    }
+    await saveConfig({ ...config, discordPresenceEnabled: false });
+    await clearDiscordActivity();
   };
 
   return (
@@ -338,17 +316,18 @@ export const SettingsPanel = () => {
           <article className="settings-card">
             <div className="settings-card__header">
               <h3>Integraciones</h3>
-              <p>Controla presencia en Discord y otros servicios conectados.</p>
+              <p>Integraciones externas desactivadas temporalmente.</p>
             </div>
             <label className="settings-card__field">
               <span>Client ID de Discord</span>
               <input
                 type="text"
-                placeholder="Pega el Client ID de tu app de Discord"
+                placeholder="Integración de Discord desactivada"
                 value={discordClientId}
                 onChange={(event) =>
                   void handleDiscordClientIdChange(event.target.value)
                 }
+                disabled
               />
             </label>
             <label className="panel-view__toggle">
@@ -356,8 +335,9 @@ export const SettingsPanel = () => {
                 type="checkbox"
                 checked={discordPresenceEnabled}
                 onChange={toggleDiscordPresence}
+                disabled
               />
-              Activar Rich Presence en Discord
+              Rich Presence en Discord (desactivado temporalmente)
             </label>
             <label className="panel-view__toggle">
               <input
