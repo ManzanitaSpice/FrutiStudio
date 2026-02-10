@@ -1796,7 +1796,11 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     );
     checks.insert(
         "mods_descargados_si_aplica".to_string(),
-        Path::new(&plan.game_dir).join("mods").exists(),
+        if plan.loader == "vanilla" {
+            true
+        } else {
+            Path::new(&plan.game_dir).join("mods").exists()
+        },
     );
     checks.insert(
         "configuracion_memoria".to_string(),
@@ -1820,14 +1824,36 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         "sistema_logs".to_string(),
         instance_root.join("logs").exists(),
     );
-    checks.insert("permisos_ejecucion".to_string(), true);
-    checks.insert("validacion_previa".to_string(), true);
-    checks.insert("comando_correcto".to_string(), true);
+    checks.insert(
+        "permisos_ejecucion".to_string(),
+        Path::new(&plan.java_path).is_file() || plan.java_path == "java",
+    );
+    checks.insert(
+        "validacion_previa".to_string(),
+        instance_root.join("launch-plan.json").exists(),
+    );
+    checks.insert(
+        "comando_correcto".to_string(),
+        instance_root.join("launch-command.txt").exists(),
+    );
     checks.insert("ejecucion_java".to_string(), true);
-    checks.insert("monitoreo_proceso".to_string(), true);
-    checks.insert("captura_stdout_stderr".to_string(), true);
-    checks.insert("manejo_crash".to_string(), true);
-    checks.insert("estado_instancia_actualizado".to_string(), true);
+    checks.insert(
+        "monitoreo_proceso".to_string(),
+        instance_root.join("instance-state.json").exists(),
+    );
+    checks.insert(
+        "captura_stdout_stderr".to_string(),
+        instance_root.join("logs").exists(),
+    );
+    checks.insert(
+        "manejo_crash".to_string(),
+        Path::new(&plan.game_dir).join("crash-reports").exists()
+            || instance_root.join("logs").exists(),
+    );
+    checks.insert(
+        "estado_instancia_actualizado".to_string(),
+        instance_root.join("instance-state.json").exists(),
+    );
 
     for (name, ok) in &checks {
         if !ok {

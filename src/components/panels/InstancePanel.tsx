@@ -306,6 +306,9 @@ export const InstancePanel = ({
   };
 
   const runLaunchChecklist = async (instanceId: string) => {
+    const checklistTimeoutMs = 20_000;
+    const checklistPollIntervalMs = 2_000;
+
     setLaunchChecklistOpen(true);
     setLaunchChecklistChecks([]);
     setLaunchChecklistLogs(["Abriendo verificación previa de instancia..."]);
@@ -314,16 +317,50 @@ export const InstancePanel = ({
       setLaunchChecklistLogs((prev) => [...prev, line]);
     };
 
-    appendLog("1/4: Revisando estructura y runtime de la instancia...");
-    const report = await preflightInstance(instanceId);
+    const wait = (ms: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms);
+      });
+
+    const runTimedPreflight = async (phaseLabel: string) => {
+      appendLog(phaseLabel);
+      const start = Date.now();
+      let latestReport = await preflightInstance(instanceId);
+
+      while (!latestReport.ok && Date.now() - start < checklistTimeoutMs) {
+        appendLog(
+          "⚠ Faltan componentes en la estructura de la instancia. Reintentando verificación...",
+        );
+        await wait(checklistPollIntervalMs);
+        latestReport = await preflightInstance(instanceId);
+      }
+
+      return latestReport;
+    };
+
+    const printChecklist = (checks: Record<string, boolean>) => {
+      const items = Object.entries(checks).map(([name, ok]) => ({ name, ok }));
+      setLaunchChecklistChecks(items);
+      items.forEach((check) => {
+        appendLog(`${check.ok ? "✔" : "✖"} ${check.name}`);
+      });
+    };
+
+    let report = await runTimedPreflight("1/4: Revisando estructura y runtime de la instancia...");
     appendLog("2/4: Validando checklist técnico de arranque...");
+    printChecklist(report.checks);
 
-    const checks = Object.entries(report.checks).map(([name, ok]) => ({ name, ok }));
-    setLaunchChecklistChecks(checks);
+    if (!report.ok) {
+      appendLog(
+        "✖ Después de 20 segundos la validación no encontró todo lo necesario. La instancia funciona mal.",
+      );
+      appendLog("3/4: Iniciando reparación automática y reinstalación por componentes...");
+      await repairInstance(instanceId);
+      appendLog("Reparación completada. Repitiendo checklist inicial...");
 
-    checks.forEach((check) => {
-      appendLog(`${check.ok ? "✔" : "✖"} ${check.name}`);
-    });
+      report = await runTimedPreflight("4/4: Revalidando estructura tras la reparación...");
+      printChecklist(report.checks);
+    }
 
     if (report.warnings.length > 0) {
       report.warnings.forEach((warning) => {
@@ -336,11 +373,12 @@ export const InstancePanel = ({
         appendLog(`✖ Error: ${error}`);
       });
       throw new Error(
-        report.errors.join("; ") || "La validación previa de la instancia falló.",
+        report.errors.join("; ") ||
+          "La validación previa de la instancia falló incluso después de la reparación.",
       );
     }
 
-    appendLog("3/4: Checklist completo, iniciando Java...");
+    appendLog("Checklist completo, iniciando Java...");
     return report;
   };
 
