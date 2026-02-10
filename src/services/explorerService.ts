@@ -1,5 +1,6 @@
 import { apiFetch } from "./apiClients/client";
 import { getCurseforgeApiKey } from "./curseforgeKeyService";
+import { invokeWithHandling } from "./tauriClient";
 
 export type ExplorerCategory =
   | "Modpacks"
@@ -167,6 +168,32 @@ const loaderFromCurseforge: Record<number, string> = {
   6: "neoforge",
 };
 
+const isTauriRuntime = () =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const requestCurseforgeV1 = async <T>(
+  path: string,
+  apiKey: string,
+  query?: Record<string, string>,
+): Promise<T> => {
+  if (isTauriRuntime()) {
+    return invokeWithHandling<T>("curseforge_v1_get", {
+      path,
+      query,
+      apiKey,
+    });
+  }
+
+  const params = query
+    ? `?${new URLSearchParams(query).toString()}`
+    : "";
+
+  return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
+    init: { headers: { "x-api-key": apiKey } },
+    ttl: 45_000,
+  });
+};
+
 const formatDownloads = (downloads: number) =>
   new Intl.NumberFormat("es-ES", {
     notation: "compact",
@@ -281,8 +308,9 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
   const pageSize = normalizePageSize(filters.pageSize);
   const page = Math.max(0, filters.page ?? 0);
 
-  const response = await apiFetch<CurseforgeSearchResponse>(
-    `${CURSEFORGE_BASE}/mods/search?${new URLSearchParams(
+  const response = await requestCurseforgeV1<CurseforgeSearchResponse>(
+      "/mods/search",
+      apiKey,
       Object.entries({
         gameId: String(CURSE_MINECRAFT_GAME_ID),
         searchFilter:
@@ -303,8 +331,6 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
         }
         return acc;
       }, {}),
-    ).toString()}`,
-    { init: { headers: { "x-api-key": apiKey } }, ttl: 45_000 },
   );
 
   const items = (response.data ?? [])
@@ -500,9 +526,9 @@ export const fetchExplorerItemDetails = async (
     return fallback;
   }
 
-  const data = await apiFetch<CurseforgeModResponse>(
-    `${CURSEFORGE_BASE}/mods/${item.projectId}`,
-    { init: { headers: { "x-api-key": apiKey } }, ttl: 60_000 },
+  const data = await requestCurseforgeV1<CurseforgeModResponse>(
+    `/mods/${item.projectId}`,
+    apiKey,
   );
 
   const details: ExplorerItemDetails = {
