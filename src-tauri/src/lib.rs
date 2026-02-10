@@ -1242,6 +1242,48 @@ fn expand_launch_placeholders(value: &str, variables: &HashMap<&str, String>) ->
     expanded
 }
 
+fn normalize_java_launch_args(args: Vec<String>, classpath: String) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut index = 0;
+
+    while index < args.len() {
+        let current = &args[index];
+        let is_cp_flag = current == "-cp" || current == "-classpath";
+        let is_cp_inline = current.starts_with("-cp=") || current.starts_with("-classpath=");
+
+        if is_cp_flag {
+            index += 2;
+            continue;
+        }
+
+        if is_cp_inline {
+            index += 1;
+            continue;
+        }
+
+        normalized.push(current.clone());
+        index += 1;
+    }
+
+    normalized.push("-cp".to_string());
+    normalized.push(classpath);
+    normalized
+}
+
+fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
+    if let Some(position) = args.iter().position(|arg| arg == key) {
+        if position + 1 < args.len() {
+            args[position + 1] = value;
+            return;
+        }
+        args.push(value);
+        return;
+    }
+
+    args.push(key.to_string());
+    args.push(value);
+}
+
 async fn download_to(url: &str, path: &Path) -> Result<(), String> {
     if path.exists() {
         return Ok(());
@@ -1648,6 +1690,10 @@ async fn bootstrap_instance_runtime(
         jvm_arguments = Value::Array(Vec::new());
     }
 
+    if main_class.trim().is_empty() {
+        main_class = "net.minecraft.client.main.Main".to_string();
+    }
+
     let mut classpath_entries = Vec::new();
     let mut classpath_seen = HashSet::new();
     let natives_dir = minecraft_root.join("natives");
@@ -1760,33 +1806,12 @@ async fn bootstrap_instance_runtime(
     let user = "Player";
     let uuid = default_offline_uuid(user);
 
-    let mut game_args = vec![
-        "--username".to_string(),
-        user.to_string(),
-        "--version".to_string(),
-        version.to_string(),
-        "--gameDir".to_string(),
-        minecraft_root.to_string_lossy().to_string(),
-        "--assetsDir".to_string(),
-        minecraft_root.join("assets").to_string_lossy().to_string(),
-        "--assetIndex".to_string(),
-        asset_index_id.to_string(),
-        "--uuid".to_string(),
-        uuid.clone(),
-        "--accessToken".to_string(),
-        "offline".to_string(),
-        "--userType".to_string(),
-        "offline".to_string(),
-        "--versionType".to_string(),
-        "FrutiStudio".to_string(),
-    ];
+    let mut game_args = Vec::new();
 
     let mut java_args = vec![
         format!("-Xms{}M", memory.min),
         format!("-Xmx{}M", memory.max),
         format!("-Djava.library.path={}", natives_dir.to_string_lossy()),
-        "-cp".to_string(),
-        classpath_entries_raw.join(&cp_separator.to_string()),
     ];
 
     let auth_player_name = user.to_string();
@@ -1841,6 +1866,27 @@ async fn bootstrap_instance_runtime(
             }
         }
     }
+
+    let required_game_args = [
+        ("--username", user.to_string()),
+        ("--version", version.to_string()),
+        ("--gameDir", minecraft_root.to_string_lossy().to_string()),
+        (
+            "--assetsDir",
+            minecraft_root.join("assets").to_string_lossy().to_string(),
+        ),
+        ("--assetIndex", asset_index_id.to_string()),
+        ("--uuid", uuid.clone()),
+        ("--accessToken", "offline".to_string()),
+        ("--userType", "offline".to_string()),
+        ("--versionType", "FrutiStudio".to_string()),
+    ];
+
+    for (key, value) in required_game_args {
+        upsert_game_arg(&mut game_args, key, value);
+    }
+
+    java_args = normalize_java_launch_args(java_args, classpath_value);
 
     let launch_plan = LaunchPlan {
         java_path: selected.path.clone(),
@@ -3349,5 +3395,44 @@ mod tests {
         ));
         let result = result.expect("resultado valido");
         assert!(!result.ok);
+    }
+
+    #[test]
+    fn normalize_java_launch_args_keeps_single_classpath() {
+        let args = vec![
+            "-Xmx4G".to_string(),
+            "-cp".to_string(),
+            "legacy".to_string(),
+            "-Ddemo=true".to_string(),
+            "-classpath=fromjson".to_string(),
+        ];
+
+        let normalized = normalize_java_launch_args(args, "final-cp".to_string());
+        assert_eq!(
+            normalized,
+            vec![
+                "-Xmx4G".to_string(),
+                "-Ddemo=true".to_string(),
+                "-cp".to_string(),
+                "final-cp".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn upsert_game_arg_updates_existing_value() {
+        let mut args = vec!["--username".to_string(), "Steve".to_string()];
+        upsert_game_arg(&mut args, "--username", "Alex".to_string());
+        upsert_game_arg(&mut args, "--version", "1.21.11".to_string());
+
+        assert_eq!(
+            args,
+            vec![
+                "--username".to_string(),
+                "Alex".to_string(),
+                "--version".to_string(),
+                "1.21.11".to_string(),
+            ]
+        );
     }
 }
