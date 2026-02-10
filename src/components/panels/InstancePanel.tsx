@@ -11,7 +11,7 @@ import {
   type MinecraftVersion,
   fetchMinecraftVersions,
 } from "../../services/minecraftVersionService";
-import { createInstance, launchInstance, repairInstance } from "../../services/instanceService";
+import { createInstance, launchInstance, removeInstance, repairInstance } from "../../services/instanceService";
 import {
   type ExternalInstance,
   fetchExternalInstances,
@@ -2212,8 +2212,21 @@ ${rows.join("\n")}`;
                 <button
                   type="button"
                   onClick={() => {
-                    onDeleteInstance(deleteConfirmId);
-                    setDeleteConfirmId(null);
+                    void (async () => {
+                      try {
+                        await removeInstance(deleteConfirmId);
+                        onDeleteInstance(deleteConfirmId);
+                        setLaunchStatus("Instancia eliminada correctamente.");
+                      } catch (error) {
+                        setLaunchStatus(
+                          error instanceof Error
+                            ? `No se pudo eliminar la instancia: ${error.message}`
+                            : "No se pudo eliminar la instancia.",
+                        );
+                      } finally {
+                        setDeleteConfirmId(null);
+                      }
+                    })();
                   }}
                 >
                   Aceptar

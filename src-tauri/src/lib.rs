@@ -1354,6 +1354,30 @@ fn build_launch_command(
 }
 
 #[command]
+async fn delete_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Result<(), String> {
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
+    if instance_id.is_empty() {
+        return Err("No hay una instancia válida seleccionada para eliminar.".to_string());
+    }
+
+    let path = database_path(&app)?;
+    let conn = Connection::open(path)
+        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+    conn.execute("DELETE FROM instances WHERE id = ?1", params![instance_id])
+        .map_err(|error| {
+            format!("No se pudo eliminar la instancia de la base de datos: {error}")
+        })?;
+
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+    if instance_root.exists() {
+        fs::remove_dir_all(&instance_root)
+            .map_err(|error| format!("No se pudo eliminar la carpeta de la instancia: {error}"))?;
+    }
+
+    Ok(())
+}
+
+#[command]
 async fn list_java_runtimes(app: tauri::AppHandle) -> Result<Vec<JavaRuntime>, String> {
     let manager = JavaManager::new(&app)?;
     Ok(manager.detect_installed())
@@ -1509,18 +1533,16 @@ async fn launch_instance(
         );
     }
 
+    repair_instance(
+        app.clone(),
+        InstanceCommandArgs {
+            instance_id: Some(instance_id.clone()),
+        },
+    )
+    .await?;
+
     let launch_script = instance_root.join("start-instance.sh");
     let launch_command = instance_root.join("launch-command.txt");
-
-    if !launch_script.exists() && !launch_command.exists() {
-        repair_instance(
-            app.clone(),
-            InstanceCommandArgs {
-                instance_id: Some(instance_id.clone()),
-            },
-        )
-        .await?;
-    }
 
     #[cfg(unix)]
     {
@@ -1832,6 +1854,7 @@ pub fn run() {
             list_java_runtimes,
             resolve_java_for_minecraft,
             create_instance,
+            delete_instance,
             repair_instance,
             launch_instance,
             manage_modpack,
