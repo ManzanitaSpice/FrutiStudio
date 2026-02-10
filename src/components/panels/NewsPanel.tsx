@@ -145,9 +145,9 @@ export const NewsPanel = () => {
     <section className="panel-view panel-view--news">
       <div className="panel-view__header">
         <div>
-          <h2>Actualizaciones</h2>
+          <h2>Features</h2>
           <p>
-            Resumen de actualizaciones recientes del ecosistema.
+            Funciones destacadas, contenidos populares y lanzamientos recientes del ecosistema.
           </p>
         </div>
       </div>

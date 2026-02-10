@@ -16,6 +16,7 @@ describe("Toolbar", () => {
           news: true,
           servers: true,
           settings: true,
+          community: true,
         }}
         onBack={() => undefined}
         onForward={() => undefined}

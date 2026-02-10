@@ -78,4 +78,5 @@ export interface FeatureFlags {
   news: boolean;
   servers: boolean;
   settings: boolean;
+  community: boolean;
 }

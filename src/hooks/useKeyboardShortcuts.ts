@@ -25,13 +25,16 @@ export const useKeyboardShortcuts = ({
             onSelectSection("mis-modpacks");
             break;
           case "2":
-            onSelectSection("novedades");
+            onSelectSection("features");
             break;
           case "3":
             onSelectSection("explorador");
             break;
           case "4":
             onSelectSection("servers");
+            break;
+          case "5":
+            onSelectSection("comunidad");
             break;
           default:
             break;

@@ -5,4 +5,5 @@ export const featureFlags: FeatureFlags = {
   news: true,
   servers: true,
   settings: true,
+  community: true,
 };

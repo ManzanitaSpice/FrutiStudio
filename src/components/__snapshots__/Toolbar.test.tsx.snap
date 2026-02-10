@@ -65,7 +65,7 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
           class="topbar__button"
           type="button"
         >
-          Novedades
+          Features
         </button>
         <button
           class="topbar__button"
@@ -77,7 +77,13 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
           class="topbar__button"
           type="button"
         >
-          Servers
+          Servidores
+        </button>
+        <button
+          class="topbar__button"
+          type="button"
+        >
+          Comunidad
         </button>
         <button
           class="topbar__button"

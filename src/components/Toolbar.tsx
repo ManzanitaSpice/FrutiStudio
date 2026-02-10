@@ -16,7 +16,8 @@ import { AccountManagerDialog } from "./AccountManagerDialog";
 
 export type SectionKey =
   | "mis-modpacks"
-  | "novedades"
+  | "features"
+  | "comunidad"
   | "explorador"
   | "servers"
   | "configuracion";
@@ -64,13 +65,14 @@ export const Toolbar = ({
   const navItems: Array<{ key: SectionKey; label: string; enabled: boolean }> =
     [
       { key: "mis-modpacks", label: t("sections").modpacks, enabled: true },
-      { key: "novedades", label: t("sections").news, enabled: flags.news },
+      { key: "features", label: t("sections").features, enabled: flags.news },
       {
         key: "explorador",
         label: t("sections").explorer,
         enabled: flags.explorer,
       },
       { key: "servers", label: t("sections").servers, enabled: flags.servers },
+      { key: "comunidad", label: t("sections").community, enabled: flags.community },
       {
         key: "configuracion",
         label: t("sections").settings,
