@@ -1,5 +1,6 @@
 :root {
-  font-family: "Inter", system-ui, sans-serif;
+  --app-font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--app-font-family);
   --ui-scale: 1;
   --color-bg: #0f1115;
   --color-surface: #131822;
@@ -3915,4 +3916,82 @@ textarea {
   font-size: 0.8rem;
   color: var(--muted);
   word-break: break-all;
+}
+
+/* 2026 UI polish: quick actions, editor and account manager */
+.instance-menu__section > h4 {
+  display: none;
+}
+
+.instance-menu {
+  border: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
+  border-radius: 20px;
+  backdrop-filter: blur(18px);
+}
+
+.instance-menu__actions--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.instance-menu__action-btn {
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  background: color-mix(in srgb, var(--color-surface-strong) 84%, transparent);
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.instance-editor-panel,
+.instance-creator,
+.product-dialog--download {
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+}
+
+.instance-editor__sidebar,
+.instance-creator__sidebar {
+  background: color-mix(in srgb, var(--color-surface-strong) 78%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.instance-editor__tab,
+.instance-creator__tab {
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.instance-editor__tab--active,
+.instance-creator__tab--active {
+  background: color-mix(in srgb, var(--color-accent) 16%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.instance-editor__mods-menu button,
+.instance-editor__import-btn {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
+}
+
+.account-manager {
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.35);
+}
+
+.account-manager__row {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 42%, transparent);
+}
+
+.account-manager__actions button,
+.account-manager__footer button {
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.account-manager__danger {
+  border-color: color-mix(in srgb, #ef4444 40%, var(--color-border));
+  color: #ef4444;
 }

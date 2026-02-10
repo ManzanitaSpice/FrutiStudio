@@ -50,6 +50,7 @@ export const SettingsPanel = () => {
   const [iconsPath, setIconsPath] = useState("icons");
   const [javaPath, setJavaPath] = useState("java");
   const [skinsPath, setSkinsPath] = useState("skins");
+  const [fontFamily, setFontFamily] = useState<"inter" | "system" | "poppins" | "jetbrains" | "fira">("inter");
   const [detectedJavaProfiles, setDetectedJavaProfiles] = useState<JavaProfile[]>([]);
   const [isDetectingJava, setIsDetectingJava] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
@@ -79,6 +80,7 @@ export const SettingsPanel = () => {
       setJavaPath(config.javaPath ?? "java");
       setSkinsPath(config.skinsPath ?? "skins");
       setCurseforgeKey(getCurseforgeApiKey());
+      setFontFamily(config.fontFamily ?? "inter");
       if (config.customTheme) {
         setCustomTheme(config.customTheme);
       }
@@ -93,6 +95,17 @@ export const SettingsPanel = () => {
       document.documentElement.style.setProperty(`--custom-${key}`, value);
     });
   }, [customTheme]);
+
+  useEffect(() => {
+    const fontMap = {
+      inter: "Inter, system-ui, sans-serif",
+      system: "system-ui, -apple-system, Segoe UI, sans-serif",
+      poppins: "Poppins, Inter, system-ui, sans-serif",
+      jetbrains: "JetBrains Mono, Fira Code, monospace",
+      fira: "Fira Sans, Inter, system-ui, sans-serif",
+    } as const;
+    document.documentElement.style.setProperty("--app-font-family", fontMap[fontFamily]);
+  }, [fontFamily]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -316,6 +329,24 @@ export const SettingsPanel = () => {
                   <option value="custom">Personalizado</option>
                 </select>
               </label>
+              <label className="settings-card__field">
+                <span>Tipografía</span>
+                <select
+                  value={fontFamily}
+                  onChange={(event) => {
+                    const nextFont = event.target.value as typeof fontFamily;
+                    setFontFamily(nextFont);
+                    void updateConfig({ fontFamily: nextFont });
+                  }}
+                >
+                  <option value="inter">Inter (predeterminada)</option>
+                  <option value="system">System UI</option>
+                  <option value="poppins">Poppins</option>
+                  <option value="fira">Fira Sans</option>
+                  <option value="jetbrains">JetBrains Mono</option>
+                </select>
+              </label>
+
               <label className="settings-card__range">
                 <span>Escala UI</span>
                 <input

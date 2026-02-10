@@ -19,6 +19,7 @@ import { fetchExplorerItems } from "./services/explorerService";
 import { fetchServerListings } from "./services/serverService";
 import { loadConfig, saveConfig } from "./services/configService";
 import { collectStartupFiles } from "./services/startupService";
+import { logMessage } from "./services/logService";
 import type { Instance } from "./types/models";
 import "./App.css";
 
@@ -211,7 +212,17 @@ const AppShell = () => {
         ]);
       } finally {
         const elapsed = Date.now() - bootStartedAt.current;
-        const minimumBootDuration = shouldShowVerification ? 3_000 : 0;
+        const minimumBootDuration = 5_000;
+        if (elapsed > minimumBootDuration) {
+          const extraDelay = elapsed - minimumBootDuration;
+          const details = bootEvents.length ? ` Detalles: ${bootEvents.join(" | ")}` : "";
+          void logMessage(
+            "instances",
+            "warn",
+            `Arranque más lento de lo esperado (+${extraDelay}ms).${details}`,
+            { flush: true },
+          );
+        }
         const remaining = Math.max(0, minimumBootDuration - elapsed);
         window.setTimeout(() => setBootReady(true), remaining);
         bootHydrated.current = true;
@@ -221,7 +232,7 @@ const AppShell = () => {
   }, [setScale, setTheme, setSection, isFocusMode, toggleFocus]);
 
   useEffect(() => {
-    if (!showVerificationWindow || bootReady) {
+    if (bootReady) {
       return;
     }
     const tipTimer = window.setInterval(() => {
@@ -232,7 +243,7 @@ const AppShell = () => {
       });
     }, 3500);
     return () => window.clearInterval(tipTimer);
-  }, [showVerificationWindow, bootReady]);
+  }, [bootReady]);
 
   useUiZoom({
     scale: uiScale,
@@ -320,7 +331,7 @@ const AppShell = () => {
   return (
     <ErrorBoundary>
       <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
-        {showVerificationWindow && !bootReady && (
+        {!bootReady && (
           <div className="boot-screen" role="status" aria-live="polite">
             <div className="boot-screen__window">
               <div className="boot-screen__logo" aria-label="FrutiLauncher cargando">
@@ -369,15 +380,17 @@ const AppShell = () => {
                 <p className="boot-screen__tips-label">Tip rotativo #{tipIndex + 1}</p>
                 <p>{activeTip}</p>
               </div>
-              <div className="boot-screen__actions">
-                <button
-                  type="button"
-                  className="boot-screen__cancel"
-                  onClick={() => void handleCancelBoot()}
-                >
-                  Cancelar verificación
-                </button>
-              </div>
+              {showVerificationWindow ? (
+                <div className="boot-screen__actions">
+                  <button
+                    type="button"
+                    className="boot-screen__cancel"
+                    onClick={() => void handleCancelBoot()}
+                  >
+                    Cancelar verificación
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         )}
