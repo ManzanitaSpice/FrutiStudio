@@ -5,6 +5,11 @@ import { useBaseDir } from "../../hooks/useBaseDir";
 import { useI18n } from "../../i18n/useI18n";
 import { loadConfig, saveConfig } from "../../services/configService";
 import {
+  clearDiscordActivity,
+  initDiscordPresence,
+  setDiscordActivity,
+} from "../../services/discordPresenceService";
+import {
   getCurseforgeApiKey,
   saveCurseforgeApiKey,
 } from "../../services/curseforgeKeyService";
@@ -13,20 +18,32 @@ import { SelectFolderButton } from "../SelectFolderButton";
 export const SettingsPanel = () => {
   const { baseDir, status } = useBaseDir();
   const { t } = useI18n();
-  const { theme, setTheme, uiScale, setScale } = useUI();
+  const { theme, setTheme, uiScale, setScale, customTheme, setCustomTheme } =
+    useUI();
   const [telemetryOptIn, setTelemetryOptIn] = useState(false);
   const [autoUpdates, setAutoUpdates] = useState(true);
   const [backgroundDownloads, setBackgroundDownloads] = useState(true);
   const [curseforgeKey, setCurseforgeKey] = useState("");
+  const [discordClientId, setDiscordClientId] = useState("");
+  const [discordPresenceEnabled, setDiscordPresenceEnabled] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       const config = await loadConfig();
       setTelemetryOptIn(Boolean(config.telemetryOptIn));
+      if (config.customTheme) {
+        setCustomTheme(config.customTheme);
+      }
+      if (config.discordClientId) {
+        setDiscordClientId(config.discordClientId);
+      }
+      if (typeof config.discordPresenceEnabled === "boolean") {
+        setDiscordPresenceEnabled(config.discordPresenceEnabled);
+      }
       setCurseforgeKey(getCurseforgeApiKey());
     };
     void load();
-  }, []);
+  }, [setCustomTheme]);
 
   const toggleTelemetry = async () => {
     const config = await loadConfig();
@@ -44,6 +61,47 @@ export const SettingsPanel = () => {
   const handleCurseforgeKeyChange = (value: string) => {
     setCurseforgeKey(value);
     saveCurseforgeApiKey(value);
+  };
+
+  const handleThemeChange = async (value: typeof theme) => {
+    setTheme(value);
+    const config = await loadConfig();
+    await saveConfig({ ...config, theme: value, customTheme });
+  };
+
+  const handleCustomThemeChange = async (nextTheme: typeof customTheme) => {
+    setCustomTheme(nextTheme);
+    const config = await loadConfig();
+    await saveConfig({ ...config, customTheme: nextTheme });
+  };
+
+  const handleDiscordClientIdChange = async (value: string) => {
+    setDiscordClientId(value);
+    const config = await loadConfig();
+    await saveConfig({ ...config, discordClientId: value });
+    if (value && discordPresenceEnabled) {
+      await initDiscordPresence(value);
+      await setDiscordActivity({
+        details: "Launcher abierto",
+        state: "Configurando FrutiStudio",
+      });
+    }
+  };
+
+  const toggleDiscordPresence = async () => {
+    const nextValue = !discordPresenceEnabled;
+    setDiscordPresenceEnabled(nextValue);
+    const config = await loadConfig();
+    await saveConfig({ ...config, discordPresenceEnabled: nextValue });
+    if (nextValue && discordClientId) {
+      await initDiscordPresence(discordClientId);
+      await setDiscordActivity({
+        details: "Launcher abierto",
+        state: "Configurando FrutiStudio",
+      });
+    } else {
+      await clearDiscordActivity();
+    }
   };
 
   return (
@@ -80,14 +138,117 @@ export const SettingsPanel = () => {
                 aria-label="Tema del launcher"
                 value={theme}
                 onChange={(event) =>
-                  setTheme(event.target.value as typeof theme)
+                  void handleThemeChange(event.target.value as typeof theme)
                 }
               >
-                <option value="system">Sistema</option>
+                <option value="default">Default</option>
+                <option value="chrome">Chrome</option>
+                <option value="aurora">Colores combinados</option>
+                <option value="mint">Pastel menta</option>
+                <option value="lilac">Pastel lila</option>
+                <option value="peach">Pastel durazno</option>
+                <option value="sky">Pastel cielo</option>
+                <option value="rose">Pastel rosa</option>
                 <option value="light">Claro</option>
-                <option value="dark">Oscuro</option>
+                <option value="system">Sistema</option>
+                <option value="custom">Personalizado</option>
               </select>
             </label>
+            {theme === "custom" && (
+              <div className="settings-card__palette">
+                <label className="settings-card__field settings-card__field--inline">
+                  <span>Fondo</span>
+                  <input
+                    type="color"
+                    value={customTheme.background}
+                    onChange={(event) =>
+                      void handleCustomThemeChange({
+                        ...customTheme,
+                        background: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="settings-card__field settings-card__field--inline">
+                  <span>Tarjetas</span>
+                  <input
+                    type="color"
+                    value={customTheme.card}
+                    onChange={(event) =>
+                      void handleCustomThemeChange({
+                        ...customTheme,
+                        card: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="settings-card__field settings-card__field--inline">
+                  <span>Superficie</span>
+                  <input
+                    type="color"
+                    value={customTheme.surface}
+                    onChange={(event) =>
+                      void handleCustomThemeChange({
+                        ...customTheme,
+                        surface: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="settings-card__field settings-card__field--inline">
+                  <span>Texto</span>
+                  <input
+                    type="color"
+                    value={customTheme.text}
+                    onChange={(event) =>
+                      void handleCustomThemeChange({
+                        ...customTheme,
+                        text: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="settings-card__field settings-card__field--inline">
+                  <span>Acento</span>
+                  <input
+                    type="color"
+                    value={customTheme.accent}
+                    onChange={(event) =>
+                      void handleCustomThemeChange({
+                        ...customTheme,
+                        accent: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="settings-card__field settings-card__field--inline">
+                  <span>Borde</span>
+                  <input
+                    type="color"
+                    value={customTheme.border}
+                    onChange={(event) =>
+                      void handleCustomThemeChange({
+                        ...customTheme,
+                        border: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="settings-card__field settings-card__field--inline">
+                  <span>Texto secundario</span>
+                  <input
+                    type="color"
+                    value={customTheme.muted}
+                    onChange={(event) =>
+                      void handleCustomThemeChange({
+                        ...customTheme,
+                        muted: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+              </div>
+            )}
             <label className="settings-card__field">
               <span>Zoom de interfaz</span>
               <div className="settings-card__range">
@@ -176,9 +337,28 @@ export const SettingsPanel = () => {
           </article>
           <article className="settings-card">
             <div className="settings-card__header">
-              <h3>Privacidad</h3>
-              <p>Decide qué datos comparte el launcher contigo.</p>
+              <h3>Integraciones</h3>
+              <p>Controla presencia en Discord y otros servicios conectados.</p>
             </div>
+            <label className="settings-card__field">
+              <span>Client ID de Discord</span>
+              <input
+                type="text"
+                placeholder="Pega el Client ID de tu app de Discord"
+                value={discordClientId}
+                onChange={(event) =>
+                  void handleDiscordClientIdChange(event.target.value)
+                }
+              />
+            </label>
+            <label className="panel-view__toggle">
+              <input
+                type="checkbox"
+                checked={discordPresenceEnabled}
+                onChange={toggleDiscordPresence}
+              />
+              Activar Rich Presence en Discord
+            </label>
             <label className="panel-view__toggle">
               <input
                 type="checkbox"
@@ -187,10 +367,6 @@ export const SettingsPanel = () => {
               />
               Activar telemetría opcional
             </label>
-            <div className="settings-card__actions">
-              <button type="button">Descargar datos</button>
-              <button type="button">Restablecer permisos</button>
-            </div>
           </article>
         </div>
       </div>

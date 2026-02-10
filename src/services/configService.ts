@@ -1,10 +1,23 @@
 import { invokeWithHandling } from "./tauriClient";
 import { retry } from "../utils/retry";
 
+export interface CustomThemeConfig {
+  background: string;
+  surface: string;
+  card: string;
+  text: string;
+  accent: string;
+  muted: string;
+  border: string;
+}
+
 export interface AppConfig {
   baseDir?: string;
   uiScale?: number;
-  theme?: "system" | "light" | "dark";
+  theme?: string;
+  customTheme?: CustomThemeConfig;
+  discordClientId?: string;
+  discordPresenceEnabled?: boolean;
   version?: number;
   telemetryOptIn?: boolean;
 }
