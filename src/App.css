@@ -2723,6 +2723,73 @@ textarea {
   display: grid;
   gap: 12px;
 }
+
+.product-dialog--checklist {
+  width: min(760px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  box-shadow: 0 24px 54px rgba(0, 0, 0, 0.52);
+}
+
+.product-dialog--checklist .product-dialog__install-body {
+  overflow: auto;
+  max-height: calc(88vh - 86px);
+  padding: 18px 20px 20px;
+  align-content: start;
+}
+
+.product-dialog__checklist-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.product-dialog__checklist-actions button:first-child {
+  border-color: rgba(251, 113, 133, 0.6);
+  background: rgba(127, 29, 29, 0.35);
+}
+
+.product-dialog__checklist-summary {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  font-weight: 600;
+}
+
+.product-dialog__checklist-results {
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-strong) 72%, transparent);
+}
+
+.product-dialog__checklist-results li {
+  font-size: 0.9rem;
+}
+
+.instance-import__log {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+}
+
+.instance-import__log p {
+  margin: 0;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .product-dialog__close {
   border: 0;
   background: transparent;
