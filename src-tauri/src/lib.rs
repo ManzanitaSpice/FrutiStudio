@@ -946,6 +946,11 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
 
 #[command]
 async fn repair_instance(app: tauri::AppHandle, instance_id: String) -> Result<(), String> {
+    let instance_id = instance_id.trim().to_string();
+    if instance_id.is_empty() {
+        return Err("No hay una instancia válida seleccionada para reparar.".to_string());
+    }
+
     let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
 
     ensure_instance_layout(&instance_root)?;
@@ -966,6 +971,11 @@ async fn launch_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<LaunchInstanceResult, String> {
+    let instance_id = instance_id.trim().to_string();
+    if instance_id.is_empty() {
+        return Err("No hay una instancia válida seleccionada para iniciar.".to_string());
+    }
+
     let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
     if !instance_root.exists() {
         return Err(
