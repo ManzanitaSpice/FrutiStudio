@@ -1,4 +1,4 @@
-import { fetchUnifiedCatalog } from "./explorerService";
+import { type ExplorerCategory, type ExplorerItem, type ExplorerResult, fetchUnifiedCatalog } from "./explorerService";
 
 export interface NewsHeroItem {
   id: string;
@@ -39,6 +39,7 @@ export interface NewsCuratedList {
 }
 
 export interface NewsOverview {
+  catalogItems: ExplorerItem[];
   featuredItems: NewsHeroItem[];
   trendingItems: NewsTrendingItem[];
   latestItems: NewsLatestItem[];
@@ -49,40 +50,29 @@ export interface NewsOverview {
 
 export const fetchNewsOverview = async (): Promise<NewsOverview> => {
   const warnings: string[] = [];
+  const categories: ExplorerCategory[] = ["Modpacks", "Mods", "Shaders", "Resource Packs", "Data Packs", "Addons"];
 
-  const [popular, updated, relevant] = await Promise.allSettled([
-    fetchUnifiedCatalog({
-      category: "Modpacks",
-      sort: "popular",
-      page: 0,
-      pageSize: 8,
-      platform: "all",
-    }),
-    fetchUnifiedCatalog({
-      category: "Modpacks",
-      sort: "updated",
-      page: 0,
-      pageSize: 8,
-      platform: "all",
-    }),
-    fetchUnifiedCatalog({
-      category: "Mods",
-      sort: "relevance",
-      page: 0,
-      pageSize: 8,
-      platform: "all",
-    }),
-  ]);
+  const settled = await Promise.allSettled(
+    categories.map((category) =>
+      fetchUnifiedCatalog({
+        category,
+        sort: "popular",
+        page: 0,
+        pageSize: 8,
+        platform: "all",
+      }),
+    ),
+  );
 
-  const popularItems = popular.status === "fulfilled" ? popular.value.items : [];
-  const updatedItems = updated.status === "fulfilled" ? updated.value.items : [];
-  const relevantItems = relevant.status === "fulfilled" ? relevant.value.items : [];
+  const catalogItems = settled
+    .filter((result): result is PromiseFulfilledResult<ExplorerResult> => result.status === "fulfilled")
+    .flatMap((result) => result.value.items);
 
-  if (popular.status === "rejected" || updated.status === "rejected") {
+  if (settled.some((result) => result.status === "rejected")) {
     warnings.push("Se cargó parcialmente el feed de novedades por límites de API.");
   }
 
-  const featuredItems = popularItems.slice(0, 3).map((item) => ({
+  const featuredItems = catalogItems.slice(0, 4).map((item) => ({
     id: item.id,
     title: item.name,
     subtitle: `${item.type} · ${item.downloads}`,
@@ -93,47 +83,38 @@ export const fetchNewsOverview = async (): Promise<NewsOverview> => {
     url: item.url,
   }));
 
-  const trendingItems = relevantItems.map((item) => ({
-    id: item.id,
-    title: item.name,
-    type: item.type,
-    source: item.source,
-    thumbnail: item.thumbnail,
-    url: item.url,
-  }));
+  const trendingItems = [...catalogItems]
+    .sort((a, b) => b.rawDownloads - a.rawDownloads)
+    .slice(0, 12)
+    .map((item) => ({
+      id: item.id,
+      title: item.name,
+      type: item.type,
+      source: item.source,
+      thumbnail: item.thumbnail,
+      url: item.url,
+    }));
 
-  const latestItems = updatedItems.map((item) => ({
-    id: item.id,
-    name: item.name,
-    author: item.author,
-    type: item.type,
-    source: item.source,
-    thumbnail: item.thumbnail,
-    url: item.url,
-  }));
-
-  const curatedLists: NewsCuratedList[] = [
-    {
-      id: "popular-global",
-      title: "Más populares",
-      items: popularItems.slice(0, 5).map((item) => item.name),
-      source: "Modrinth + CurseForge",
-    },
-  ];
+  const latestItems = [...catalogItems]
+    .sort((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime())
+    .slice(0, 18)
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      author: item.author,
+      type: item.type,
+      source: item.source,
+      thumbnail: item.thumbnail,
+      url: item.url,
+    }));
 
   return {
+    catalogItems,
     featuredItems,
     trendingItems,
     latestItems,
-    curatedLists,
-    categories: [
-      "Modpacks",
-      "Mods",
-      "Shaders",
-      "Resource Packs",
-      "Data Packs",
-      "Addons",
-    ],
+    curatedLists: [],
+    categories,
     warnings,
   };
 };

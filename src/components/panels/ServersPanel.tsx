@@ -8,6 +8,9 @@ export const ServersPanel = () => {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState("all");
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -15,9 +18,11 @@ export const ServersPanel = () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchServerListings();
+        const data = await fetchServerListings(page, 8);
         if (isActive) {
-          setServers(data);
+          setServers((prev) => (page === 0 ? data.items : [...prev, ...data.items]));
+          setHasMore(data.hasMore);
+          setTotal(data.total);
         }
       } catch (loadError) {
         if (isActive) {
@@ -38,7 +43,7 @@ export const ServersPanel = () => {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [page]);
 
   const filteredServers = useMemo(
     () =>
@@ -63,10 +68,8 @@ export const ServersPanel = () => {
       <div className="panel-view__header">
         <div>
           <h2>Servers</h2>
-          <p>
-            Catálogo real con estado, versión, tipo y tarjetas visuales para descubrir
-            servidores.
-          </p>
+          <p>Catálogo real de servidores públicos con estado, versión, tipo y paginación.</p>
+          <small>{total} servidores detectados</small>
         </div>
       </div>
 
@@ -142,6 +145,12 @@ export const ServersPanel = () => {
           </div>
         ) : null}
       </div>
+
+      {hasMore ? (
+        <button type="button" className="explorer-item__secondary" onClick={() => setPage((prev) => prev + 1)}>
+          Cargar más servidores
+        </button>
+      ) : null}
     </section>
   );
 };

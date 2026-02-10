@@ -1,14 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { ProductDetailsDialog, ProductInstallDialog } from "../ProductDialogs";
 import {
   type NewsOverview,
   fetchNewsOverview,
 } from "../../services/newsService";
+import { type ExplorerItem, fetchExplorerItemDetails, type ExplorerItemDetails } from "../../services/explorerService";
 
 export const NewsPanel = () => {
   const [news, setNews] = useState<NewsOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ExplorerItem | null>(null);
+  const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -41,22 +47,50 @@ export const NewsPanel = () => {
     };
   }, []);
 
-  const featuredItems = news?.featuredItems ?? [];
-  const trendingItems = news?.trendingItems ?? [];
-  const latestItems = news?.latestItems ?? [];
-  const curatedLists = news?.curatedLists ?? [];
-  const categories = news?.categories ?? [];
+  useEffect(() => {
+    if (!selectedItem) {
+      setDetails(null);
+      return;
+    }
+    let isActive = true;
+    const loadDetails = async () => {
+      setDetailsLoading(true);
+      try {
+        const data = await fetchExplorerItemDetails(selectedItem);
+        if (isActive) {
+          setDetails(data);
+        }
+      } finally {
+        if (isActive) {
+          setDetailsLoading(false);
+        }
+      }
+    };
+    void loadDetails();
+    return () => {
+      isActive = false;
+    };
+  }, [selectedItem]);
+
   const warnings = news?.warnings ?? [];
+  const catalog = news?.catalogItems ?? [];
+  const categories = news?.categories ?? [];
+
+  const byCategory = useMemo(
+    () =>
+      categories.map((category) => ({
+        category,
+        items: catalog.filter((item) => item.type.toLowerCase().includes(category.toLowerCase().replace(" ", ""))).slice(0, 6),
+      })),
+    [catalog, categories],
+  );
 
   return (
     <section className="panel-view panel-view--news">
       <div className="panel-view__header">
         <div>
           <h2>Novedades</h2>
-          <p>
-            Descubre nuevos modpacks, mods, texturas, shaders y servidores con
-            tendencia.
-          </p>
+          <p>Catálogo completo con ranking por relevancia, categorías activas y acceso directo a detalle e instalación.</p>
         </div>
       </div>
 
@@ -72,136 +106,78 @@ export const NewsPanel = () => {
         </div>
       ) : null}
 
-      {featuredItems.length ? (
-        <div className="news-hero">
-          {featuredItems.map((item) => (
-            <article key={item.id} className="news-hero__card">
-              {item.thumbnail ? <img src={item.thumbnail} alt={item.title} className="news-hero__media" /> : <div className="news-hero__media" />}
-              <div className="news-hero__content">
-                <span className="news-hero__subtitle">{item.subtitle}</span>
-                <h3>{item.title}</h3>
-                <p>{item.description}</p>
-                <div className="news-hero__actions">
-                  {item.url ? (
-                    <a href={item.url} target="_blank" rel="noreferrer">
-                      {item.cta}
-                    </a>
-                  ) : (
-                    <button type="button">{item.cta}</button>
-                  )}
-                  <span className="news-hero__source">{item.source}</span>
-                </div>
-              </div>
-            </article>
-          ))}
+      <div className="news-section">
+        <div className="news-section__header">
+          <h3>Ranking por relevancia</h3>
+          <span className="news-section__meta">Top global</span>
         </div>
-      ) : (
-        <div className="panel-view__hint">
-          No hay destacados disponibles en este momento.
-        </div>
-      )}
-
-      {trendingItems.length ? (
-        <div className="news-section">
-          <div className="news-section__header">
-            <h3>Relevancia</h3>
-            <span className="news-section__meta">Ranking dinámico</span>
-          </div>
-          <div className="news-latest">
-            {trendingItems.map((item) => (
-              <article key={item.id} className="news-latest__card">
-                {item.thumbnail ? (
-                  <img className="news-latest__icon" src={item.thumbnail} alt={item.title} />
-                ) : (
-                  <div className="news-latest__icon" />
-                )}
-                <div>
+        <div className="explorer-layout__cards">
+          {(news?.trendingItems ?? []).map((item) => {
+            const project = catalog.find((entry) => entry.id === item.id);
+            if (!project) return null;
+            return (
+              <article key={item.id} className="explorer-item explorer-item--card">
+                {item.thumbnail ? <img className="explorer-item__icon" src={item.thumbnail} alt={item.title} /> : <div className="explorer-item__icon" />}
+                <div className="explorer-item__info">
                   <h4>{item.title}</h4>
-                  <p>
-                    {item.type} · {item.source}
-                  </p>
+                  <p>{project.description}</p>
+                  <div className="explorer-item__meta">
+                    <span>{project.type}</span>
+                    <span>{project.author}</span>
+                    <span>{project.downloads}</span>
+                  </div>
                 </div>
-                {item.url ? (
-                  <a href={item.url} target="_blank" rel="noreferrer">
-                    Abrir
-                  </a>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {categories.length ? (
-        <div className="news-section">
-          <div className="news-section__header">
-            <h3>Categorías populares</h3>
-            <button type="button">Ver todas</button>
-          </div>
-          <div className="news-section__grid">
-            {categories.map((category) => (
-              <button key={category} type="button" className="news-category">
-                {category}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {latestItems.length ? (
-        <div className="news-section">
-          <div className="news-section__header">
-            <h3>Últimos lanzamientos</h3>
-            <button type="button">Actualizar</button>
-          </div>
-          <div className="news-latest">
-            {latestItems.map((item) => (
-              <article key={item.id} className="news-latest__card">
-                {item.thumbnail ? <img className="news-latest__icon" src={item.thumbnail} alt={item.name} /> : <div className="news-latest__icon" />}
-                <div>
-                  <h4>{item.name}</h4>
-                  <p>
-                    {item.type} · {item.author}
-                  </p>
-                  <span className="news-latest__source">{item.source}</span>
-                </div>
-                {item.url ? (
-                  <a href={item.url} target="_blank" rel="noreferrer">
-                    Abrir
-                  </a>
-                ) : (
-                  <button type="button">Instalar</button>
-                )}
-              </article>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {curatedLists.length ? (
-        <div className="news-section">
-          <div className="news-section__header">
-            <h3>Listas curadas</h3>
-            <button type="button">Ver más</button>
-          </div>
-          <div className="news-lists">
-            {curatedLists.map((list) => (
-              <article key={list.id} className="news-list-card">
-                <h4>{list.title}</h4>
-                <ul>
-                  {list.items.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-                <div className="news-list-card__footer">
-                  <span>{list.source}</span>
-                  <button type="button">Abrir lista</button>
+                <div className="explorer-item__actions">
+                  <button type="button" onClick={() => setSelectedItem(project)}>Ver más</button>
+                  <button type="button" className="explorer-item__secondary" onClick={() => setInstallItem(project)}>Instalar</button>
                 </div>
               </article>
-            ))}
-          </div>
+            );
+          })}
         </div>
+      </div>
+
+      {byCategory.map((entry) => (
+        entry.items.length ? (
+          <div className="news-section" key={entry.category}>
+            <div className="news-section__header">
+              <h3>{entry.category}</h3>
+              <span className="news-section__meta">Categorías populares</span>
+            </div>
+            <div className="explorer-layout__cards">
+              {entry.items.map((item) => (
+                <article key={item.id} className="explorer-item explorer-item--card">
+                  {item.thumbnail ? <img className="explorer-item__icon" src={item.thumbnail} alt={item.name} /> : <div className="explorer-item__icon" />}
+                  <div className="explorer-item__info">
+                    <h4>{item.name}</h4>
+                    <p>{item.description}</p>
+                    <div className="explorer-item__meta">
+                      <span>{item.source}</span>
+                      <span>{item.type}</span>
+                    </div>
+                  </div>
+                  <div className="explorer-item__actions">
+                    <button type="button" onClick={() => setSelectedItem(item)}>Ver más</button>
+                    <button type="button" className="explorer-item__secondary" onClick={() => setInstallItem(item)}>Instalar</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null
+      ))}
+
+      {selectedItem ? (
+        <ProductDetailsDialog
+          item={selectedItem}
+          details={details}
+          loading={detailsLoading}
+          onClose={() => setSelectedItem(null)}
+          onInstall={(item) => setInstallItem(item)}
+        />
       ) : null}
+
+      {installItem ? <ProductInstallDialog item={installItem} onClose={() => setInstallItem(null)} /> : null}
     </section>
   );
 };

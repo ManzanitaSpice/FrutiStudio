@@ -90,6 +90,8 @@ const AppShell = () => {
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [bootReady, setBootReady] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [globalSearchToken, setGlobalSearchToken] = useState(0);
   const [bootStep, setBootStep] = useState(0);
   const [bootEvents, setBootEvents] = useState<string[]>([]);
   const bootStartedAt = useRef<number>(Date.now());
@@ -180,6 +182,12 @@ const AppShell = () => {
   };
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
 
+  const handleGlobalSearch = (query: string) => {
+    setGlobalSearchQuery(query);
+    setGlobalSearchToken((prev) => prev + 1);
+    setSection("explorador");
+  };
+
   return (
     <ErrorBoundary>
       <div className={isFocusMode ? "app-shell app-shell--focus" : "app-shell"}>
@@ -218,6 +226,7 @@ const AppShell = () => {
           onForward={goForward}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
+          onSearchSubmit={handleGlobalSearch}
         />
         <div className="app-shell__body app-shell__body--no-sidebar">
           <main className="main-panel" role="main">
@@ -235,7 +244,7 @@ const AppShell = () => {
               )}
               {activeSection === "novedades" && featureFlags.news && <NewsPanel />}
               {activeSection === "explorador" && featureFlags.explorer && (
-                <ExplorerPanel />
+                <ExplorerPanel externalQuery={globalSearchQuery} externalQueryToken={globalSearchToken} />
               )}
               {activeSection === "servers" && featureFlags.servers && <ServersPanel />}
               {activeSection === "configuracion" && featureFlags.settings && (

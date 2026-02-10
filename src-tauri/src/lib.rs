@@ -104,6 +104,29 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+const REQUIRED_LAUNCHER_DIRS: [&str; 3] = ["instances", "downloads", "logs"];
+const BACKUP_PREFIX: &str = "config.json.";
+const BACKUP_SUFFIX: &str = ".bak";
+const MAX_CONFIG_BACKUPS: usize = 12;
+const MAX_BACKUP_AGE_DAYS: u64 = 14;
+
+fn launcher_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map_err(|error| format!("No se pudo obtener la carpeta del launcher: {error}"))
+}
+
+fn ensure_launcher_layout(app: &tauri::AppHandle) -> Result<(), String> {
+    let root = launcher_root(app)?;
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("No se pudo crear carpeta raíz del launcher: {error}"))?;
+    for directory in REQUIRED_LAUNCHER_DIRS {
+        fs::create_dir_all(root.join(directory))
+            .map_err(|error| format!("No se pudo crear carpeta requerida ({directory}): {error}"))?;
+    }
+    Ok(())
+}
+
 static INSTANCE_LOCKS: Lazy<std::sync::Mutex<HashSet<String>>> =
     Lazy::new(|| std::sync::Mutex::new(HashSet::new()));
 
@@ -133,6 +156,7 @@ async fn select_folder(app: tauri::AppHandle) -> Result<SelectFolderResult, Stri
 
 #[command]
 async fn load_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
+  ensure_launcher_layout(&app)?;
   let config_path = config_path(&app)?;
   if !config_path.exists() {
     return Ok(migrate_config(AppConfig::default()));
@@ -147,6 +171,7 @@ async fn load_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
 
 #[command]
 async fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), String> {
+    ensure_launcher_layout(&app)?;
     let config_path = config_path(&app)?;
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent)
@@ -175,12 +200,51 @@ fn backup_file(path: &Path) -> Result<(), String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("No se pudo obtener timestamp: {error}"))?
         .as_secs();
-    let backup_path = backup_dir.join(format!(
-        "config.json.{}.bak",
-        timestamp
-    ));
+    let backup_path = backup_dir.join(format!("{BACKUP_PREFIX}{timestamp}{BACKUP_SUFFIX}"));
     fs::copy(path, backup_path)
         .map_err(|error| format!("No se pudo respaldar config: {error}"))?;
+    cleanup_backups(&backup_dir)?;
+    Ok(())
+}
+
+fn cleanup_backups(backup_dir: &Path) -> Result<(), String> {
+    let cutoff = SystemTime::now()
+        .checked_sub(Duration::from_secs(MAX_BACKUP_AGE_DAYS * 24 * 60 * 60))
+        .ok_or_else(|| "No se pudo calcular la antigüedad máxima de backups".to_string())?;
+
+    let mut backups: Vec<(PathBuf, SystemTime)> = fs::read_dir(backup_dir)
+        .map_err(|error| format!("No se pudo leer carpeta de backups: {error}"))?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(BACKUP_PREFIX) || !name.ends_with(BACKUP_SUFFIX) {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            let modified = metadata.modified().ok()?;
+            Some((entry.path(), modified))
+        })
+        .collect();
+
+    backups.sort_by_key(|(_, modified)| *modified);
+
+    for (path, modified) in &backups {
+        if *modified < cutoff {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    let mut remaining: Vec<PathBuf> = backups
+        .into_iter()
+        .filter_map(|(path, _)| path.exists().then_some(path))
+        .collect();
+    if remaining.len() > MAX_CONFIG_BACKUPS {
+        remaining.sort();
+        for old in remaining.into_iter().take(remaining.len() - MAX_CONFIG_BACKUPS) {
+            let _ = fs::remove_file(old);
+        }
+    }
+
     Ok(())
 }
 

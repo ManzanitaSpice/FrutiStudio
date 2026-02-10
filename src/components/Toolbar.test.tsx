@@ -21,6 +21,7 @@ describe("Toolbar", () => {
         onForward={() => undefined}
         canGoBack={false}
         canGoForward={false}
+        onSearchSubmit={() => undefined}
       />,
     );
 

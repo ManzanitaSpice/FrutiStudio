@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import steveSkin from "../assets/steve.svg";
 import type { FeatureFlags } from "../types/models";
 import { useI18n } from "../i18n/useI18n";
+import { fetchInstances } from "../services/instanceService";
+import { fetchUnifiedCatalog } from "../services/explorerService";
 
 export type SectionKey =
   | "mis-modpacks"
@@ -21,6 +23,14 @@ interface ToolbarProps {
   onForward: () => void;
   canGoBack: boolean;
   canGoForward: boolean;
+  onSearchSubmit: (query: string) => void;
+}
+
+interface SearchSuggestion {
+  id: string;
+  title: string;
+  subtitle: string;
+  priority: number;
 }
 
 export const Toolbar = ({
@@ -33,9 +43,12 @@ export const Toolbar = ({
   onForward,
   canGoBack,
   canGoForward,
+  onSearchSubmit,
 }: ToolbarProps) => {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navItems: Array<{ key: SectionKey; label: string; enabled: boolean }> =
     [
@@ -75,6 +88,62 @@ export const Toolbar = ({
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
   }, []);
+
+  useEffect(() => {
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery || normalizedQuery.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const loadSuggestions = async () => {
+        const [locals, remote] = await Promise.allSettled([
+          fetchInstances(),
+          fetchUnifiedCatalog({
+            category: "Modpacks",
+            query: normalizedQuery,
+            sort: "relevance",
+            platform: "all",
+            page: 0,
+            pageSize: 5,
+          }),
+        ]);
+
+        const next: SearchSuggestion[] = [];
+        if (locals.status === "fulfilled") {
+          locals.value
+            .filter((instance) => instance.name.toLowerCase().includes(normalizedQuery.toLowerCase()))
+            .slice(0, 4)
+            .forEach((instance, index) => {
+              next.push({
+                id: `local-${instance.id}`,
+                title: instance.name,
+                subtitle: `Instancia local · ${instance.loaderName} ${instance.version}`,
+                priority: 100 - index,
+              });
+            });
+        }
+        if (remote.status === "fulfilled") {
+          remote.value.items.slice(0, 5).forEach((item, index) => {
+            next.push({
+              id: `remote-${item.id}`,
+              title: item.name,
+              subtitle: `${item.type} · ${item.source}`,
+              priority: 50 - index,
+            });
+          });
+        }
+
+        setSuggestions(next.sort((a, b) => b.priority - a.priority));
+      };
+      void loadSuggestions();
+    }, 200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [query]);
+
+  const showSuggestions = useMemo(() => showGlobalSearch && query.trim().length >= 2, [query, showGlobalSearch]);
 
   return (
     <header className="topbar">
@@ -126,16 +195,35 @@ export const Toolbar = ({
               ))}
           </nav>
           {showGlobalSearch && (
-            <label className="topbar__search">
-              <span>🔍</span>
-              <input
-                type="search"
-                placeholder="Buscar en novedades, explorador y servers..."
-              />
-              <button type="button" aria-label="Limpiar búsqueda">
-                ✕
-              </button>
-            </label>
+            <div className="topbar__search-wrap">
+              <label className="topbar__search">
+                <span>🔍</span>
+                <input
+                  type="search"
+                  placeholder="Buscar modpacks, mods e instancias..."
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && query.trim()) {
+                      onSearchSubmit(query.trim());
+                    }
+                  }}
+                />
+                <button type="button" aria-label="Limpiar búsqueda" onClick={() => setQuery("")}>
+                  ✕
+                </button>
+              </label>
+              {showSuggestions ? (
+                <div className="topbar__search-suggestions">
+                  {suggestions.length ? suggestions.map((suggestion) => (
+                    <button key={suggestion.id} type="button" onClick={() => { setQuery(suggestion.title); onSearchSubmit(suggestion.title); }}>
+                      <strong>{suggestion.title}</strong>
+                      <small>{suggestion.subtitle}</small>
+                    </button>
+                  )) : <p>Sin sugerencias. Presiona Enter para buscar en todo el catálogo.</p>}
+                </div>
+              ) : null}
+            </div>
           )}
           <div className="topbar__account" ref={menuRef}>
             <button
