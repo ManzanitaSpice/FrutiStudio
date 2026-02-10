@@ -85,8 +85,6 @@ export const ServersPanel = () => {
       <div className="panel-view__header">
         <div>
           <h2>Servidores</h2>
-          <p>Listado de servidores.</p>
-          
         </div>
       </div>
 

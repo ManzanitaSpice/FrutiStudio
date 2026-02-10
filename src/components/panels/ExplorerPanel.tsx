@@ -231,9 +231,6 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
       <div className="panel-view__header">
         <div>
           <h2>Explorar</h2>
-          <p>
-            Catálogo integrado con filtros y acciones de instalación.
-          </p>
         </div>
       </div>
 
