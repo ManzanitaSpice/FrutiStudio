@@ -209,7 +209,9 @@ export const InstancePanel = ({
     Array<{ name: string; ok: boolean }>
   >([]);
   const [launchChecklistRunning, setLaunchChecklistRunning] = useState(false);
-  const [launchChecklistSummary, setLaunchChecklistSummary] = useState<string | null>(null);
+  const [launchChecklistSummary, setLaunchChecklistSummary] = useState<string | null>(
+    null,
+  );
   const launchChecklistRunRef = useRef(0);
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
@@ -313,8 +315,8 @@ export const InstancePanel = ({
   };
 
   const runLaunchChecklist = async (instanceId: string) => {
-    const checklistTimeoutMs = 20_000;
-    const checklistPollIntervalMs = 2_000;
+    const checklistMaxAttempts = 2;
+    const checklistRetryDelayMs = 400;
     const runId = Date.now();
     launchChecklistRunRef.current = runId;
 
@@ -340,14 +342,17 @@ export const InstancePanel = ({
 
     const runTimedPreflight = async (phaseLabel: string) => {
       appendLog(phaseLabel);
-      const start = Date.now();
       let latestReport = await preflightInstance(instanceId);
 
-      while (isCurrentRun() && !latestReport.ok && Date.now() - start < checklistTimeoutMs) {
+      for (
+        let attempt = 1;
+        isCurrentRun() && !latestReport.ok && attempt < checklistMaxAttempts;
+        attempt += 1
+      ) {
         appendLog(
-          "⚠ Faltan componentes en la estructura de la instancia. Reintentando verificación...",
+          "⚠ Inconsistencia temporal detectada. Reintentando verificación rápida...",
         );
-        await wait(checklistPollIntervalMs);
+        await wait(checklistRetryDelayMs);
         if (!isCurrentRun()) {
           throw new Error("Proceso de verificación cancelado por el usuario.");
         }
@@ -376,11 +381,15 @@ export const InstancePanel = ({
         appendLog(
           "✖ La verificación inicial encontró inconsistencias. Iniciando reparación profesional por fases...",
         );
-        appendLog("3/4: Reinstalando componentes base y regenerando plan de lanzamiento...");
+        appendLog(
+          "3/4: Reinstalando componentes base y regenerando plan de lanzamiento...",
+        );
         await repairInstance(instanceId);
         appendLog("Reparación completada. Ejecutando validación final...");
 
-        report = await runTimedPreflight("4/4: Revalidando estructura tras la reparación...");
+        report = await runTimedPreflight(
+          "4/4: Revalidando estructura tras la reparación...",
+        );
         printChecklist(report.checks);
       }
 
@@ -2676,11 +2685,13 @@ ${rows.join("\n")}`;
             </header>
             <div className="product-dialog__install-body">
               <p>
-                Verificando punto por punto antes de abrir Minecraft. Esta ventana se cierra
-                automáticamente al finalizar.
+                Verificando punto por punto antes de abrir Minecraft. Esta ventana se
+                cierra automáticamente al finalizar.
               </p>
               {launchChecklistSummary ? (
-                <p className="product-dialog__checklist-summary">{launchChecklistSummary}</p>
+                <p className="product-dialog__checklist-summary">
+                  {launchChecklistSummary}
+                </p>
               ) : null}
               {launchChecklistChecks.length > 0 ? (
                 <ul className="product-dialog__checklist-results">
@@ -2700,7 +2711,6 @@ ${rows.join("\n")}`;
           </article>
         </div>
       ) : null}
-
 
       {modDownloadOpen && selectedInstance ? (
         <div
