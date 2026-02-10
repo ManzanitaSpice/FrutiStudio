@@ -33,7 +33,15 @@ struct AppConfig {
     background_downloads: Option<bool>,
     active_section: Option<String>,
     focus_mode: Option<bool>,
+    show_verification_window: Option<bool>,
     explorer_filters: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartupFileEntry {
+    relative_path: String,
+    size_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -490,6 +498,51 @@ async fn select_folder(app: tauri::AppHandle) -> Result<SelectFolderResult, Stri
 
     rx.await
         .unwrap_or_else(|_| Err("Error al recibir la ruta".to_string()))
+}
+
+#[command]
+async fn collect_startup_files(app: tauri::AppHandle) -> Result<Vec<StartupFileEntry>, String> {
+    let root = launcher_root(&app)?;
+    let mut files = Vec::new();
+
+    let config = config_path(&app).ok();
+    if let Some(path) = config {
+        if let Ok(metadata) = fs::metadata(&path) {
+            files.push(StartupFileEntry {
+                relative_path: "config.json".to_string(),
+                size_bytes: metadata.len(),
+            });
+        }
+    }
+
+    let candidates = ["instances", "downloads", "logs"];
+    for folder in candidates {
+        let path = root.join(folder);
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let metadata = match entry.metadata() {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            if metadata.is_file() {
+                files.push(StartupFileEntry {
+                    relative_path: format!("{folder}/{}", entry.file_name().to_string_lossy()),
+                    size_bytes: metadata.len(),
+                });
+            }
+            if files.len() >= 18 {
+                break;
+            }
+        }
+        if files.len() >= 18 {
+            break;
+        }
+    }
+
+    Ok(files)
 }
 
 #[command]
@@ -2590,6 +2643,7 @@ pub fn run() {
             select_folder,
             load_config,
             save_config,
+            collect_startup_files,
             save_base_dir,
             default_base_dir,
             validate_base_dir,

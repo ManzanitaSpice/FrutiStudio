@@ -27,15 +27,28 @@ export interface AppConfig {
   telemetryOptIn?: boolean;
   autoUpdates?: boolean;
   backgroundDownloads?: boolean;
-  activeSection?: "mis-modpacks" | "novedades" | "explorador" | "servers" | "configuracion";
+  activeSection?:
+    | "mis-modpacks"
+    | "novedades"
+    | "explorador"
+    | "servers"
+    | "configuracion";
   focusMode?: boolean;
+  showVerificationWindow?: boolean;
   explorerFilters?: {
     query?: string;
     gameVersion?: string;
     loader?: string;
     platform?: "all" | "modrinth" | "curseforge";
     sort?: "relevance" | "popular" | "updated";
-    category?: "Modpacks" | "Mods" | "Shaders" | "Resource Packs" | "Data Packs" | "Worlds" | "Addons";
+    category?:
+      | "Modpacks"
+      | "Mods"
+      | "Shaders"
+      | "Resource Packs"
+      | "Data Packs"
+      | "Worlds"
+      | "Addons";
   };
 }
 
