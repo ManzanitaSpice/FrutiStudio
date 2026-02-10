@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import steveSkin from "../assets/steve.svg";
 import type { FeatureFlags } from "../types/models";
 import { useI18n } from "../i18n/useI18n";
+import {
+  fetchGlobalSearchSuggestions,
+  type GlobalSearchSuggestion,
+} from "../services/globalSearchService";
 
 export type SectionKey =
   | "mis-modpacks"
@@ -37,6 +41,12 @@ export const Toolbar = ({
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchSuggestions, setSearchSuggestions] = useState<
+    GlobalSearchSuggestion[]
+  >([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const navItems: Array<{ key: SectionKey; label: string; enabled: boolean }> =
     [
       { key: "mis-modpacks", label: t("sections").modpacks, enabled: true },
@@ -75,6 +85,42 @@ export const Toolbar = ({
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    const run = async () => {
+      if (!showGlobalSearch) {
+        return;
+      }
+      setSearchLoading(true);
+      setSearchError(null);
+      try {
+        const results = await fetchGlobalSearchSuggestions(searchTerm);
+        if (isActive) {
+          setSearchSuggestions(results);
+        }
+      } catch (error) {
+        if (isActive) {
+          setSearchSuggestions([]);
+          setSearchError(
+            error instanceof Error
+              ? error.message
+              : "No se pudo actualizar la búsqueda.",
+          );
+        }
+      } finally {
+        if (isActive) {
+          setSearchLoading(false);
+        }
+      }
+    };
+
+    const timer = window.setTimeout(() => void run(), 350);
+    return () => {
+      isActive = false;
+      window.clearTimeout(timer);
+    };
+  }, [searchTerm, showGlobalSearch]);
 
   return (
     <header className="topbar">
@@ -131,10 +177,43 @@ export const Toolbar = ({
               <input
                 type="search"
                 placeholder="Buscar en novedades, explorador y servers..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
               />
-              <button type="button" aria-label="Limpiar búsqueda">
+              <button
+                type="button"
+                aria-label="Limpiar búsqueda"
+                onClick={() => setSearchTerm("")}
+              >
                 ✕
               </button>
+              {(searchSuggestions.length > 0 ||
+                searchLoading ||
+                searchError) && (
+                <div className="topbar__search-results">
+                  {searchLoading ? (
+                    <div className="topbar__search-state">Buscando...</div>
+                  ) : null}
+                  {searchError ? (
+                    <div className="topbar__search-state">{searchError}</div>
+                  ) : null}
+                  {searchSuggestions.map((item) => (
+                    <a
+                      key={item.id}
+                      href={item.url ?? "#"}
+                      target={item.url ? "_blank" : undefined}
+                      rel={item.url ? "noreferrer" : undefined}
+                      className="topbar__search-item"
+                    >
+                      <div>
+                        <strong>{item.label}</strong>
+                        <span>{item.description}</span>
+                      </div>
+                      <em>{item.source}</em>
+                    </a>
+                  ))}
+                </div>
+              )}
             </label>
           )}
           <div className="topbar__account" ref={menuRef}>

@@ -8,6 +8,10 @@ export interface ExternalInstance {
   path?: string;
 }
 
-export const fetchExternalInstances = async (): Promise<ExternalInstance[]> => {
-  return invokeWithHandling<ExternalInstance[]>("list_external_instances");
+export const fetchExternalInstances = async (
+  baseDir: string,
+): Promise<ExternalInstance[]> => {
+  return invokeWithHandling<ExternalInstance[]>("list_external_instances", {
+    baseDir,
+  });
 };

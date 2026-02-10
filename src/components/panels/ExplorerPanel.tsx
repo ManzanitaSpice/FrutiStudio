@@ -19,8 +19,56 @@ const explorerCategories: ExplorerCategory[] = [
 export const ExplorerPanel = () => {
   const [selectedCategory, setSelectedCategory] = useState(explorerCategories[0]);
   const [items, setItems] = useState<ExplorerItem[]>([]);
+  const [sourceFilter, setSourceFilter] = useState("Todas");
+  const [sortFilter, setSortFilter] = useState("popular");
+  const [versionFilter, setVersionFilter] = useState("Todas");
+  const [loaderFilter, setLoaderFilter] = useState("Todos");
+  const [forkFilter, setForkFilter] = useState("Todos");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const stored = window.localStorage.getItem("fruti.explorer-filters");
+    if (!stored) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored) as {
+        sourceFilter?: string;
+        sortFilter?: string;
+        versionFilter?: string;
+        loaderFilter?: string;
+        forkFilter?: string;
+      };
+      setSourceFilter(parsed.sourceFilter ?? "Todas");
+      setSortFilter(parsed.sortFilter ?? "popular");
+      setVersionFilter(parsed.versionFilter ?? "Todas");
+      setLoaderFilter(parsed.loaderFilter ?? "Todos");
+      setForkFilter(parsed.forkFilter ?? "Todos");
+    } catch (loadError) {
+      console.warn("No se pudieron restaurar los filtros del explorador.", loadError);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      "fruti.explorer-filters",
+      JSON.stringify({
+        sourceFilter,
+        sortFilter,
+        versionFilter,
+        loaderFilter,
+        forkFilter,
+      }),
+    );
+  }, [forkFilter, loaderFilter, sortFilter, sourceFilter, versionFilter]);
 
   useEffect(() => {
     let isActive = true;
@@ -54,6 +102,38 @@ export const ExplorerPanel = () => {
     };
   }, [selectedCategory]);
 
+  const parseDownloads = (value: string) => {
+    const match = value.replace(",", ".").match(/([\d.]+)\s*([kKmM])?/);
+    if (!match) {
+      return 0;
+    }
+    const amount = Number.parseFloat(match[1]);
+    if (Number.isNaN(amount)) {
+      return 0;
+    }
+    const suffix = match[2]?.toLowerCase();
+    if (suffix === "m") {
+      return amount * 1_000_000;
+    }
+    if (suffix === "k") {
+      return amount * 1_000;
+    }
+    return amount;
+  };
+
+  const filteredItems = items
+    .filter((item) => (sourceFilter === "Todas" ? true : item.source === sourceFilter))
+    .slice()
+    .sort((left, right) => {
+      if (sortFilter === "downloads") {
+        return parseDownloads(right.downloads) - parseDownloads(left.downloads);
+      }
+      if (sortFilter === "alphabetical") {
+        return left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+      }
+      return 0;
+    });
+
   return (
     <section className="panel-view panel-view--explorer">
       <div className="panel-view__header">
@@ -86,16 +166,92 @@ export const ExplorerPanel = () => {
             ))}
           </div>
           <div className="explorer-layout__filters">
-            <h4>Filtros rápidos</h4>
-            <label>
-              <input type="checkbox" defaultChecked /> Solo populares
-            </label>
-            <label>
-              <input type="checkbox" /> Compatible con 1.21
-            </label>
-            <label>
-              <input type="checkbox" /> Actualizados recientemente
-            </label>
+            <div className="explorer-layout__filters-header">
+              <h4>Filtros rápidos</h4>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFilters((prev) => !prev)}
+              >
+                {showAdvancedFilters ? "Ocultar" : "Filtro avanzado"}
+              </button>
+            </div>
+            <div className="explorer-layout__quick-filters">
+              <button
+                type="button"
+                className={sortFilter === "popular" ? "is-active" : ""}
+                onClick={() => setSortFilter("popular")}
+              >
+                Populares
+              </button>
+              <button
+                type="button"
+                className={sortFilter === "downloads" ? "is-active" : ""}
+                onClick={() => setSortFilter("downloads")}
+              >
+                Más descargas
+              </button>
+              <button
+                type="button"
+                className={sortFilter === "recent" ? "is-active" : ""}
+                onClick={() => setSortFilter("recent")}
+              >
+                Recientes
+              </button>
+            </div>
+            {showAdvancedFilters ? (
+              <div className="explorer-layout__advanced">
+                <label>
+                  Fuente
+                  <select
+                    value={sourceFilter}
+                    onChange={(event) => setSourceFilter(event.target.value)}
+                  >
+                    <option value="Todas">Todas</option>
+                    <option value="Modrinth">Modrinth</option>
+                    <option value="CurseForge">CurseForge</option>
+                    <option value="PlanetMinecraft">PlanetMinecraft</option>
+                  </select>
+                </label>
+                <label>
+                  Versión
+                  <select
+                    value={versionFilter}
+                    onChange={(event) => setVersionFilter(event.target.value)}
+                  >
+                    <option value="Todas">Todas</option>
+                    <option value="1.21">1.21+</option>
+                    <option value="1.20">1.20.x</option>
+                    <option value="1.19">1.19.x</option>
+                  </select>
+                </label>
+                <label>
+                  Loader/Fork
+                  <select
+                    value={loaderFilter}
+                    onChange={(event) => setLoaderFilter(event.target.value)}
+                  >
+                    <option value="Todos">Todos</option>
+                    <option value="Forge">Forge</option>
+                    <option value="NeoForge">NeoForge</option>
+                    <option value="Fabric">Fabric</option>
+                    <option value="Quilt">Quilt</option>
+                  </select>
+                </label>
+                <label>
+                  Fork de origen
+                  <select
+                    value={forkFilter}
+                    onChange={(event) => setForkFilter(event.target.value)}
+                  >
+                    <option value="Todos">Todos</option>
+                    <option value="Vanilla">Vanilla</option>
+                    <option value="Forge">Forge</option>
+                    <option value="Fabric">Fabric</option>
+                    <option value="Quilt">Quilt</option>
+                  </select>
+                </label>
+              </div>
+            ) : null}
           </div>
         </aside>
 
@@ -104,22 +260,38 @@ export const ExplorerPanel = () => {
             <div>
               <h3>{selectedCategory}</h3>
               <p>Selecciona un elemento para instalar o crear instancia.</p>
+              <div className="explorer-layout__active-filters">
+                {sourceFilter !== "Todas" ? (
+                  <span>Fuente: {sourceFilter}</span>
+                ) : null}
+                {versionFilter !== "Todas" ? (
+                  <span>Versión: {versionFilter}</span>
+                ) : null}
+                {loaderFilter !== "Todos" ? (
+                  <span>Loader: {loaderFilter}</span>
+                ) : null}
+                {forkFilter !== "Todos" ? <span>Fork: {forkFilter}</span> : null}
+              </div>
               {loading && <small>Cargando resultados...</small>}
               {error && <small className="explorer-layout__error">{error}</small>}
             </div>
             <div className="explorer-layout__sort">
               <span>Ordenar por</span>
-              <select defaultValue="popular">
+              <select
+                value={sortFilter}
+                onChange={(event) => setSortFilter(event.target.value)}
+              >
                 <option value="popular">Popularidad</option>
                 <option value="recent">Reciente</option>
                 <option value="downloads">Descargas</option>
+                <option value="alphabetical">A-Z</option>
               </select>
             </div>
           </div>
 
           <div className="explorer-layout__list">
-            {items.length ? (
-              items.map((item) => (
+            {filteredItems.length ? (
+              filteredItems.map((item) => (
                 <article key={item.id} className="explorer-item">
                   <div className="explorer-item__icon" />
                   <div className="explorer-item__info">

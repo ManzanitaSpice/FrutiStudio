@@ -8,6 +8,7 @@ export interface ServerListing {
   players: string;
   tags: string[];
   website: string;
+  official: boolean;
 }
 
 interface McStatusResponse {
@@ -30,6 +31,7 @@ const officialServers = [
     ip: "mc.hypixel.net",
     tags: ["Minijuegos", "Competitivo"],
     website: "https://hypixel.net",
+    official: true,
   },
   {
     id: "cubecraft",
@@ -37,6 +39,7 @@ const officialServers = [
     ip: "play.cubecraft.net",
     tags: ["Skyblock", "Minijuegos"],
     website: "https://www.cubecraft.net",
+    official: true,
   },
   {
     id: "mccentral",
@@ -44,6 +47,7 @@ const officialServers = [
     ip: "play.mccentral.org",
     tags: ["Survival", "Skyblock"],
     website: "https://www.mccentral.org",
+    official: true,
   },
   {
     id: "gommehd",
@@ -51,14 +55,43 @@ const officialServers = [
     ip: "gommehd.net",
     tags: ["PvP", "Minijuegos"],
     website: "https://www.gommehd.net",
+    official: true,
+  },
+];
+
+const communityServers = [
+  {
+    id: "wynncraft",
+    name: "Wynncraft",
+    ip: "play.wynncraft.com",
+    tags: ["RPG", "Cooperativo"],
+    website: "https://wynncraft.com",
+    official: false,
+  },
+  {
+    id: "mineplex",
+    name: "Mineplex",
+    ip: "us.mineplex.com",
+    tags: ["Minijuegos", "Casual"],
+    website: "https://www.mineplex.com",
+    official: false,
+  },
+  {
+    id: "complex-gaming",
+    name: "Complex Gaming",
+    ip: "hub.mc-complex.com",
+    tags: ["Modpacks", "Skyblock"],
+    website: "https://www.mc-complex.com",
+    official: false,
   },
 ];
 
 const buildStatusUrl = (ip: string) => `${STATUS_BASE}/${ip}`;
 
 export const fetchServerListings = async (): Promise<ServerListing[]> => {
+  const servers = [...officialServers, ...communityServers];
   const results = await Promise.all(
-    officialServers.map(async (server) => {
+    servers.map(async (server) => {
       const data = await apiFetch<McStatusResponse>(buildStatusUrl(server.ip), {
         ttl: 60_000,
       });
@@ -70,6 +103,7 @@ export const fetchServerListings = async (): Promise<ServerListing[]> => {
         ip: server.ip,
         tags: server.tags,
         website: server.website,
+        official: server.official,
         status: data.online ? "Online" : "Offline",
         players: data.online
           ? `${playersOnline} / ${playersMax}`

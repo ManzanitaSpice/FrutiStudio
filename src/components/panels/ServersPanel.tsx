@@ -4,6 +4,8 @@ import { fetchServerListings, type ServerListing } from "../../services/serverSe
 
 export const ServersPanel = () => {
   const [servers, setServers] = useState<ServerListing[]>([]);
+  const [visibilityFilter, setVisibilityFilter] = useState("todos");
+  const [orderFilter, setOrderFilter] = useState("players");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +40,32 @@ export const ServersPanel = () => {
     };
   }, []);
 
+  const parsePlayers = (value: string) => {
+    const numeric = Number.parseInt(value.split("/")[0] ?? "0", 10);
+    return Number.isNaN(numeric) ? 0 : numeric;
+  };
+
+  const filteredServers = servers
+    .filter((server) => {
+      if (visibilityFilter === "oficiales") {
+        return server.official;
+      }
+      if (visibilityFilter === "comunidad") {
+        return !server.official;
+      }
+      return true;
+    })
+    .slice()
+    .sort((left, right) => {
+      if (orderFilter === "players") {
+        return parsePlayers(right.players) - parsePlayers(left.players);
+      }
+      if (orderFilter === "recent") {
+        return left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+      }
+      return 0;
+    });
+
   return (
     <section className="panel-view panel-view--servers">
       <div className="panel-view__header">
@@ -59,8 +87,35 @@ export const ServersPanel = () => {
           <button type="button">PvP</button>
         </div>
         <div className="servers-toolbar__filters">
+          <span>Visibilidad:</span>
+          <button
+            type="button"
+            className={visibilityFilter === "todos" ? "is-active" : ""}
+            onClick={() => setVisibilityFilter("todos")}
+          >
+            Todos
+          </button>
+          <button
+            type="button"
+            className={visibilityFilter === "oficiales" ? "is-active" : ""}
+            onClick={() => setVisibilityFilter("oficiales")}
+          >
+            Oficiales
+          </button>
+          <button
+            type="button"
+            className={visibilityFilter === "comunidad" ? "is-active" : ""}
+            onClick={() => setVisibilityFilter("comunidad")}
+          >
+            Comunidad
+          </button>
+        </div>
+        <div className="servers-toolbar__filters">
           <span>Orden:</span>
-          <select defaultValue="players">
+          <select
+            value={orderFilter}
+            onChange={(event) => setOrderFilter(event.target.value)}
+          >
             <option value="players">Jugadores activos</option>
             <option value="ping">Ping</option>
             <option value="recent">Recientes</option>
@@ -71,8 +126,8 @@ export const ServersPanel = () => {
       <div className="servers-list">
         {loading ? <div className="servers-list__empty">Conectando...</div> : null}
         {error ? <div className="servers-list__empty">{error}</div> : null}
-        {servers.length ? (
-          servers.map((server) => (
+        {filteredServers.length ? (
+          filteredServers.map((server) => (
             <article key={server.id} className="server-card">
               <div className="server-card__info">
                 <div className="server-card__logo" />
@@ -80,6 +135,7 @@ export const ServersPanel = () => {
                   <h3>{server.name}</h3>
                   <p>{server.ip}</p>
                   <div className="server-card__tags">
+                    <span>{server.official ? "Oficial" : "Comunidad"}</span>
                     {server.tags.map((tag) => (
                       <span key={tag}>{tag}</span>
                     ))}
