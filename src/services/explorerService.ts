@@ -126,7 +126,10 @@ interface CurseforgeSearchResponse {
 interface CurseforgeModResponse {
   data: CurseforgeSearchItem & {
     screenshots?: Array<{ url?: string; thumbnailUrl?: string }>;
-    latestFiles?: Array<{ gameVersions?: string[]; dependencies?: Array<{ modId?: number }> }>;
+    latestFiles?: Array<{
+      gameVersions?: string[];
+      dependencies?: Array<{ modId?: number }>;
+    }>;
   };
 }
 
@@ -179,9 +182,7 @@ const mapSort = (sort: ExplorerSort | undefined) => {
 const normalizePageSize = (pageSize?: number) =>
   Math.max(1, Math.min(MAX_PAGE_SIZE, pageSize ?? 12));
 
-const fetchModrinthItems = async (
-  filters: ExplorerFilters,
-): Promise<ExplorerResult> => {
+const fetchModrinthItems = async (filters: ExplorerFilters): Promise<ExplorerResult> => {
   const pageSize = normalizePageSize(filters.pageSize);
   const page = Math.max(0, filters.page ?? 0);
   const facets: string[][] = [[`project_type:${categoryProjectTypes[filters.category]}`]];
@@ -365,7 +366,10 @@ export const fetchUnifiedCatalog = async (
     unique.set(item.id, item);
   });
 
-  const ordered = sortUnifiedItems(Array.from(unique.values()), effective.sort ?? "popular");
+  const ordered = sortUnifiedItems(
+    Array.from(unique.values()),
+    effective.sort ?? "popular",
+  );
   const total = successful.reduce((acc, entry) => acc + entry.value.total, 0);
   const hasMore = successful.some((entry) => entry.value.hasMore);
 
@@ -439,9 +443,9 @@ export const fetchExplorerItemDetails = async (
     description: data.data.summary || item.description,
     gallery: [
       ...(data.data.logo?.url ? [data.data.logo.url] : []),
-      ...((data.data.screenshots ?? [])
+      ...(data.data.screenshots ?? [])
         .map((screen) => screen.url ?? screen.thumbnailUrl)
-        .filter((url): url is string => Boolean(url))),
+        .filter((url): url is string => Boolean(url)),
     ],
     gameVersions: data.data.latestFiles?.flatMap((file) => file.gameVersions ?? []) ?? [],
     loaders: item.loaders,

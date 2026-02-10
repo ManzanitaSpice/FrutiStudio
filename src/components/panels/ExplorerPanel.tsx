@@ -52,7 +52,9 @@ export const ExplorerPanel = () => {
       try {
         const data = await fetchUnifiedCatalog(filters);
         if (isActive) {
-          setItems((prev) => (filters.page === 0 ? data.items : [...prev, ...data.items]));
+          setItems((prev) =>
+            filters.page === 0 ? data.items : [...prev, ...data.items],
+          );
           setHasMore(data.hasMore);
           setTotal(data.total);
         }
@@ -121,14 +123,16 @@ export const ExplorerPanel = () => {
     setItems([]);
   };
 
+  const isModpackInstall = installItem?.type.toLowerCase().includes("modpack") ?? false;
+
   return (
     <section className="panel-view panel-view--explorer">
       <div className="panel-view__header">
         <div>
           <h2>Explorador unificado</h2>
           <p>
-            Catálogo completo de CurseForge + Modrinth con filtros reales,
-            paginación y metadata lista para instalar.
+            Catálogo completo de CurseForge + Modrinth con filtros reales, paginación y
+            metadata lista para instalar.
           </p>
         </div>
       </div>
@@ -234,37 +238,48 @@ export const ExplorerPanel = () => {
           <div className="explorer-layout__list">
             {Object.entries(grouped).map(([source, sourceItems]) =>
               sourceItems.length ? (
-                <div key={source}>
+                <div key={source} className="explorer-layout__source-block">
                   <h4>{source}</h4>
-                  {sourceItems.map((item) => (
-                    <article key={item.id} className="explorer-item">
-                      {item.thumbnail ? (
-                        <img className="explorer-item__icon" src={item.thumbnail} alt={item.name} />
-                      ) : (
-                        <div className="explorer-item__icon" />
-                      )}
-                      <div className="explorer-item__info">
-                        <h4>{item.name}</h4>
-                        <p>
-                          {item.type} · {item.author}
-                        </p>
-                        <span>{item.downloads}</span>
-                        <span className="explorer-item__source">{item.source}</span>
-                      </div>
-                      <div className="explorer-item__actions">
-                        <button type="button" onClick={() => setSelectedItem(item)}>
-                          Ver detalle
-                        </button>
-                        <button
-                          type="button"
-                          className="explorer-item__secondary"
-                          onClick={() => setInstallItem(item)}
-                        >
-                          Instalar
-                        </button>
-                      </div>
-                    </article>
-                  ))}
+                  <div className="explorer-layout__cards">
+                    {sourceItems.map((item) => (
+                      <article
+                        key={item.id}
+                        className="explorer-item explorer-item--card"
+                      >
+                        {item.thumbnail ? (
+                          <img
+                            className="explorer-item__icon"
+                            src={item.thumbnail}
+                            alt={item.name}
+                          />
+                        ) : (
+                          <div className="explorer-item__icon" />
+                        )}
+                        <div className="explorer-item__info">
+                          <h4>{item.name}</h4>
+                          <p>{item.description}</p>
+                          <div className="explorer-item__meta">
+                            <span>{item.type}</span>
+                            <span>{item.author}</span>
+                            <span>{item.downloads}</span>
+                            <span className="explorer-item__source">{item.source}</span>
+                          </div>
+                        </div>
+                        <div className="explorer-item__actions">
+                          <button type="button" onClick={() => setSelectedItem(item)}>
+                            Ver detalle
+                          </button>
+                          <button
+                            type="button"
+                            className="explorer-item__secondary"
+                            onClick={() => setInstallItem(item)}
+                          >
+                            Instalar
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
                 </div>
               ) : null,
             )}
@@ -280,7 +295,9 @@ export const ExplorerPanel = () => {
               type="button"
               className="explorer-item__secondary"
               disabled={loading}
-              onClick={() => setFilters((prev) => ({ ...prev, page: (prev.page ?? 0) + 1 }))}
+              onClick={() =>
+                setFilters((prev) => ({ ...prev, page: (prev.page ?? 0) + 1 }))
+              }
             >
               Cargar más
             </button>
@@ -290,7 +307,10 @@ export const ExplorerPanel = () => {
 
       {selectedItem ? (
         <div className="instance-editor__backdrop" onClick={() => setSelectedItem(null)}>
-          <article className="status-bar__news-modal" onClick={(event) => event.stopPropagation()}>
+          <article
+            className="status-bar__news-modal status-bar__news-modal--details"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header>
               <h3>{selectedItem.name}</h3>
               <button type="button" onClick={() => setSelectedItem(null)}>
@@ -300,27 +320,45 @@ export const ExplorerPanel = () => {
             {detailsLoading || !details ? (
               <p>Cargando metadata del proyecto...</p>
             ) : (
-              <>
-                <p>{details.description}</p>
-                <p>
-                  <strong>Autor:</strong> {details.author} · <strong>Plataforma:</strong>{" "}
-                  {details.source}
-                </p>
-                <p>
-                  <strong>Loaders:</strong> {details.loaders.slice(0, 6).join(", ") || "Sin datos"}
-                </p>
-                <p>
-                  <strong>Versiones:</strong>{" "}
-                  {details.gameVersions.slice(0, 8).join(", ") || "Sin datos"}
-                </p>
-                {details.gallery.length ? (
-                  <div className="news-latest">
-                    {details.gallery.slice(0, 4).map((image) => (
-                      <img key={image} src={image} alt={details.title} className="news-latest__icon" />
-                    ))}
-                  </div>
-                ) : null}
-              </>
+              <div className="explorer-details">
+                <div className="explorer-details__gallery">
+                  {details.gallery.length ? (
+                    details.gallery
+                      .slice(0, 8)
+                      .map((image) => (
+                        <img
+                          key={image}
+                          src={image}
+                          alt={details.title}
+                          className="news-latest__icon"
+                        />
+                      ))
+                  ) : (
+                    <div className="explorer-layout__empty">Sin imágenes</div>
+                  )}
+                </div>
+                <div className="explorer-details__content">
+                  <p>{details.body ?? details.description}</p>
+                  <p>
+                    <strong>Autor:</strong> {details.author}
+                  </p>
+                  <p>
+                    <strong>Plataforma:</strong> {details.source}
+                  </p>
+                  <p>
+                    <strong>Versiones:</strong>{" "}
+                    {details.gameVersions.slice(0, 12).join(", ") || "Sin datos"}
+                  </p>
+                  <p>
+                    <strong>Loaders:</strong>{" "}
+                    {details.loaders.slice(0, 10).join(", ") || "Sin datos"}
+                  </p>
+                  <p>
+                    <strong>Dependencias:</strong>{" "}
+                    {details.dependencies.slice(0, 12).join(", ") || "Sin dependencias"}
+                  </p>
+                </div>
+              </div>
             )}
           </article>
         </div>
@@ -328,22 +366,30 @@ export const ExplorerPanel = () => {
 
       {installItem ? (
         <div className="instance-editor__backdrop" onClick={() => setInstallItem(null)}>
-          <article className="status-bar__news-modal" onClick={(event) => event.stopPropagation()}>
+          <article
+            className="status-bar__news-modal status-bar__news-modal--install"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header>
               <h3>Instalar “{installItem.name}”</h3>
               <button type="button" onClick={() => setInstallItem(null)}>
                 ✕
               </button>
             </header>
-            <p>Selecciona el destino de instalación.</p>
+            <p>
+              <strong>Producto:</strong> {installItem.name} · <strong>Tipo:</strong>{" "}
+              {installItem.type}
+            </p>
             <div className="instance-import__actions">
               <button type="button">Crear nueva instancia</button>
-              {installItem.type.toLowerCase().includes("modpack") ? null : (
+              {!isModpackInstall ? (
                 <button type="button">Instalar en instancia existente</button>
-              )}
+              ) : null}
             </div>
-            {installItem.type.toLowerCase().includes("modpack") ? (
-              <small>Los modpacks se instalan como una instancia nueva completa.</small>
+            {isModpackInstall ? (
+              <small>
+                Los modpacks solo se instalan en una instancia nueva de forma directa.
+              </small>
             ) : null}
           </article>
         </div>
