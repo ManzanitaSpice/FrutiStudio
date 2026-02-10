@@ -68,7 +68,7 @@ export const ServersPanel = () => {
       <div className="panel-view__header">
         <div>
           <h2>Servers</h2>
-          <p>Catálogo real de servidores públicos con estado, versión, tipo y paginación.</p>
+          <p>Servidores públicos con estado en vivo, versión y tipo.</p>
           <small>{total} servidores detectados</small>
         </div>
       </div>

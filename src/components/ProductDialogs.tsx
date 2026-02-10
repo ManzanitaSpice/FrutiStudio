@@ -45,6 +45,26 @@ const releaseLabel = {
   release: "Release",
 } as const;
 
+const toPlainText = (value: string) =>
+  value
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const synthesizeDescription = (raw: string) => {
+  const cleaned = toPlainText(raw);
+  if (!cleaned) return "Sin descripción detallada disponible.";
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 30);
+  const prioritized = sentences.filter((line) => !/changelog|novedades|bugs?|fix|error/i.test(line));
+  const selected = (prioritized.length ? prioritized : sentences).slice(0, 5);
+  return selected.join(" ");
+};
+
 export const ProductDetailsDialog = ({
   item,
   details,
@@ -58,9 +78,14 @@ export const ProductDetailsDialog = ({
     "all" | "release" | "beta" | "alpha"
   >("all");
 
-  const descriptionHtml = useMemo(
-    () => parseAndSanitizeRichText(details?.body ?? details?.description ?? item.description),
+  const filteredDescription = useMemo(
+    () => synthesizeDescription(details?.body ?? details?.description ?? item.description),
     [details?.body, details?.description, item.description],
+  );
+
+  const descriptionHtml = useMemo(
+    () => parseAndSanitizeRichText(filteredDescription),
+    [filteredDescription],
   );
 
   const changelogRows = useMemo(() => {
