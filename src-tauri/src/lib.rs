@@ -1852,7 +1852,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ),
         (
             "natives_extraidos",
-            is_non_empty_dir(Path::new(&plan.natives_dir)),
+            Path::new(&plan.natives_dir).exists(),
         ),
         (
             "runtime_java_compatible",
@@ -2073,6 +2073,43 @@ fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
         .map_err(|error| format!("No se pudo asegurar minecraft/saves: {error}"))?;
     fs::create_dir_all(instance_root.join("logs"))
         .map_err(|error| format!("No se pudo asegurar logs: {error}"))?;
+    Ok(())
+}
+
+fn ensure_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> Result<(), String> {
+    let metadata_path = instance_root.join("instance.json");
+    if metadata_path.exists() {
+        return Ok(());
+    }
+
+    let meta = serde_json::json!({
+        "id": instance.id,
+        "name": instance.name,
+        "minecraft_version": instance.version,
+        "loader": instance
+            .loader_name
+            .clone()
+            .unwrap_or_else(|| "vanilla".to_string())
+            .to_lowercase(),
+        "loader_version": instance
+            .loader_version
+            .clone()
+            .unwrap_or_else(|| "latest".to_string()),
+        "java": Value::Null,
+        "memory": {"min": 2048, "max": 4096},
+        "createdAt": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default()
+    });
+
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&meta)
+            .map_err(|error| format!("No se pudo serializar metadata: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo escribir metadata de instancia: {error}"))?;
+
     Ok(())
 }
 
@@ -2375,6 +2412,7 @@ async fn prepare_instance_runtime(
     ensure_instance_layout(&instance_root)?;
 
     let instance = read_instance_record(app, instance_id)?;
+    ensure_instance_metadata(&instance_root, &instance)?;
     bootstrap_instance_runtime(app, &instance_root, &instance).await?;
     let _ = build_launch_command(app, &instance_root, &instance)?;
 
@@ -2389,6 +2427,11 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
     }
 
     let (instance_root, instance) = prepare_instance_runtime(&app, &instance_id, true).await?;
+    write_instance_state(
+        &instance_root,
+        "repairing",
+        serde_json::json!({"instance": instance.id}),
+    );
     let launch_plan_path = instance_root.join("launch-plan.json");
     let launch_plan = fs::read_to_string(&launch_plan_path)
         .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
@@ -2429,6 +2472,11 @@ async fn preflight_instance(
     }
 
     let (instance_root, _) = prepare_instance_runtime(&app, &instance_id, false).await?;
+    write_instance_state(
+        &instance_root,
+        "preflight",
+        serde_json::json!({"instance": instance_id}),
+    );
     let launch_plan_path = instance_root.join("launch-plan.json");
     let launch_plan = fs::read_to_string(&launch_plan_path)
         .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))

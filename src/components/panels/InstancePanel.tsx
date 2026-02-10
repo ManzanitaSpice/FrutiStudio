@@ -2683,29 +2683,54 @@ ${rows.join("\n")}`;
                 </button>
               </div>
             </header>
-            <div className="product-dialog__install-body">
-              <p>
-                Verificando punto por punto antes de abrir Minecraft. Esta ventana se
-                cierra automáticamente al finalizar.
-              </p>
-              {launchChecklistSummary ? (
-                <p className="product-dialog__checklist-summary">
-                  {launchChecklistSummary}
+            <div className="product-dialog__install-body product-dialog__checklist-body">
+              <div className="product-dialog__checklist-intro">
+                <p>
+                  Verificando punto por punto antes de abrir Minecraft. La validación
+                  revisa runtime, assets, librerías y configuración de inicio.
                 </p>
-              ) : null}
-              {launchChecklistChecks.length > 0 ? (
-                <ul className="product-dialog__checklist-results">
-                  {launchChecklistChecks.map((check) => (
-                    <li key={check.name}>
-                      {check.ok ? "✅" : "❌"} {check.name}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <div className="instance-import__log" aria-live="polite">
-                {launchChecklistLogs.map((line, index) => (
-                  <p key={`${line}-${index}`}>{line}</p>
-                ))}
+                <span
+                  className={`product-dialog__checklist-badge ${
+                    launchChecklistRunning
+                      ? "is-running"
+                      : launchChecklistSummary?.includes("✅")
+                        ? "is-success"
+                        : "is-idle"
+                  }`}
+                >
+                  {launchChecklistRunning
+                    ? "Validación en curso"
+                    : launchChecklistSummary ?? "Esperando ejecución"}
+                </span>
+              </div>
+
+              <div className="product-dialog__checklist-panels">
+                <section className="product-dialog__checklist-panel">
+                  <h4>Resultados técnicos</h4>
+                  {launchChecklistChecks.length > 0 ? (
+                    <ul className="product-dialog__checklist-results">
+                      {launchChecklistChecks.map((check) => (
+                        <li key={check.name} className={check.ok ? "is-ok" : "is-error"}>
+                          <span>{check.ok ? "✅" : "❌"}</span>
+                          <span>{check.name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="product-dialog__checklist-empty">
+                      Los resultados aparecerán en cuanto termine el primer análisis.
+                    </p>
+                  )}
+                </section>
+
+                <section className="product-dialog__checklist-panel">
+                  <h4>Bitácora en vivo</h4>
+                  <div className="instance-import__log" aria-live="polite">
+                    {launchChecklistLogs.map((line, index) => (
+                      <p key={`${line}-${index}`}>{line}</p>
+                    ))}
+                  </div>
+                </section>
               </div>
             </div>
           </article>
