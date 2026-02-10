@@ -92,7 +92,9 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
         <label
           class="topbar__search"
         >
-          <span>
+          <span
+            class="topbar__search-icon"
+          >
             🔍
           </span>
           <input
@@ -100,6 +102,13 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
             type="search"
             value=""
           />
+          <button
+            class="topbar__search-submit"
+            disabled=""
+            type="button"
+          >
+            Buscar
+          </button>
           <button
             aria-label="Limpiar búsqueda"
             type="button"

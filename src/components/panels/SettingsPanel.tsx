@@ -34,6 +34,8 @@ export const SettingsPanel = () => {
     const load = async () => {
       const config = await loadConfig();
       setTelemetryOptIn(Boolean(config.telemetryOptIn));
+      setAutoUpdates(config.autoUpdates ?? true);
+      setBackgroundDownloads(config.backgroundDownloads ?? true);
       setCurseforgeKey(getCurseforgeApiKey());
       if (config.customTheme) {
         setCustomTheme(config.customTheme);
@@ -53,6 +55,20 @@ export const SettingsPanel = () => {
     const nextValue = !telemetryOptIn;
     setTelemetryOptIn(nextValue);
     await saveConfig({ ...config, telemetryOptIn: nextValue });
+  };
+
+  const toggleAutoUpdates = async () => {
+    const config = await loadConfig();
+    const nextValue = !autoUpdates;
+    setAutoUpdates(nextValue);
+    await saveConfig({ ...config, autoUpdates: nextValue });
+  };
+
+  const toggleBackgroundDownloads = async () => {
+    const config = await loadConfig();
+    const nextValue = !backgroundDownloads;
+    setBackgroundDownloads(nextValue);
+    await saveConfig({ ...config, backgroundDownloads: nextValue });
   };
 
   const handleScaleChange = async (nextScale: number) => {
@@ -124,7 +140,7 @@ export const SettingsPanel = () => {
                 <option value="light">Claro</option>
                 <option value="dark">Oscuro</option>
                 <option value="chrome">Chrome</option>
-                <option value="sunset">Sunset</option>
+                <option value="sunset">ManzanitaJ</option>
                 <option value="mint">Mint</option>
                 <option value="lavender">Lavender</option>
                 <option value="peach">Peach</option>
@@ -268,7 +284,7 @@ export const SettingsPanel = () => {
               <input
                 type="checkbox"
                 checked={backgroundDownloads}
-                onChange={() => setBackgroundDownloads((value) => !value)}
+                onChange={() => void toggleBackgroundDownloads()}
               />
               Mantener descargas en segundo plano
             </label>
@@ -286,7 +302,7 @@ export const SettingsPanel = () => {
               <input
                 type="checkbox"
                 checked={autoUpdates}
-                onChange={() => setAutoUpdates((value) => !value)}
+                onChange={() => void toggleAutoUpdates()}
               />
               Actualizar launcher automáticamente
             </label>

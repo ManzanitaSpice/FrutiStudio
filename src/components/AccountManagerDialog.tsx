@@ -46,6 +46,7 @@ export const AccountManagerDialog = ({ open, onClose }: AccountManagerDialogProp
     () => [...store.accounts].sort((a, b) => b.lastUsedAt - a.lastUsedAt),
     [store.accounts],
   );
+  const activeAccountId = store.activeAccountId;
 
   if (!open) {
     return null;
@@ -76,10 +77,25 @@ export const AccountManagerDialog = ({ open, onClose }: AccountManagerDialogProp
         <header className="account-manager__header">
           <div>
             <h3>Administrar cuentas</h3>
-            <p>Sesiones Microsoft y perfiles offline estilo Prism.</p>
+            <p>Sesiones Microsoft y perfiles offline, con control rápido de estado y perfil activo.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Cerrar">✕</button>
         </header>
+
+        <div className="account-manager__summary">
+          <article>
+            <strong>{sortedAccounts.length}</strong>
+            <span>Cuentas totales</span>
+          </article>
+          <article>
+            <strong>{sortedAccounts.filter((account) => account.type === "msa").length}</strong>
+            <span>Microsoft</span>
+          </article>
+          <article>
+            <strong>{sortedAccounts.filter((account) => account.id === activeAccountId).length ? "Sí" : "No"}</strong>
+            <span>Cuenta predeterminada</span>
+          </article>
+        </div>
 
         <div className="account-manager__table">
           <div className="account-manager__row account-manager__row--head">
