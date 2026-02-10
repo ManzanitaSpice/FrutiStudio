@@ -1,4 +1,10 @@
-import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import {
+  type ChangeEvent,
+  type MouseEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import type { Instance } from "../../types/models";
 import {
@@ -6,7 +12,18 @@ import {
   fetchMinecraftVersions,
 } from "../../services/minecraftVersionService";
 import { createInstance } from "../../services/instanceService";
+import {
+  type ExternalInstance,
+  fetchExternalInstances,
+} from "../../services/externalInstanceService";
+import { fetchATLauncherPacks } from "../../services/atmlService";
+import {
+  type ExplorerItem,
+  fetchExplorerItems,
+} from "../../services/explorerService";
+import { fetchLoaderVersions } from "../../services/loaderVersionService";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
+import importGuide from "../../assets/import-guide.svg";
 
 interface InstancePanelProps {
   instances: Instance[];
@@ -101,6 +118,32 @@ export const InstancePanel = ({
   const [instanceVersion, setInstanceVersion] = useState("");
   const [instanceLoader, setInstanceLoader] = useState("Vanilla");
   const [instanceLoaderVersion, setInstanceLoaderVersion] = useState("");
+  const [versionFilters, setVersionFilters] = useState({
+    release: true,
+    snapshot: true,
+    beta: false,
+    alpha: false,
+    experimental: false,
+  });
+  const [loaderVersions, setLoaderVersions] = useState<string[]>([]);
+  const [loaderStatus, setLoaderStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [loaderError, setLoaderError] = useState<string | null>(null);
+  const [importUrl, setImportUrl] = useState("");
+  const [importFileName, setImportFileName] = useState("");
+  const [externalInstances, setExternalInstances] = useState<
+    ExternalInstance[]
+  >([]);
+  const [externalStatus, setExternalStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [externalError, setExternalError] = useState<string | null>(null);
+  const [creatorItems, setCreatorItems] = useState<ExplorerItem[]>([]);
+  const [creatorStatus, setCreatorStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [creatorError, setCreatorError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -222,15 +265,41 @@ export const InstancePanel = ({
     void loadVersions();
   }, [availableVersions.length, creatorOpen, versionsStatus]);
 
-  const preferredVersion = useMemo(() => {
+  const resolveVersionType = (version: MinecraftVersion) => {
+    if (version.type === "snapshot" && /experimental/i.test(version.id)) {
+      return "experimental";
+    }
+    if (version.type === "snapshot") {
+      return "snapshot";
+    }
+    if (version.type === "old_beta") {
+      return "beta";
+    }
+    if (version.type === "old_alpha") {
+      return "alpha";
+    }
+    return "release";
+  };
+
+  const filteredVersions = useMemo(() => {
     if (!availableVersions.length) {
+      return [];
+    }
+    return availableVersions.filter((version) => {
+      const kind = resolveVersionType(version);
+      return versionFilters[kind as keyof typeof versionFilters];
+    });
+  }, [availableVersions, versionFilters]);
+
+  const preferredVersion = useMemo(() => {
+    if (!filteredVersions.length) {
       return null;
     }
     return (
-      availableVersions.find((version) => version.type === "release") ??
-      availableVersions[0]
+      filteredVersions.find((version) => version.type === "release") ??
+      filteredVersions[0]
     );
-  }, [availableVersions]);
+  }, [filteredVersions]);
 
   useEffect(() => {
     if (!instanceVersion && preferredVersion) {
@@ -239,10 +308,120 @@ export const InstancePanel = ({
   }, [instanceVersion, preferredVersion]);
 
   useEffect(() => {
+    if (!instanceVersion) {
+      return;
+    }
+    if (!filteredVersions.find((version) => version.id === instanceVersion)) {
+      setInstanceVersion(filteredVersions[0]?.id ?? "");
+    }
+  }, [filteredVersions, instanceVersion]);
+
+  useEffect(() => {
     if (instanceLoader === "Vanilla") {
       setInstanceLoaderVersion("");
     }
   }, [instanceLoader]);
+
+  useEffect(() => {
+    if (instanceLoader === "Vanilla" || !instanceVersion) {
+      setLoaderVersions([]);
+      setLoaderStatus("idle");
+      setLoaderError(null);
+      return;
+    }
+    let isActive = true;
+    const loadVersions = async () => {
+      setLoaderStatus("loading");
+      setLoaderError(null);
+      try {
+        const versions = await fetchLoaderVersions(
+          instanceLoader as "Vanilla" | "NeoForge" | "Forge" | "Fabric" | "Quilt",
+          instanceVersion,
+        );
+        if (isActive) {
+          setLoaderVersions(versions);
+          setLoaderStatus("ready");
+          if (versions.length && !versions.includes(instanceLoaderVersion)) {
+            setInstanceLoaderVersion(versions[0]);
+          }
+        }
+      } catch (error) {
+        if (isActive) {
+          setLoaderVersions([]);
+          setLoaderStatus("error");
+          setLoaderError(
+            error instanceof Error
+              ? error.message
+              : "No se pudieron cargar las versiones del loader.",
+          );
+        }
+      }
+    };
+
+    void loadVersions();
+    return () => {
+      isActive = false;
+    };
+  }, [instanceLoader, instanceLoaderVersion, instanceVersion]);
+
+  useEffect(() => {
+    if (!creatorOpen) {
+      return;
+    }
+    const sourceSections = ["Modrinth", "CurseForge", "ATLauncher"];
+    if (!sourceSections.includes(activeCreatorSection)) {
+      return;
+    }
+    let isActive = true;
+    const loadCreatorItems = async () => {
+      setCreatorStatus("loading");
+      setCreatorError(null);
+      try {
+        if (activeCreatorSection === "ATLauncher") {
+          const packs = await fetchATLauncherPacks();
+          if (isActive) {
+            setCreatorItems(
+              packs.slice(0, 8).map((pack) => ({
+                id: String(pack.id),
+                name: pack.name,
+                author: "ATLauncher",
+                downloads: pack.versions
+                  ? `${pack.versions} versiones`
+                  : "Disponible",
+                type: "Modpack",
+                source: "ATLauncher",
+                url: `https://atlauncher.com/pack/${pack.id}`,
+              })),
+            );
+            setCreatorStatus("ready");
+          }
+          return;
+        }
+        const modpacks = await fetchExplorerItems("Modpacks");
+        const sourceLabel =
+          activeCreatorSection === "Modrinth" ? "Modrinth" : "CurseForge";
+        if (isActive) {
+          setCreatorItems(modpacks.filter((item) => item.source === sourceLabel));
+          setCreatorStatus("ready");
+        }
+      } catch (error) {
+        if (isActive) {
+          setCreatorItems([]);
+          setCreatorStatus("error");
+          setCreatorError(
+            error instanceof Error
+              ? error.message
+              : "No se pudo cargar la lista de modpacks.",
+          );
+        }
+      }
+    };
+
+    void loadCreatorItems();
+    return () => {
+      isActive = false;
+    };
+  }, [activeCreatorSection, creatorOpen]);
 
   useEffect(() => {
     if (!selectedInstance && editorOpen) {
@@ -297,6 +476,29 @@ export const InstancePanel = ({
     );
   };
 
+  const handleExternalScan = async () => {
+    setExternalStatus("loading");
+    setExternalError(null);
+    try {
+      const results = await fetchExternalInstances();
+      setExternalInstances(results);
+      setExternalStatus("ready");
+    } catch (error) {
+      setExternalInstances([]);
+      setExternalStatus("error");
+      setExternalError(
+        error instanceof Error
+          ? error.message
+          : "No se pudieron detectar instancias externas.",
+      );
+    }
+  };
+
+  const handleImportFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    setImportFileName(file ? file.name : "");
+  };
+
   const renderCreatorBody = () => {
     if (activeCreatorSection === "Personalizado") {
       return (
@@ -323,14 +525,81 @@ export const InstancePanel = ({
           </div>
           <div className="instance-creator__field">
             <label htmlFor="instance-version">Versión de Minecraft</label>
+            <div className="instance-creator__filters">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={versionFilters.release}
+                  onChange={() =>
+                    setVersionFilters((prev) => ({
+                      ...prev,
+                      release: !prev.release,
+                    }))
+                  }
+                />
+                Releases
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={versionFilters.snapshot}
+                  onChange={() =>
+                    setVersionFilters((prev) => ({
+                      ...prev,
+                      snapshot: !prev.snapshot,
+                    }))
+                  }
+                />
+                Snapshots
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={versionFilters.beta}
+                  onChange={() =>
+                    setVersionFilters((prev) => ({
+                      ...prev,
+                      beta: !prev.beta,
+                    }))
+                  }
+                />
+                Betas
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={versionFilters.alpha}
+                  onChange={() =>
+                    setVersionFilters((prev) => ({
+                      ...prev,
+                      alpha: !prev.alpha,
+                    }))
+                  }
+                />
+                Alphas
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={versionFilters.experimental}
+                  onChange={() =>
+                    setVersionFilters((prev) => ({
+                      ...prev,
+                      experimental: !prev.experimental,
+                    }))
+                  }
+                />
+                Experimentales
+              </label>
+            </div>
             <select
               id="instance-version"
               value={instanceVersion}
               onChange={(event) => setInstanceVersion(event.target.value)}
               disabled={versionsStatus === "loading" || versionsStatus === "error"}
             >
-              {availableVersions.length ? (
-                availableVersions.map((version) => (
+              {filteredVersions.length ? (
+                filteredVersions.map((version) => (
                   <option key={version.id} value={version.id}>
                     {version.id}
                     {version.type === "snapshot" ? " (snapshot)" : ""}
@@ -357,26 +626,157 @@ export const InstancePanel = ({
           </div>
           <div className="instance-creator__field">
             <label htmlFor="instance-loader-version">Versión del loader</label>
-            <input
+            <select
               id="instance-loader-version"
-              type="text"
-              placeholder={
-                instanceLoader === "Vanilla"
-                  ? "No aplica para Vanilla"
-                  : "Ej: 47.2.0 o latest"
-              }
-              value={instanceLoader === "Vanilla" ? "" : instanceLoaderVersion}
+              value={instanceLoaderVersion}
               onChange={(event) => setInstanceLoaderVersion(event.target.value)}
-              disabled={instanceLoader === "Vanilla"}
-            />
+              disabled={instanceLoader === "Vanilla" || loaderStatus === "loading"}
+            >
+              {instanceLoader === "Vanilla" ? (
+                <option value="">No aplica para Vanilla</option>
+              ) : loaderVersions.length ? (
+                loaderVersions.map((version) => (
+                  <option key={version} value={version}>
+                    {version}
+                  </option>
+                ))
+              ) : loaderStatus === "error" ? (
+                <option value="">Sin versiones disponibles</option>
+              ) : (
+                <option value="">Cargando versiones...</option>
+              )}
+            </select>
           </div>
           <div className="instance-creator__hint">
             {versionsStatus === "loading" && "Cargando versiones oficiales..."}
             {versionsStatus === "error" &&
               (versionsError ??
                 "No se pudieron cargar las versiones oficiales.")}
+            {loaderStatus === "error" &&
+              (loaderError ?? "No se pudieron cargar las versiones del loader.")}
             {(versionsStatus === "ready" || versionsStatus === "idle") &&
               "Configura una instancia limpia y agrega recursos más tarde."}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeCreatorSection === "Importar") {
+      return (
+        <div className="instance-creator__panel">
+          <div className="instance-import__hero">
+            <img src={importGuide} alt="Guía de importación" />
+            <div>
+              <h5>Importar instancias y modpacks</h5>
+              <p>
+                Usa un link directo o selecciona un archivo local compatible
+                con CurseForge, Modrinth, Prism o Technic.
+              </p>
+            </div>
+          </div>
+          <div className="instance-import__row">
+            <label htmlFor="import-url">Archivo local o enlace directo</label>
+            <div className="instance-import__controls">
+              <input
+                id="import-url"
+                type="url"
+                placeholder="https://..."
+                value={importUrl}
+                onChange={(event) => setImportUrl(event.target.value)}
+              />
+              <label className="instance-import__file">
+                <input
+                  type="file"
+                  accept=".zip,.mrpack"
+                  onChange={handleImportFileChange}
+                />
+                Navegar
+              </label>
+            </div>
+            {importFileName ? (
+              <span className="instance-import__filename">
+                Archivo: {importFileName}
+              </span>
+            ) : null}
+          </div>
+          <div className="instance-import__supported">
+            <h6>Formatos soportados</h6>
+            <ul>
+              <li>Modpacks de CurseForge (ZIP / curseforge:// URL).</li>
+              <li>Modpacks de Modrinth (ZIP y mrpack).</li>
+              <li>Instancias exportadas de Prism, PolyMC o MultiMC (ZIP).</li>
+              <li>Modpacks de Technic (ZIP).</li>
+            </ul>
+          </div>
+          <div className="instance-import__external">
+            <div className="instance-import__header">
+              <h6>Instancias detectadas en otros launchers</h6>
+              <button type="button" onClick={handleExternalScan}>
+                Buscar instancias
+              </button>
+            </div>
+            {externalStatus === "loading" ? (
+              <p>Buscando instancias en Prism, CurseForge y otros launchers...</p>
+            ) : null}
+            {externalError ? (
+              <p className="instance-import__error">{externalError}</p>
+            ) : null}
+            {externalInstances.length ? (
+              <div className="instance-import__list">
+                {externalInstances.map((instance) => (
+                  <div key={instance.id} className="instance-import__item">
+                    <div>
+                      <strong>{instance.name}</strong>
+                      <span>
+                        {instance.launcher} · {instance.version}
+                      </span>
+                    </div>
+                    <button type="button">Importar</button>
+                  </div>
+                ))}
+              </div>
+            ) : externalStatus === "ready" ? (
+              <p>No se encontraron instancias externas.</p>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
+    if (
+      activeCreatorSection === "Modrinth" ||
+      activeCreatorSection === "CurseForge" ||
+      activeCreatorSection === "ATLauncher"
+    ) {
+      return (
+        <div className="instance-creator__panel">
+          <div className="instance-creator__hint">
+            {creatorStatus === "loading" && "Cargando modpacks..."}
+            {creatorStatus === "error" &&
+              (creatorError ?? "No se pudieron cargar los modpacks.")}
+            {creatorStatus === "ready" && creatorItems.length === 0
+              ? "No hay modpacks disponibles en esta fuente."
+              : null}
+          </div>
+          <div className="instance-import__list">
+            {creatorItems.map((item) => (
+              <div key={item.id} className="instance-import__item">
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>
+                    {item.type} · {item.source}
+                  </span>
+                </div>
+                <div className="instance-import__actions">
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      Ver
+                    </a>
+                  ) : null}
+                  <button type="button">Descargar</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       );

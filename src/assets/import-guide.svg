@@ -1,0 +1,15 @@
+<svg width="560" height="180" viewBox="0 0 560 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="560" height="180" rx="18" fill="#1D1E22"/>
+  <rect x="24" y="24" width="512" height="132" rx="12" fill="#2A2C33" stroke="#3B3E46"/>
+  <rect x="40" y="48" width="280" height="12" rx="6" fill="#444754"/>
+  <rect x="40" y="72" width="220" height="10" rx="5" fill="#3A3D46"/>
+  <rect x="40" y="92" width="180" height="10" rx="5" fill="#3A3D46"/>
+  <rect x="40" y="112" width="200" height="10" rx="5" fill="#3A3D46"/>
+  <rect x="360" y="52" width="148" height="44" rx="10" fill="#5D71FF"/>
+  <text x="434" y="79" fill="#F2F4FF" font-family="Arial" font-size="14" text-anchor="middle">Navegar</text>
+  <rect x="360" y="104" width="148" height="32" rx="10" fill="#3B3E46"/>
+  <text x="434" y="125" fill="#C7CAD6" font-family="Arial" font-size="12" text-anchor="middle">Pegar URL</text>
+  <circle cx="72" cy="44" r="6" fill="#5D71FF"/>
+  <circle cx="92" cy="44" r="6" fill="#F5B94B"/>
+  <circle cx="112" cy="44" r="6" fill="#F26B6B"/>
+</svg>

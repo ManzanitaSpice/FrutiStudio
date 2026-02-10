@@ -1,4 +1,12 @@
 import { apiFetch } from "./apiClients/client";
+import { searchCurseforge } from "./curseService";
+import { getCurseforgeApiKey } from "./curseforgeKeyService";
+import {
+  fetchPlanetMinecraftDataPacks,
+  fetchPlanetMinecraftModpacks,
+  fetchPlanetMinecraftResources,
+  fetchPlanetMinecraftWorlds,
+} from "./planetMinecraftService";
 
 export type ExplorerCategory =
   | "Modpacks"
@@ -15,6 +23,8 @@ export interface ExplorerItem {
   author: string;
   downloads: string;
   type: string;
+  source: string;
+  url?: string;
 }
 
 interface ModrinthSearchHit {
@@ -23,6 +33,7 @@ interface ModrinthSearchHit {
   author: string;
   downloads: number;
   project_type: string;
+  slug: string;
 }
 
 interface ModrinthSearchResponse {
@@ -59,7 +70,7 @@ const buildSearchUrl = (category: ExplorerCategory) => {
   )}${facets}&limit=6`;
 };
 
-export const fetchExplorerItems = async (
+const fetchModrinthItems = async (
   category: ExplorerCategory,
 ): Promise<ExplorerItem[]> => {
   const url = buildSearchUrl(category);
@@ -70,5 +81,124 @@ export const fetchExplorerItems = async (
     author: hit.author,
     downloads: `${formatDownloads(hit.downloads)} descargas`,
     type: hit.project_type,
+    source: "Modrinth",
+    url: `https://modrinth.com/${hit.project_type}/${hit.slug}`,
   }));
+};
+
+const curseforgeClassIds: Partial<Record<ExplorerCategory, number>> = {
+  Mods: 6,
+  Modpacks: 4471,
+  "Resource Packs": 12,
+};
+
+const fetchCurseforgeItems = async (
+  category: ExplorerCategory,
+  apiKey: string,
+): Promise<ExplorerItem[]> => {
+  const classId = curseforgeClassIds[category];
+  if (!classId) {
+    return [];
+  }
+  const results = await searchCurseforge({
+    apiKey,
+    query: "minecraft",
+    classId,
+    pageSize: 6,
+  });
+  return results.map((item) => ({
+    id: String(item.id),
+    name: item.name,
+    author: "CurseForge",
+    downloads: item.downloadCount
+      ? `${formatDownloads(item.downloadCount)} descargas`
+      : "Descargas",
+    type: category,
+    source: "CurseForge",
+    url: item.websiteUrl,
+  }));
+};
+
+const fetchPlanetMinecraftItems = async (
+  category: ExplorerCategory,
+): Promise<ExplorerItem[]> => {
+  switch (category) {
+    case "Modpacks": {
+      const items = await fetchPlanetMinecraftModpacks();
+      return items.map((item) => ({
+        id: item.id,
+        name: item.title,
+        author: item.author,
+        downloads: "Comunidad",
+        type: "Modpack",
+        source: "PlanetMinecraft",
+        url: item.link,
+      }));
+    }
+    case "Resource Packs": {
+      const items = await fetchPlanetMinecraftResources();
+      return items.map((item) => ({
+        id: item.id,
+        name: item.title,
+        author: item.author,
+        downloads: "Comunidad",
+        type: "Resource Pack",
+        source: "PlanetMinecraft",
+        url: item.link,
+      }));
+    }
+    case "Worlds": {
+      const items = await fetchPlanetMinecraftWorlds();
+      return items.map((item) => ({
+        id: item.id,
+        name: item.title,
+        author: item.author,
+        downloads: "Comunidad",
+        type: "World",
+        source: "PlanetMinecraft",
+        url: item.link,
+      }));
+    }
+    case "Data Packs": {
+      const items = await fetchPlanetMinecraftDataPacks();
+      return items.map((item) => ({
+        id: item.id,
+        name: item.title,
+        author: item.author,
+        downloads: "Comunidad",
+        type: "Data Pack",
+        source: "PlanetMinecraft",
+        url: item.link,
+      }));
+    }
+    default:
+      return [];
+  }
+};
+
+export const fetchExplorerItems = async (
+  category: ExplorerCategory,
+): Promise<ExplorerItem[]> => {
+  const tasks: Array<Promise<ExplorerItem[]>> = [fetchModrinthItems(category)];
+  const curseforgeApiKey = getCurseforgeApiKey();
+  if (curseforgeApiKey) {
+    tasks.push(fetchCurseforgeItems(category, curseforgeApiKey));
+  }
+  tasks.push(fetchPlanetMinecraftItems(category));
+
+  const results = await Promise.allSettled(tasks);
+  const items = results.flatMap((result) =>
+    result.status === "fulfilled" ? result.value : [],
+  );
+  if (!items.length) {
+    const hasError = results.some((result) => result.status === "rejected");
+    if (hasError) {
+      throw new Error("No se pudo conectar a las fuentes disponibles.");
+    }
+  }
+  const unique = new Map<string, ExplorerItem>();
+  items.forEach((item) => {
+    unique.set(`${item.source}-${item.id}`, item);
+  });
+  return Array.from(unique.values());
 };
