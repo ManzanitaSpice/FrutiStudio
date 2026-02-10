@@ -1339,6 +1339,13 @@ select:focus-visible {
   text-align: left;
 }
 
+.instance-editor__status-note {
+  margin: 0;
+  color: #9aa3b2;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 .instance-editor__placeholder {
   border-radius: 12px;
   border: 1px dashed #2b313f;
