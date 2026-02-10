@@ -48,6 +48,16 @@ export interface ExplorerResult {
   page: number;
 }
 
+export interface ExplorerItemFileVersion {
+  id: string;
+  name: string;
+  releaseType: "alpha" | "beta" | "release";
+  publishedAt?: string;
+  gameVersions: string[];
+  loaders: string[];
+  loaderVersion?: string;
+}
+
 export interface ExplorerItemDetails {
   id: string;
   source: "Modrinth" | "CurseForge" | "ATLauncher";
@@ -55,6 +65,7 @@ export interface ExplorerItemDetails {
   author: string;
   description: string;
   body?: string;
+  changelog?: string;
   gallery: string[];
   gameVersions: string[];
   loaders: string[];
@@ -63,6 +74,10 @@ export interface ExplorerItemDetails {
   updatedAt?: string;
   url?: string;
   type: string;
+  versions: ExplorerItemFileVersion[];
+  primaryMinecraftVersion?: string;
+  primaryLoader?: string;
+  primaryLoaderVersion?: string;
 }
 
 interface ModrinthSearchHit {
@@ -95,6 +110,17 @@ interface ModrinthProjectResponse {
   game_versions?: string[];
   downloads?: number;
   updated?: string;
+  versions?: string[];
+}
+
+interface ModrinthVersionResponse {
+  id: string;
+  version_number: string;
+  name: string;
+  version_type: "release" | "beta" | "alpha";
+  date_published?: string;
+  game_versions?: string[];
+  loaders?: string[];
 }
 
 interface CurseforgeSearchItem {
@@ -124,9 +150,15 @@ interface CurseforgeModResponse {
   data: CurseforgeSearchItem & {
     screenshots?: Array<{ url?: string; thumbnailUrl?: string }>;
     latestFiles?: Array<{
+      id?: number;
+      displayName?: string;
+      fileName?: string;
       gameVersions?: string[];
       sortableGameVersions?: Array<{ gameVersionName?: string }>;
       dependencies?: Array<{ modId?: number }>;
+      fileDate?: string;
+      releaseType?: number;
+      modLoader?: number;
     }>;
   };
 }
@@ -192,6 +224,51 @@ const requestCurseforgeV1 = async <T>(
     init: { headers: { "x-api-key": apiKey } },
     ttl: 45_000,
   });
+};
+
+
+const stripHtml = (value: string) =>
+  value
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const extractChangelog = (value?: string) => {
+  if (!value) return "";
+  const normalized = stripHtml(value);
+  const parts = normalized.split(/\n{2,}/);
+  const changelogStart = parts.findIndex((part) => /novedades|changelog|changes/i.test(part));
+  if (changelogStart === -1) return "";
+  return parts.slice(changelogStart).join("\n\n").trim();
+};
+
+const extractDescription = (summary: string, body?: string) => {
+  if (!body) return summary;
+  const normalized = stripHtml(body);
+  if (!normalized) return summary;
+  const sections = normalized.split(/\n{2,}/);
+  const stopIndex = sections.findIndex((part) => /novedades|changelog|changes/i.test(part));
+  const picked = stopIndex > 0 ? sections.slice(0, stopIndex).join("\n\n") : normalized;
+  return picked || summary;
+};
+
+const resolveLoaderVersion = (displayName?: string, loader?: string) => {
+  if (!displayName || !loader) return undefined;
+  const regex = new RegExp(`${loader}[-\s:]?([0-9][0-9A-Za-z+._-]*)`, "i");
+  const match = displayName.match(regex);
+  return match?.[1];
+};
+
+const resolveReleaseType = (releaseType?: number): "alpha" | "beta" | "release" => {
+  if (releaseType === 1) return "release";
+  if (releaseType === 2) return "beta";
+  return "alpha";
 };
 
 const formatDownloads = (downloads: number) =>
@@ -483,6 +560,8 @@ export const fetchExplorerItemDetails = async (
       { ttl: 60_000 },
     );
 
+    const versionData = await apiFetch<ModrinthVersionResponse[]>(`${MODRINTH_BASE}/project/${item.projectId}/version`, { ttl: 60_000 });
+
     const details: ExplorerItemDetails = {
       id: item.id,
       source: "Modrinth",
@@ -501,6 +580,19 @@ export const fetchExplorerItemDetails = async (
       updatedAt: data.updated ?? item.updatedAt,
       url: item.url,
       type: data.project_type,
+      versions: (versionData ?? []).map((version) => ({
+        id: version.id,
+        name: version.name || version.version_number,
+        releaseType: version.version_type,
+        publishedAt: version.date_published,
+        gameVersions: version.game_versions ?? [],
+        loaders: version.loaders ?? [],
+        loaderVersion: resolveLoaderVersion(version.name || version.version_number, (version.loaders ?? [])[0]),
+      })).sort((a,b)=>(b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")),
+      primaryMinecraftVersion: (versionData ?? []).flatMap((version)=>version.game_versions ?? [])[0],
+      primaryLoader: (versionData ?? []).flatMap((version)=>version.loaders ?? [])[0],
+      primaryLoaderVersion: undefined,
+      changelog: extractChangelog(data.body),
     };
     setCached(detailKey, details, 60_000);
     return details;
@@ -514,6 +606,8 @@ export const fetchExplorerItemDetails = async (
       title: item.name,
       author: item.author,
       description: item.description,
+      body: item.description,
+      changelog: "",
       gallery: item.thumbnail ? [item.thumbnail] : [],
       gameVersions: item.versions,
       loaders: item.loaders,
@@ -522,6 +616,10 @@ export const fetchExplorerItemDetails = async (
       updatedAt: item.updatedAt,
       url: item.url,
       type: item.type,
+      versions: [],
+      primaryMinecraftVersion: item.versions[0],
+      primaryLoader: item.loaders[0],
+      primaryLoaderVersion: undefined,
     };
     return fallback;
   }
@@ -531,38 +629,69 @@ export const fetchExplorerItemDetails = async (
     apiKey,
   );
 
+  const files = data.data.latestFiles ?? [];
+  const versions = files.map((file, index) => {
+    const allVersions = [
+      ...(file.gameVersions ?? []),
+      ...(file.sortableGameVersions
+        ?.map((entry) => entry.gameVersionName)
+        .filter((value): value is string => Boolean(value)) ?? []),
+    ];
+    const uniqueVersions = Array.from(new Set(allVersions));
+    const detectedLoader =
+      (file.modLoader !== undefined ? loaderFromCurseforge[file.modLoader] : undefined) ??
+      uniqueVersions.find((value) => /fabric|forge|quilt|neoforge/i.test(value));
+    const normalizedLoader = detectedLoader?.toLowerCase();
+    const minecraftVersions = uniqueVersions.filter((value) => /^\d+(\.\d+)+/.test(value));
+    return {
+      id: String(file.id ?? file.fileName ?? file.displayName ?? `file-${index}`),
+      name: file.displayName ?? file.fileName ?? "Versión sin nombre",
+      releaseType: resolveReleaseType(file.releaseType),
+      publishedAt: file.fileDate,
+      gameVersions: minecraftVersions,
+      loaders: normalizedLoader ? [normalizedLoader] : [],
+      loaderVersion: resolveLoaderVersion(file.displayName, normalizedLoader),
+    };
+  });
+
+  const sortedVersions = [...versions].sort((a, b) =>
+    (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""),
+  );
+  const latestStable =
+    sortedVersions.find((version) => version.releaseType === "release") ?? sortedVersions[0];
+
+  const detailBody = extractDescription(data.data.summary || item.description, data.data.summary);
+
   const details: ExplorerItemDetails = {
     id: item.id,
     source: "CurseForge",
     title: data.data.name,
     author: data.data.authors?.[0]?.name || item.author,
-    description: data.data.summary || item.description,
+    description: detailBody || data.data.summary || item.description,
+    body: detailBody || data.data.summary || item.description,
+    changelog: extractChangelog(data.data.summary),
     gallery: [
       ...(data.data.logo?.url ? [data.data.logo.url] : []),
       ...(data.data.screenshots ?? [])
         .map((screen) => screen.url ?? screen.thumbnailUrl)
         .filter((url): url is string => Boolean(url)),
     ],
-    gameVersions:
-      data.data.latestFiles?.flatMap((file) => {
-        const fromGameVersions = file.gameVersions ?? [];
-        const fromSortable =
-          file.sortableGameVersions
-            ?.map((entry) => entry.gameVersionName)
-            .filter((value): value is string => Boolean(value)) ?? [];
-        return [...fromGameVersions, ...fromSortable];
-      }) ?? [],
-    loaders: item.loaders,
+    gameVersions: Array.from(new Set(sortedVersions.flatMap((version) => version.gameVersions))),
+    loaders: Array.from(new Set(sortedVersions.flatMap((version) => version.loaders))),
     dependencies:
-      data.data.latestFiles
-        ?.flatMap((file) => file.dependencies ?? [])
+      files
+        .flatMap((file) => file.dependencies ?? [])
         .map((dep) => dep.modId)
         .filter((value): value is number => Boolean(value))
-        .map(String) ?? [],
+        .map(String),
     downloads: data.data.downloadCount ?? item.rawDownloads,
     updatedAt: data.data.dateReleased ?? item.updatedAt,
     url: data.data.links?.websiteUrl ?? item.url,
     type: item.type,
+    versions: sortedVersions,
+    primaryMinecraftVersion: latestStable?.gameVersions[0],
+    primaryLoader: latestStable?.loaders[0],
+    primaryLoaderVersion: latestStable?.loaderVersion,
   };
 
   setCached(detailKey, details, 60_000);

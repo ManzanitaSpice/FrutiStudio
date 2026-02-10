@@ -27,11 +27,10 @@ export const StatusBar = ({ selectedInstance, instances }: StatusBarProps) => {
         <div className="status-bar__main">
           {showDownloads && selectedInstance && (
             <div className="status-bar__section">
-              <strong>Descargar</strong>
+              <strong>Descarga</strong>
               <span>{selectedInstance.downloadLabel ?? "Descargando..."}</span>
-              <span className="status-bar__muted">
-                {selectedInstance.name}
-              </span>
+              <span>{selectedInstance.downloadStage ?? "descargando"} · {selectedInstance.downloadProgress ?? 0}%</span>
+              <span className="status-bar__muted">{selectedInstance.name}</span>
             </div>
           )}
           {showResources && selectedInstance?.resources && (

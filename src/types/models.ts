@@ -22,6 +22,9 @@ export interface Instance {
     cpu: string;
   };
   downloadLabel?: string;
+  downloadProgress?: number;
+  downloadStage?: "descargando" | "instalando" | "finalizando";
+  processId?: number;
 }
 
 export interface Modpack {

@@ -7,6 +7,7 @@ import {
   type ExplorerFilters,
   type ExplorerItem,
   type ExplorerItemDetails,
+  type ExplorerItemFileVersion,
   fetchExplorerItemDetails,
   fetchUnifiedCatalog,
 } from "../../services/explorerService";
@@ -48,7 +49,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
   const [selectedItem, setSelectedItem] = useState<ExplorerItem | null>(null);
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
-  const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
+  const [installState, setInstallState] = useState<{ item: ExplorerItem; version?: ExplorerItemFileVersion } | null>(null);
 
   useEffect(() => {
     if (!externalQueryToken || !externalQuery?.trim()) {
@@ -286,7 +287,7 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
                           <button
                             type="button"
                             className="explorer-item__secondary"
-                            onClick={() => setInstallItem(item)}
+                            onClick={() => setInstallState({ item })}
                           >
                             Instalar
                           </button>
@@ -325,12 +326,16 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
           details={details}
           loading={detailsLoading}
           onClose={() => setSelectedItem(null)}
-          onInstall={(item) => setInstallItem(item)}
+          onInstall={(item, version) => setInstallState({ item, version })}
         />
       ) : null}
 
-      {installItem ? (
-        <ProductInstallDialog item={installItem} onClose={() => setInstallItem(null)} />
+      {installState ? (
+        <ProductInstallDialog
+          item={installState.item}
+          version={installState.version}
+          onClose={() => setInstallState(null)}
+        />
       ) : null}
     </section>
   );
