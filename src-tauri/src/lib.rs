@@ -1270,6 +1270,128 @@ fn normalize_java_launch_args(args: Vec<String>, classpath: String) -> Vec<Strin
     normalized
 }
 
+fn merge_version_json(parent: &Value, child: &Value) -> Value {
+    let mut merged = parent.clone();
+
+    if let Some(parent_obj) = merged.as_object_mut() {
+        if let Some(child_obj) = child.as_object() {
+            for (key, child_value) in child_obj {
+                if key == "libraries" {
+                    let mut libraries = parent_obj
+                        .get("libraries")
+                        .and_then(|value| value.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    libraries.extend(child_value.as_array().cloned().unwrap_or_default());
+                    parent_obj.insert("libraries".to_string(), Value::Array(libraries));
+                    continue;
+                }
+
+                if key == "arguments" {
+                    let mut merged_arguments = parent_obj
+                        .get("arguments")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+
+                    if let Some(arguments_obj) = merged_arguments.as_object_mut() {
+                        let child_arguments = child_value.as_object().cloned().unwrap_or_default();
+
+                        for argument_key in ["game", "jvm"] {
+                            let mut values = arguments_obj
+                                .get(argument_key)
+                                .and_then(|value| value.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            values.extend(
+                                child_arguments
+                                    .get(argument_key)
+                                    .and_then(|value| value.as_array())
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            );
+                            arguments_obj.insert(argument_key.to_string(), Value::Array(values));
+                        }
+                    }
+
+                    parent_obj.insert("arguments".to_string(), merged_arguments);
+                    continue;
+                }
+
+                parent_obj.insert(key.clone(), child_value.clone());
+            }
+        }
+    }
+
+    merged
+}
+
+fn resolve_loader_profile_json(
+    minecraft_root: &Path,
+    version: &str,
+    loader: &str,
+    loader_version: Option<&str>,
+    base_version_json: &Value,
+) -> Option<Value> {
+    let loader_version = loader_version.unwrap_or("latest").trim();
+    if loader_version.is_empty() || loader_version.eq_ignore_ascii_case("latest") {
+        return None;
+    }
+
+    let mut candidates = Vec::new();
+    candidates.push(loader_version.to_string());
+    candidates.push(format!("{version}-{loader}-{loader_version}"));
+    candidates.push(format!("{version}-{loader_version}"));
+    if loader == "forge" {
+        candidates.push(format!("{version}-forge-{loader_version}"));
+    }
+    if loader == "neoforge" {
+        candidates.push(format!("{version}-neoforge-{loader_version}"));
+    }
+
+    for candidate in candidates {
+        let json_path = minecraft_root
+            .join("versions")
+            .join(&candidate)
+            .join(format!("{candidate}.json"));
+        if !json_path.exists() {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&json_path) else {
+            continue;
+        };
+        let Ok(loader_json) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+
+        let inherits_from = loader_json
+            .get("inheritsFrom")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let parent = if inherits_from.is_empty() || inherits_from == version {
+            base_version_json.clone()
+        } else {
+            let parent_path = minecraft_root
+                .join("versions")
+                .join(&inherits_from)
+                .join(format!("{inherits_from}.json"));
+            if !parent_path.exists() {
+                base_version_json.clone()
+            } else {
+                fs::read_to_string(parent_path)
+                    .ok()
+                    .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+                    .unwrap_or_else(|| base_version_json.clone())
+            }
+        };
+
+        return Some(merge_version_json(&parent, &loader_json));
+    }
+
+    None
+}
+
 fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
     if let Some(position) = args.iter().position(|arg| arg == key) {
         if position + 1 < args.len() {
@@ -1608,22 +1730,35 @@ async fn bootstrap_instance_runtime(
         }
     }
 
-    let mut libraries: Vec<Value> = base_version_json
+    let mut effective_version_json = base_version_json.clone();
+    if loader == "forge" || loader == "neoforge" {
+        if let Some(profile_json) = resolve_loader_profile_json(
+            &minecraft_root,
+            version,
+            &loader,
+            instance.loader_version.as_deref(),
+            &base_version_json,
+        ) {
+            effective_version_json = profile_json;
+        }
+    }
+
+    let mut libraries: Vec<Value> = effective_version_json
         .get("libraries")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    let mut main_class = base_version_json
+    let mut main_class = effective_version_json
         .get("mainClass")
         .and_then(|v| v.as_str())
         .unwrap_or("net.minecraft.client.main.Main")
         .to_string();
-    let mut game_arguments = base_version_json
+    let mut game_arguments = effective_version_json
         .get("arguments")
         .and_then(|v| v.get("game"))
         .cloned()
         .unwrap_or(Value::Array(Vec::new()));
-    let mut jvm_arguments = base_version_json
+    let mut jvm_arguments = effective_version_json
         .get("arguments")
         .and_then(|v| v.get("jvm"))
         .cloned()
@@ -1658,22 +1793,34 @@ async fn bootstrap_instance_runtime(
             )]
         };
         let profile = fetch_json_with_fallback(&profile_urls, "perfil del loader").await?;
-        if let Some(extra) = profile.get("libraries").and_then(|v| v.as_array()) {
-            libraries.extend(extra.clone());
-        }
-        if let Some(class) = profile.get("mainClass").and_then(|v| v.as_str()) {
+        effective_version_json = merge_version_json(&effective_version_json, &profile);
+        libraries = effective_version_json
+            .get("libraries")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if let Some(class) = effective_version_json
+            .get("mainClass")
+            .and_then(|v| v.as_str())
+        {
             main_class = class.to_string();
         }
-        if let Some(args) = profile.get("arguments").and_then(|v| v.get("game")) {
+        if let Some(args) = effective_version_json
+            .get("arguments")
+            .and_then(|v| v.get("game"))
+        {
             game_arguments = args.clone();
         }
-        if let Some(args) = profile.get("arguments").and_then(|v| v.get("jvm")) {
+        if let Some(args) = effective_version_json
+            .get("arguments")
+            .and_then(|v| v.get("jvm"))
+        {
             jvm_arguments = args.clone();
         }
     }
 
     if game_arguments.as_array().is_none() {
-        if let Some(legacy_args) = base_version_json
+        if let Some(legacy_args) = effective_version_json
             .get("minecraftArguments")
             .and_then(|v| v.as_str())
         {
@@ -2119,7 +2266,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         }
     }
 
-    if plan.loader != "vanilla" && plan.loader != "fabric" {
+    if !["vanilla", "fabric", "quilt", "forge", "neoforge"].contains(&plan.loader.as_str()) {
         warnings.push(format!(
             "Loader '{}' aún no tiene integración completa de perfil en esta versión.",
             plan.loader
@@ -3433,6 +3580,56 @@ mod tests {
                 "--version".to_string(),
                 "1.21.11".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn merge_version_json_combines_libraries_and_arguments() {
+        let parent = serde_json::json!({
+            "mainClass": "net.minecraft.client.main.Main",
+            "libraries": [{"name": "a"}],
+            "arguments": {
+                "game": ["--demo"],
+                "jvm": ["-Xmx2G"]
+            }
+        });
+        let child = serde_json::json!({
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "libraries": [{"name": "b"}],
+            "arguments": {
+                "game": ["--fml.mcVersion", "1.20.1"],
+                "jvm": ["-Dforge=true"]
+            }
+        });
+
+        let merged = merge_version_json(&parent, &child);
+
+        assert_eq!(
+            merged.get("mainClass").and_then(|value| value.as_str()),
+            Some("cpw.mods.bootstraplauncher.BootstrapLauncher")
+        );
+        assert_eq!(
+            merged
+                .get("libraries")
+                .and_then(|value| value.as_array())
+                .map(|value| value.len()),
+            Some(2)
+        );
+        assert_eq!(
+            merged
+                .get("arguments")
+                .and_then(|value| value.get("game"))
+                .and_then(|value| value.as_array())
+                .map(|value| value.len()),
+            Some(3)
+        );
+        assert_eq!(
+            merged
+                .get("arguments")
+                .and_then(|value| value.get("jvm"))
+                .and_then(|value| value.as_array())
+                .map(|value| value.len()),
+            Some(2)
         );
     }
 }
