@@ -60,15 +60,23 @@ export const updateInstance = async (_config: Instance) => Promise.resolve();
 
 export const removeInstance = async (_instanceId: string) => Promise.resolve();
 
+const assertValidInstanceId = (instanceId: string) => {
+  if (typeof instanceId !== "string" || instanceId.trim().length === 0) {
+    throw new Error("No hay una instancia válida seleccionada.");
+  }
+  return instanceId.trim();
+};
 
 export const launchInstance = async (instanceId: string) => {
+  const validInstanceId = assertValidInstanceId(instanceId);
   return invokeWithHandling<{ pid: number }>("launch_instance", {
-    instance_id: instanceId,
+    instanceId: validInstanceId,
   });
 };
 
 export const repairInstance = async (instanceId: string) => {
+  const validInstanceId = assertValidInstanceId(instanceId);
   return invokeWithHandling<void>("repair_instance", {
-    instance_id: instanceId,
+    instanceId: validInstanceId,
   });
 };

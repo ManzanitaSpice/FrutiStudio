@@ -217,6 +217,8 @@ export const InstancePanel = ({
   const [javaAdvisorNotes, setJavaAdvisorNotes] = useState<string[]>([]);
   const selectedInstance =
     instances.find((instance) => instance.id === selectedInstanceId) ?? null;
+  const selectedInstanceHasValidId =
+    Boolean(selectedInstance && typeof selectedInstance.id === "string" && selectedInstance.id.trim().length > 0);
   const statusLabels: Record<Instance["status"], string> = {
     ready: "Listo para jugar",
     "pending-update": "Actualización pendiente",
@@ -290,7 +292,7 @@ export const InstancePanel = ({
   }, [launchStatus, selectedInstance]);
 
   const primaryAction = useMemo(() => {
-    if (!selectedInstance) {
+    if (!selectedInstanceHasValidId || !selectedInstance) {
       return { label: "▶ Iniciar", disabled: true, action: () => undefined };
     }
     const hasPid = typeof selectedInstance.processId === "number";
@@ -355,7 +357,7 @@ export const InstancePanel = ({
         }
       },
     };
-  }, [launchStatus, onUpdateInstance, selectedInstance]);
+  }, [launchStatus, onUpdateInstance, selectedInstance, selectedInstanceHasValidId]);
 
   const versionRows = [
     { name: "Minecraft", version: selectedInstance?.version ?? "—" },
