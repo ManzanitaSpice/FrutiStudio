@@ -99,53 +99,62 @@ const AppShell = () => {
 
   useEffect(() => {
     const runBoot = async () => {
-      bootStartedAt.current = Date.now();
-      setBootStep(0);
-      const config = await loadConfig();
-      setBootStep(1);
-      setBootEvents([loadingEvents[0]]);
-      await Promise.allSettled([
-        fetchInstances(),
-        fetchNewsOverview(),
-        fetchExplorerItems("Modpacks"),
-        fetchServerListings(),
-      ]);
-      setBootStep(2);
-      setBootEvents((prev) => [...prev, loadingEvents[1]]);
-      if (config.uiScale) {
-        setScale(config.uiScale);
-      }
-      if (config.theme) {
-        setTheme(config.theme);
-      }
-      if (config.activeSection) {
-        setSection(config.activeSection);
-      }
-      if (typeof config.focusMode === "boolean") {
-        if (config.focusMode !== isFocusMode) {
-          toggleFocus();
+      try {
+        bootStartedAt.current = Date.now();
+        setBootStep(0);
+        const config = await loadConfig();
+        setBootStep(1);
+        setBootEvents([loadingEvents[0]]);
+        await Promise.allSettled([
+          fetchInstances(),
+          fetchNewsOverview(),
+          fetchExplorerItems("Modpacks"),
+          fetchServerListings(),
+        ]);
+        setBootStep(2);
+        setBootEvents((prev) => [...prev, loadingEvents[1]]);
+        if (config.uiScale) {
+          setScale(config.uiScale);
         }
+        if (config.theme) {
+          setTheme(config.theme);
+        }
+        if (config.activeSection) {
+          setSection(config.activeSection);
+        }
+        if (typeof config.focusMode === "boolean") {
+          if (config.focusMode !== isFocusMode) {
+            toggleFocus();
+          }
+        }
+        if (config.customTheme) {
+          Object.entries(config.customTheme).forEach(([key, value]) => {
+            document.documentElement.style.setProperty(`--custom-${key}`, value);
+          });
+        } else {
+          Object.entries(defaultCustomTheme).forEach(([key, value]) => {
+            document.documentElement.style.setProperty(`--custom-${key}`, value);
+          });
+        }
+        setBootStep(3);
+        setBootEvents((prev) => [...prev, loadingEvents[2], loadingEvents[3]]);
+        const loadedInstances = await fetchInstances();
+        setInstances(loadedInstances);
+        setBootStep(4);
+        setBootEvents((prev) => [...prev, loadingEvents[4]]);
+      } catch (error) {
+        console.error("Error durante el arranque", error);
+        setBootEvents((prev) => [
+          ...prev,
+          "Advertencia: hubo un error al cargar algunos módulos. Continuando...",
+        ]);
+      } finally {
+        const elapsed = Date.now() - bootStartedAt.current;
+        const minimumBootDuration = 4_500;
+        const remaining = Math.max(0, minimumBootDuration - elapsed);
+        window.setTimeout(() => setBootReady(true), remaining);
+        bootHydrated.current = true;
       }
-      if (config.customTheme) {
-        Object.entries(config.customTheme).forEach(([key, value]) => {
-          document.documentElement.style.setProperty(`--custom-${key}`, value);
-        });
-      } else {
-        Object.entries(defaultCustomTheme).forEach(([key, value]) => {
-          document.documentElement.style.setProperty(`--custom-${key}`, value);
-        });
-      }
-      setBootStep(3);
-      setBootEvents((prev) => [...prev, loadingEvents[2], loadingEvents[3]]);
-      const loadedInstances = await fetchInstances();
-      setInstances(loadedInstances);
-      setBootStep(4);
-      setBootEvents((prev) => [...prev, loadingEvents[4]]);
-      const elapsed = Date.now() - bootStartedAt.current;
-      const minimumBootDuration = 4_500;
-      const remaining = Math.max(0, minimumBootDuration - elapsed);
-      window.setTimeout(() => setBootReady(true), remaining);
-      bootHydrated.current = true;
     };
     void runBoot();
   }, [setScale, setTheme, setSection, isFocusMode, toggleFocus]);

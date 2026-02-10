@@ -887,10 +887,6 @@ pub fn run() {
             if let Err(error) = init_database(app.handle()) {
                 eprintln!("Error al inicializar la base de datos: {error}");
             }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.maximize();
-                let _ = window.set_fullscreen(true);
-            }
             Ok(())
         })
         .run(tauri::generate_context!())

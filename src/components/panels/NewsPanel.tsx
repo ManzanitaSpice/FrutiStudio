@@ -76,6 +76,21 @@ export const NewsPanel = () => {
   const warnings = news?.warnings ?? [];
   const catalog = news?.catalogItems ?? [];
   const categories = news?.categories ?? [];
+  const topSource = useMemo(() => {
+    const counts = catalog.reduce<Record<string, number>>((acc, item) => {
+      acc[item.source] = (acc[item.source] ?? 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "N/D";
+  }, [catalog]);
+  const totalDownloads = useMemo(
+    () =>
+      catalog.reduce((acc, item) => {
+        const value = Number.parseInt(item.downloads.replace(/[^\d]/g, ""), 10);
+        return acc + (Number.isNaN(value) ? 0 : value);
+      }, 0),
+    [catalog],
+  );
 
   const byCategory = useMemo(
     () =>
@@ -119,6 +134,31 @@ export const NewsPanel = () => {
           {warnings.map((warning) => (
             <p key={warning}>{warning}</p>
           ))}
+        </div>
+      ) : null}
+
+      <div className="news-kpis">
+        <article className="news-kpis__card">
+          <small>Elementos en tendencia</small>
+          <strong>{news?.trendingItems?.length ?? 0}</strong>
+        </article>
+        <article className="news-kpis__card">
+          <small>Fuente dominante</small>
+          <strong>{topSource}</strong>
+        </article>
+        <article className="news-kpis__card">
+          <small>Descargas acumuladas</small>
+          <strong>{new Intl.NumberFormat("es-AR", { notation: "compact" }).format(totalDownloads || 0)}</strong>
+        </article>
+      </div>
+
+      {(news?.trendingItems?.length ?? 0) > 0 ? (
+        <div className="news-marquee" aria-hidden="true">
+          <div className="news-marquee__track">
+            {[...(news?.trendingItems ?? []), ...(news?.trendingItems ?? [])].map((item, index) => (
+              <span key={`${item.id}-${index}`}>{item.title}</span>
+            ))}
+          </div>
         </div>
       ) : null}
 

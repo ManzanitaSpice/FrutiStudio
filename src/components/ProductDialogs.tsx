@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react";
+import { getCurseforgeApiKey } from "../services/curseforgeKeyService";
+import { resolveCurseforgeDownloadAction } from "../services/curseforgeComplianceService";
+import { sanitizeLauncherHtml } from "../utils/sanitizeRichText";
 
 import type {
   ExplorerItem,
@@ -52,6 +55,12 @@ export const ProductDetailsDialog = ({
   onInstall,
 }: ProductDetailsDialogProps) => {
   const [tab, setTab] = useState<DetailTab>("descripcion");
+  const [installMessage, setInstallMessage] = useState<string | null>(null);
+
+  const descriptionHtml = useMemo(
+    () => sanitizeLauncherHtml(details?.body ?? details?.description ?? item.description),
+    [details?.body, details?.description, item.description],
+  );
 
   const changelogRows = useMemo(() => {
     const source = details?.changelog ?? details?.body ?? "";
@@ -63,6 +72,63 @@ export const ProductDetailsDialog = ({
   }, [details?.body, details?.changelog]);
 
   const versions = details?.versions ?? [];
+
+  const handleDownload = async (version?: ExplorerItemFileVersion) => {
+    setInstallMessage("Preparando descarga...");
+    try {
+      if (item.source === "Modrinth") {
+        const url = version?.downloadUrl ?? details?.url ?? item.url;
+        if (!url) {
+          throw new Error("No se encontró un enlace de descarga en Modrinth.");
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+        setInstallMessage("Descarga iniciada en navegador.");
+        return;
+      }
+
+      if (item.source === "CurseForge") {
+        const apiKey = getCurseforgeApiKey();
+        const modId = Number(version?.modId ?? item.projectId);
+        const fileId = Number(version?.fileId);
+
+        if (!apiKey) {
+          const fallback = details?.url ?? item.url;
+          if (fallback) {
+            window.open(fallback, "_blank", "noopener,noreferrer");
+            setInstallMessage("Abierto en CurseForge (configura API key para descarga directa).");
+            return;
+          }
+          throw new Error("Configura la API key de CurseForge para descargar automáticamente.");
+        }
+
+        if (!Number.isFinite(modId) || !Number.isFinite(fileId)) {
+          const fallback = details?.url ?? item.url;
+          if (fallback) {
+            window.open(fallback, "_blank", "noopener,noreferrer");
+            setInstallMessage("No se encontró fileId; abierto en la página oficial.");
+            return;
+          }
+          throw new Error("No se pudo resolver el archivo de CurseForge para descarga.");
+        }
+
+        const action = await resolveCurseforgeDownloadAction(modId, fileId, apiKey);
+        const url = action.kind === "auto" ? action.downloadUrl : action.websiteUrl;
+        if (!url) {
+          throw new Error("CurseForge no devolvió URL de descarga/manual.");
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+        setInstallMessage(
+          action.kind === "auto"
+            ? "Descarga directa de CurseForge iniciada."
+            : "Este archivo requiere descarga manual en CurseForge.",
+        );
+      }
+    } catch (error) {
+      setInstallMessage(
+        error instanceof Error ? error.message : "No se pudo iniciar la descarga.",
+      );
+    }
+  };
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -113,6 +179,9 @@ export const ProductDetailsDialog = ({
               <button type="button" onClick={() => onInstall(item)}>
                 Instalar
               </button>
+              <button type="button" className="product-dialog__secondary" onClick={() => void handleDownload()}>
+                Descargar
+              </button>
               <button
                 type="button"
                 className="product-dialog__close"
@@ -159,12 +228,7 @@ export const ProductDetailsDialog = ({
           {loading || !details ? <p>Cargando información completa...</p> : null}
           {!loading && details && tab === "descripcion" ? (
             <div className="product-dialog__text-block">
-              {(details.body ?? details.description)
-                .split("\n")
-                .filter(Boolean)
-                .map((line, index) => (
-                  <p key={`${line}-${index}`}>{line}</p>
-                ))}
+              <div dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
             </div>
           ) : null}
           {!loading && details && tab === "novedades" ? (
@@ -208,6 +272,9 @@ export const ProductDetailsDialog = ({
                     <button type="button" onClick={() => onInstall(item, version)}>
                       Instalar
                     </button>
+                    <button type="button" className="product-dialog__secondary" onClick={() => void handleDownload(version)}>
+                      Descargar
+                    </button>
                   </article>
                 ))
               ) : (
@@ -216,6 +283,7 @@ export const ProductDetailsDialog = ({
             </div>
           ) : null}
         </div>
+        {installMessage ? <small>{installMessage}</small> : null}
       </article>
     </div>
   );

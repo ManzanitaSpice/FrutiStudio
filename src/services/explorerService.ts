@@ -56,6 +56,9 @@ export interface ExplorerItemFileVersion {
   gameVersions: string[];
   loaders: string[];
   loaderVersion?: string;
+  downloadUrl?: string;
+  modId?: string;
+  fileId?: string;
 }
 
 export interface ExplorerItemDetails {
@@ -121,6 +124,7 @@ interface ModrinthVersionResponse {
   date_published?: string;
   game_versions?: string[];
   loaders?: string[];
+  files?: Array<{ url?: string }>;
 }
 
 interface CurseforgeSearchItem {
@@ -153,6 +157,7 @@ interface CurseforgeModResponse {
       id?: number;
       displayName?: string;
       fileName?: string;
+      downloadUrl?: string;
       gameVersions?: string[];
       sortableGameVersions?: Array<{ gameVersionName?: string }>;
       dependencies?: Array<{ modId?: number }>;
@@ -378,9 +383,6 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
   }
 
   const classId = curseforgeClassIds[filters.category];
-  if (!classId) {
-    return { items: [], hasMore: false, total: 0, page: filters.page ?? 0 };
-  }
 
   const pageSize = normalizePageSize(filters.pageSize);
   const page = Math.max(0, filters.page ?? 0);
@@ -394,7 +396,7 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
           filters.query?.trim() ||
           (filters.category === "Modpacks" ? "modpack" : "minecraft"),
         gameVersion: filters.gameVersion,
-        classId: String(classId),
+        classId: classId ? String(classId) : undefined,
         modLoaderType: filters.loader
           ? String(curseforgeLoaders[filters.loader.toLowerCase()] ?? "")
           : undefined,
@@ -411,7 +413,7 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
   );
 
   const items = (response.data ?? [])
-    .filter((item) => item.classId === classId)
+        .filter((item) => (classId ? item.classId === classId : true))
     .map((item) => ({
       id: `curseforge-${item.id}`,
       projectId: String(item.id),
@@ -588,6 +590,7 @@ export const fetchExplorerItemDetails = async (
         gameVersions: version.game_versions ?? [],
         loaders: version.loaders ?? [],
         loaderVersion: resolveLoaderVersion(version.name || version.version_number, (version.loaders ?? [])[0]),
+        downloadUrl: version.files?.[0]?.url,
       })).sort((a,b)=>(b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")),
       primaryMinecraftVersion: (versionData ?? []).flatMap((version)=>version.game_versions ?? [])[0],
       primaryLoader: (versionData ?? []).flatMap((version)=>version.loaders ?? [])[0],
@@ -651,6 +654,9 @@ export const fetchExplorerItemDetails = async (
       gameVersions: minecraftVersions,
       loaders: normalizedLoader ? [normalizedLoader] : [],
       loaderVersion: resolveLoaderVersion(file.displayName, normalizedLoader),
+      downloadUrl: file.downloadUrl,
+      modId: item.projectId,
+      fileId: String(file.id ?? ""),
     };
   });
 
