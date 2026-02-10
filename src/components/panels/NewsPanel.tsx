@@ -73,10 +73,10 @@ export const NewsPanel = () => {
       ) : null}
 
       {featuredItems.length ? (
-        <div className="news-hero news-hero--carousel">
+        <div className="news-hero">
           {featuredItems.map((item) => (
             <article key={item.id} className="news-hero__card">
-              <div className="news-hero__media" />
+              {item.thumbnail ? <img src={item.thumbnail} alt={item.title} className="news-hero__media" /> : <div className="news-hero__media" />}
               <div className="news-hero__content">
                 <span className="news-hero__subtitle">{item.subtitle}</span>
                 <h3>{item.title}</h3>
@@ -104,31 +104,30 @@ export const NewsPanel = () => {
       {trendingItems.length ? (
         <div className="news-section">
           <div className="news-section__header">
-            <h3>En tendencia ahora</h3>
-            <span className="news-section__meta">Actualizado cada 15 min</span>
+            <h3>Relevancia</h3>
+            <span className="news-section__meta">Ranking dinámico</span>
           </div>
-          <div className="news-carousel">
-            <div className="news-carousel__track">
-              {[...trendingItems, ...trendingItems].map((item, index) => (
-                <article
-                  key={`${item.id}-${index}`}
-                  className="news-carousel__card"
-                >
-                  <div className="news-carousel__icon" />
-                  <div>
-                    <h4>{item.title}</h4>
-                    <p>
-                      {item.type} · {item.source}
-                    </p>
-                    {item.url ? (
-                      <a href={item.url} target="_blank" rel="noreferrer">
-                        Abrir
-                      </a>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
-            </div>
+          <div className="news-latest">
+            {trendingItems.map((item) => (
+              <article key={item.id} className="news-latest__card">
+                {item.thumbnail ? (
+                  <img className="news-latest__icon" src={item.thumbnail} alt={item.title} />
+                ) : (
+                  <div className="news-latest__icon" />
+                )}
+                <div>
+                  <h4>{item.title}</h4>
+                  <p>
+                    {item.type} · {item.source}
+                  </p>
+                </div>
+                {item.url ? (
+                  <a href={item.url} target="_blank" rel="noreferrer">
+                    Abrir
+                  </a>
+                ) : null}
+              </article>
+            ))}
           </div>
         </div>
       ) : null}
@@ -158,7 +157,7 @@ export const NewsPanel = () => {
           <div className="news-latest">
             {latestItems.map((item) => (
               <article key={item.id} className="news-latest__card">
-                <div className="news-latest__icon" />
+                {item.thumbnail ? <img className="news-latest__icon" src={item.thumbnail} alt={item.name} /> : <div className="news-latest__icon" />}
                 <div>
                   <h4>{item.name}</h4>
                   <p>

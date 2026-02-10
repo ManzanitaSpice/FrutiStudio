@@ -1,6 +1,6 @@
 import {
   type ChangeEvent,
-  type MouseEvent,
+  type MouseEvent as ReactMouseEvent,
   useEffect,
   useMemo,
   useState,
@@ -19,7 +19,7 @@ import {
 import { fetchATLauncherPacks } from "../../services/atmlService";
 import {
   type ExplorerItem,
-  fetchExplorerItems,
+  fetchUnifiedCatalog,
 } from "../../services/explorerService";
 import { fetchLoaderVersions } from "../../services/loaderVersionService";
 import { formatPlaytime, formatRelativeTime } from "../../utils/formatters";
@@ -158,13 +158,13 @@ export const InstancePanel = ({
     });
   }, [instances]);
 
-  const handleCreatorBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
+  const handleCreatorBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       setCreatorOpen(false);
     }
   };
 
-  const startCreatorDrag = (event: MouseEvent<HTMLDivElement>) => {
+  const startCreatorDrag = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (!creatorOpen) {
       return;
     }
@@ -178,7 +178,7 @@ export const InstancePanel = ({
     const startX = event.clientX - creatorPosition.x;
     const startY = event.clientY - creatorPosition.y;
 
-    const handleMove = (moveEvent: MouseEvent) => {
+    const handleMove = (moveEvent: globalThis.MouseEvent) => {
       setCreatorPosition({
         x: moveEvent.clientX - startX,
         y: moveEvent.clientY - startY,
@@ -352,14 +352,19 @@ export const InstancePanel = ({
           if (isActive) {
             setCreatorItems(
               packs.slice(0, 8).map((pack) => ({
-                id: String(pack.id),
+                id: `atlauncher-${pack.id}`,
+                projectId: String(pack.id),
                 name: pack.name,
                 author: "ATLauncher",
                 downloads: pack.versions
                   ? `${pack.versions} versiones`
                   : "Disponible",
+                rawDownloads: 0,
+                description: "Pack disponible en ATLauncher",
                 type: "Modpack",
                 source: "ATLauncher",
+                versions: [],
+                loaders: [],
                 url: `https://atlauncher.com/pack/${pack.id}`,
               })),
             );
@@ -367,11 +372,15 @@ export const InstancePanel = ({
           }
           return;
         }
-        const modpacks = await fetchExplorerItems("Modpacks");
-        const sourceLabel =
-          activeCreatorSection === "Modrinth" ? "Modrinth" : "CurseForge";
+        const modpacks = await fetchUnifiedCatalog({
+          category: "Modpacks",
+          platform: activeCreatorSection === "Modrinth" ? "modrinth" : "curseforge",
+          sort: "popular",
+          page: 0,
+          pageSize: 24,
+        });
         if (isActive) {
-          setCreatorItems(modpacks.filter((item) => item.source === sourceLabel));
+          setCreatorItems(modpacks.items);
           setCreatorStatus("ready");
         }
       } catch (error) {
@@ -756,7 +765,7 @@ export const InstancePanel = ({
   };
 
   const handleContextMenu = (
-    event: MouseEvent<HTMLElement>,
+    event: ReactMouseEvent<HTMLElement>,
     instance: Instance | null,
   ) => {
     event.preventDefault();

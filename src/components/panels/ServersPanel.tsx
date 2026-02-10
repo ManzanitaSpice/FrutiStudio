@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { fetchServerListings, type ServerListing } from "../../services/serverService";
 
@@ -6,6 +6,8 @@ export const ServersPanel = () => {
   const [servers, setServers] = useState<ServerListing[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [mode, setMode] = useState("all");
 
   useEffect(() => {
     let isActive = true;
@@ -38,32 +40,49 @@ export const ServersPanel = () => {
     };
   }, []);
 
+  const filteredServers = useMemo(
+    () =>
+      servers.filter((server) => {
+        const matchesQuery =
+          !query.trim() ||
+          server.name.toLowerCase().includes(query.toLowerCase()) ||
+          server.ip.toLowerCase().includes(query.toLowerCase());
+        const matchesMode =
+          mode === "all" || server.tags.some((tag) => tag.toLowerCase() === mode);
+        return matchesQuery && matchesMode;
+      }),
+    [mode, query, servers],
+  );
+
   return (
     <section className="panel-view panel-view--servers">
       <div className="panel-view__header">
         <div>
           <h2>Servers</h2>
           <p>
-            Encuentra servidores por nombre o IP, con filtros avanzados y estado
-            en tiempo real.
+            Catálogo consistente con búsqueda y filtros para navegar servers
+            compatibles.
           </p>
         </div>
       </div>
 
       <div className="servers-toolbar">
         <div className="servers-toolbar__filters">
-          <span>Modo:</span>
-          <button type="button">Survival</button>
-          <button type="button">SkyBlock</button>
-          <button type="button">Creativo</button>
-          <button type="button">PvP</button>
+          <input
+            type="search"
+            placeholder="Buscar por nombre o IP"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </div>
         <div className="servers-toolbar__filters">
-          <span>Orden:</span>
-          <select defaultValue="players">
-            <option value="players">Jugadores activos</option>
-            <option value="ping">Ping</option>
-            <option value="recent">Recientes</option>
+          <span>Modo:</span>
+          <select value={mode} onChange={(event) => setMode(event.target.value)}>
+            <option value="all">Todos</option>
+            <option value="survival">Survival</option>
+            <option value="skyblock">SkyBlock</option>
+            <option value="pvp">PvP</option>
+            <option value="minijuegos">Minijuegos</option>
           </select>
         </div>
       </div>
@@ -71,8 +90,8 @@ export const ServersPanel = () => {
       <div className="servers-list">
         {loading ? <div className="servers-list__empty">Conectando...</div> : null}
         {error ? <div className="servers-list__empty">{error}</div> : null}
-        {servers.length ? (
-          servers.map((server) => (
+        {filteredServers.length ? (
+          filteredServers.map((server) => (
             <article key={server.id} className="server-card">
               <div className="server-card__info">
                 <div className="server-card__logo" />
@@ -104,7 +123,7 @@ export const ServersPanel = () => {
           ))
         ) : !loading && !error ? (
           <div className="servers-list__empty">
-            <p>No hay servidores reales cargados.</p>
+            <p>No hay servidores para ese filtro.</p>
           </div>
         ) : null}
       </div>
