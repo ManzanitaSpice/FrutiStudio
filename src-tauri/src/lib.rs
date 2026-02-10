@@ -6,6 +6,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use reqwest::header::{HeaderMap, HeaderValue};
+
 use fs2::available_space;
 use once_cell::sync::Lazy;
 use rusqlite::{params, Connection};
@@ -56,6 +58,170 @@ struct SelectFolderResult {
     ok: bool,
     path: Option<String>,
     error: Option<String>,
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FingerprintScanResult {
+    files: Vec<FingerprintFileResult>,
+    unmatched_fingerprints: Vec<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FingerprintFileResult {
+    path: String,
+    file_name: String,
+    fingerprint: u32,
+    matched: bool,
+    mod_id: Option<u32>,
+    file_id: Option<u32>,
+    mod_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeDownloadResolution {
+    mod_id: u32,
+    file_id: u32,
+    can_auto_download: bool,
+    download_url: Option<String>,
+    website_url: Option<String>,
+    reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FingerprintsRequestBody {
+    fingerprints: Vec<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeFingerprintsEnvelope {
+    data: CurseforgeFingerprintsData,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeFingerprintsData {
+    exact_matches: Vec<CurseforgeFingerprintMatch>,
+    #[serde(default)]
+    unmatched_fingerprints: Vec<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeFingerprintMatch {
+    id: u32,
+    file: CurseforgeMatchedFile,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeMatchedFile {
+    id: u32,
+    file_name: String,
+    #[serde(default)]
+    file_fingerprint: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct CurseforgeModEnvelope {
+    data: CurseforgeModData,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeModData {
+    name: Option<String>,
+    links: Option<CurseforgeModLinks>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeModLinks {
+    website_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CurseforgeFileEnvelope {
+    data: CurseforgeFileData,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurseforgeFileData {
+    download_url: Option<String>,
+    is_available: Option<bool>,
+}
+
+fn murmurhash2(data: &[u8]) -> u32 {
+    const M: u32 = 0x5bd1e995;
+    const R: u32 = 24;
+    let len = data.len() as u32;
+    let mut h = 1u32 ^ len;
+    let mut i = 0usize;
+
+    while i + 4 <= data.len() {
+        let mut k = u32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]);
+        k = k.wrapping_mul(M);
+        k ^= k >> R;
+        k = k.wrapping_mul(M);
+
+        h = h.wrapping_mul(M);
+        h ^= k;
+        i += 4;
+    }
+
+    match data.len() - i {
+        3 => {
+            h ^= (data[i + 2] as u32) << 16;
+            h ^= (data[i + 1] as u32) << 8;
+            h ^= data[i] as u32;
+            h = h.wrapping_mul(M);
+        }
+        2 => {
+            h ^= (data[i + 1] as u32) << 8;
+            h ^= data[i] as u32;
+            h = h.wrapping_mul(M);
+        }
+        1 => {
+            h ^= data[i] as u32;
+            h = h.wrapping_mul(M);
+        }
+        _ => {}
+    }
+
+    h ^= h >> 13;
+    h = h.wrapping_mul(M);
+    h ^= h >> 15;
+    h
+}
+
+fn curseforge_headers(api_key: &str) -> Result<HeaderMap, String> {
+    let mut headers = HeaderMap::new();
+    let key = HeaderValue::from_str(api_key).map_err(|error| format!("API key inválida: {error}"))?;
+    headers.insert("x-api-key", key);
+    headers.insert("content-type", HeaderValue::from_static("application/json"));
+    Ok(headers)
+}
+
+async fn fetch_mod_name_and_site(client: &reqwest::Client, headers: &HeaderMap, mod_id: u32) -> (Option<String>, Option<String>) {
+    let response = client
+        .get(format!("https://api.curseforge.com/v1/mods/{mod_id}"))
+        .headers(headers.clone())
+        .send()
+        .await;
+
+    if let Ok(resp) = response {
+        if let Ok(envelope) = resp.json::<CurseforgeModEnvelope>().await {
+            let site = envelope.data.links.and_then(|links| links.website_url);
+            return (envelope.data.name, site);
+        }
+    }
+
+    (None, Some(format!("https://www.curseforge.com/minecraft/mc-mods/{mod_id}")))
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -486,6 +652,129 @@ async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<
     })
 }
 
+#[command]
+async fn curseforge_scan_fingerprints(mods_dir: String, api_key: String) -> Result<FingerprintScanResult, String> {
+    let mods_path = Path::new(&mods_dir);
+    if !mods_path.exists() || !mods_path.is_dir() {
+        return Err("La carpeta de mods no existe o no es válida.".to_string());
+    }
+
+    let mut local_files = Vec::new();
+    for entry in fs::read_dir(mods_path).map_err(|error| format!("No se pudo leer carpeta de mods: {error}"))? {
+        let entry = entry.map_err(|error| format!("Entrada inválida: {error}"))?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.eq_ignore_ascii_case("jar")).unwrap_or(false) {
+            let bytes = fs::read(&path).map_err(|error| format!("No se pudo leer archivo {}: {error}", path.display()))?;
+            let fingerprint = murmurhash2(&bytes);
+            local_files.push((path, fingerprint));
+        }
+    }
+
+    let body = FingerprintsRequestBody {
+        fingerprints: local_files.iter().map(|(_, fp)| *fp).collect(),
+    };
+
+    let headers = curseforge_headers(&api_key)?;
+    let client = reqwest::Client::new();
+    let response = client
+        .post("https://api.curseforge.com/v1/fingerprints")
+        .headers(headers.clone())
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| format!("Error de red al consultar fingerprints: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("CurseForge respondió {status}: {text}"));
+    }
+
+    let envelope = response
+        .json::<CurseforgeFingerprintsEnvelope>()
+        .await
+        .map_err(|error| format!("Respuesta inválida de CurseForge: {error}"))?;
+
+    let mut files = Vec::new();
+    for (path, fingerprint) in local_files {
+        if let Some(matched) = envelope
+            .data
+            .exact_matches
+            .iter()
+            .find(|item| item.file.file_fingerprint == fingerprint)
+        {
+            let (mod_name, _) = fetch_mod_name_and_site(&client, &headers, matched.id).await;
+            files.push(FingerprintFileResult {
+                path: path.display().to_string(),
+                file_name: path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_string(),
+                fingerprint,
+                matched: true,
+                mod_id: Some(matched.id),
+                file_id: Some(matched.file.id),
+                mod_name,
+            });
+        } else {
+            files.push(FingerprintFileResult {
+                path: path.display().to_string(),
+                file_name: path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_string(),
+                fingerprint,
+                matched: false,
+                mod_id: None,
+                file_id: None,
+                mod_name: None,
+            });
+        }
+    }
+
+    Ok(FingerprintScanResult {
+        files,
+        unmatched_fingerprints: envelope.data.unmatched_fingerprints,
+    })
+}
+
+#[command]
+async fn curseforge_resolve_download(mod_id: u32, file_id: u32, api_key: String) -> Result<CurseforgeDownloadResolution, String> {
+    let headers = curseforge_headers(&api_key)?;
+    let client = reqwest::Client::new();
+
+    let file_response = client
+        .get(format!("https://api.curseforge.com/v1/mods/{mod_id}/files/{file_id}"))
+        .headers(headers.clone())
+        .send()
+        .await
+        .map_err(|error| format!("No se pudo consultar el archivo en CurseForge: {error}"))?;
+
+    if !file_response.status().is_success() {
+        let status = file_response.status();
+        let text = file_response.text().await.unwrap_or_default();
+        return Err(format!("CurseForge respondió {status}: {text}"));
+    }
+
+    let file_envelope = file_response
+        .json::<CurseforgeFileEnvelope>()
+        .await
+        .map_err(|error| format!("Respuesta inválida al consultar archivo: {error}"))?;
+
+    let (mod_name, website_url) = fetch_mod_name_and_site(&client, &headers, mod_id).await;
+    let can_auto_download = file_envelope.data.is_available.unwrap_or(file_envelope.data.download_url.is_some())
+        && file_envelope.data.download_url.is_some();
+
+    let reason = if can_auto_download {
+        format!("Descarga permitida por API para {}", mod_name.unwrap_or_else(|| format!("mod {mod_id}")))
+    } else {
+        "El archivo no permite descarga automática por API; usar descarga manual en navegador".to_string()
+    };
+
+    Ok(CurseforgeDownloadResolution {
+        mod_id,
+        file_id,
+        can_auto_download,
+        download_url: file_envelope.data.download_url,
+        website_url,
+        reason,
+    })
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -499,7 +788,9 @@ pub fn run() {
             append_log,
             list_instances,
             create_instance,
-            manage_modpack
+            manage_modpack,
+            curseforge_scan_fingerprints,
+            curseforge_resolve_download
         ])
         .setup(|app| {
             if let Err(error) = init_database(app.handle()) {
@@ -520,6 +811,14 @@ mod tests {
         let config = AppConfig::default();
         let migrated = migrate_config(config);
         assert_eq!(migrated.version, Some(1));
+    }
+
+
+    #[test]
+    fn murmurhash2_is_stable() {
+        assert_eq!(murmurhash2(b"abc"), murmurhash2(b"abc"));
+        assert_ne!(murmurhash2(b"abc"), murmurhash2(b"abd"));
+        assert_ne!(murmurhash2(b""), murmurhash2(b"a"));
     }
 
     #[test]

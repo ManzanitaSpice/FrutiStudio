@@ -30,3 +30,8 @@ extensible.
 
 Consulta `docs/architecture.md` para la descripción de servicios, contextos y
 comandos Tauri.
+
+
+## Integración CurseForge (Prism-style)
+
+Se documentó e implementó una base para fingerprints + resolución de descarga legal con fallback manual: `docs/curseforge-prism-flow.md`.
