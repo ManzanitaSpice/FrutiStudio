@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { ProductDetailsDialog, ProductInstallDialog } from "../ProductDialogs";
+import { type NewsOverview, fetchNewsOverview } from "../../services/newsService";
 import {
-  type NewsOverview,
-  fetchNewsOverview,
-} from "../../services/newsService";
-import { type ExplorerItem, fetchExplorerItemDetails, type ExplorerItemDetails } from "../../services/explorerService";
+  type ExplorerItem,
+  fetchExplorerItemDetails,
+  type ExplorerItemDetails,
+} from "../../services/explorerService";
 
 export const NewsPanel = () => {
   const [news, setNews] = useState<NewsOverview | null>(null);
@@ -15,7 +16,7 @@ export const NewsPanel = () => {
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
-  const [spotlightIndex, setSpotlightIndex] = useState(0);
+  const [carouselIndex, setCarouselIndex] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -76,52 +77,50 @@ export const NewsPanel = () => {
   const warnings = news?.warnings ?? [];
   const catalog = news?.catalogItems ?? [];
   const categories = news?.categories ?? [];
-  const topSource = useMemo(() => {
-    const counts = catalog.reduce<Record<string, number>>((acc, item) => {
-      acc[item.source] = (acc[item.source] ?? 0) + 1;
-      return acc;
-    }, {});
-    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "N/D";
-  }, [catalog]);
-  const totalDownloads = useMemo(
+
+  const popularModpacks = useMemo(
     () =>
-      catalog.reduce((acc, item) => {
-        const value = Number.parseInt(item.downloads.replace(/[^\d]/g, ""), 10);
-        return acc + (Number.isNaN(value) ? 0 : value);
-      }, 0),
+      [...catalog]
+        .filter((item) => item.type.toLowerCase().includes("modpack"))
+        .sort((a, b) => b.rawDownloads - a.rawDownloads)
+        .slice(0, 10),
     [catalog],
   );
 
   const byCategory = useMemo(
     () =>
-      categories.map((category) => ({
-        category,
-        items: catalog.filter((item) => item.type.toLowerCase().includes(category.toLowerCase().replace(" ", ""))).slice(0, 6),
-      })),
+      categories
+        .filter((category) => category !== "Modpacks")
+        .map((category) => ({
+          category,
+          items: catalog
+            .filter((item) =>
+              item.type.toLowerCase().includes(category.toLowerCase().replace(" ", "")),
+            )
+            .slice(0, 6),
+        })),
     [catalog, categories],
   );
 
   useEffect(() => {
-    if ((news?.trendingItems?.length ?? 0) <= 1) {
+    if (popularModpacks.length <= 1) {
       return;
     }
     const timer = window.setInterval(() => {
-      setSpotlightIndex((prev) =>
-        news?.trendingItems?.length ? (prev + 1) % news.trendingItems.length : 0,
-      );
-    }, 4200);
+      setCarouselIndex((prev) => (prev + 1) % popularModpacks.length);
+    }, 4500);
     return () => window.clearInterval(timer);
-  }, [news?.trendingItems?.length]);
-
-  const spotlight = news?.trendingItems?.[spotlightIndex];
-  const spotlightProject = catalog.find((entry) => entry.id === spotlight?.id);
+  }, [popularModpacks]);
 
   return (
     <section className="panel-view panel-view--news">
       <div className="panel-view__header">
         <div>
           <h2>Novedades</h2>
-          <p>Catálogo completo con ranking por relevancia, categorías activas y acceso directo a detalle e instalación.</p>
+          <p>
+            Explorá modpacks, mods y recursos populares con acceso directo a detalle e
+            instalación.
+          </p>
         </div>
       </div>
 
@@ -137,88 +136,74 @@ export const NewsPanel = () => {
         </div>
       ) : null}
 
-      <div className="news-kpis">
-        <article className="news-kpis__card">
-          <small>Elementos en tendencia</small>
-          <strong>{news?.trendingItems?.length ?? 0}</strong>
-        </article>
-        <article className="news-kpis__card">
-          <small>Fuente dominante</small>
-          <strong>{topSource}</strong>
-        </article>
-        <article className="news-kpis__card">
-          <small>Descargas acumuladas</small>
-          <strong>{new Intl.NumberFormat("es-AR", { notation: "compact" }).format(totalDownloads || 0)}</strong>
-        </article>
-      </div>
-
-      {(news?.trendingItems?.length ?? 0) > 0 ? (
-        <div className="news-marquee" aria-hidden="true">
-          <div className="news-marquee__track">
-            {[...(news?.trendingItems ?? []), ...(news?.trendingItems ?? [])].map((item, index) => (
-              <span key={`${item.id}-${index}`}>{item.title}</span>
+      {popularModpacks.length ? (
+        <div className="news-section">
+          <div className="news-section__header">
+            <h3>Modpacks populares</h3>
+            <span className="news-section__meta">Carrusel automático</span>
+          </div>
+          <div className="news-carousel">
+            {popularModpacks.map((item, index) => (
+              <article
+                key={item.id}
+                className={
+                  index === carouselIndex
+                    ? "explorer-item explorer-item--card news-carousel__item is-active"
+                    : "explorer-item explorer-item--card news-carousel__item"
+                }
+              >
+                {item.thumbnail ? (
+                  <img
+                    className="explorer-item__icon"
+                    src={item.thumbnail}
+                    alt={item.name}
+                  />
+                ) : (
+                  <div className="explorer-item__icon" />
+                )}
+                <div className="explorer-item__info">
+                  <h4>{item.name}</h4>
+                  <p>{item.description}</p>
+                  <div className="explorer-item__meta">
+                    <span>{item.source}</span>
+                    <span>{item.author}</span>
+                    <span>{item.downloads}</span>
+                  </div>
+                </div>
+                <div className="explorer-item__actions">
+                  <button type="button" onClick={() => setSelectedItem(item)}>
+                    Ver más
+                  </button>
+                  <button
+                    type="button"
+                    className="explorer-item__secondary"
+                    onClick={() => setInstallItem(item)}
+                  >
+                    Instalar
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div
+            className="news-carousel__dots"
+            role="tablist"
+            aria-label="Modpacks populares"
+          >
+            {popularModpacks.map((item, index) => (
+              <button
+                key={`dot-${item.id}`}
+                type="button"
+                className={index === carouselIndex ? "is-active" : ""}
+                onClick={() => setCarouselIndex(index)}
+                aria-label={`Ver ${item.name}`}
+              />
             ))}
           </div>
         </div>
       ) : null}
 
-      {spotlight && spotlightProject ? (
-        <div className="news-section">
-          <div className="news-section__header">
-            <h3>Destacado del momento</h3>
-            <span className="news-section__meta">Actualización automática</span>
-          </div>
-          <article className="explorer-item explorer-item--card">
-            {spotlight.thumbnail ? <img className="explorer-item__icon" src={spotlight.thumbnail} alt={spotlight.title} /> : <div className="explorer-item__icon" />}
-            <div className="explorer-item__info">
-              <h4>{spotlight.title}</h4>
-              <p>{spotlightProject.description}</p>
-              <div className="explorer-item__meta">
-                <span>{spotlightProject.source}</span>
-                <span>{spotlightProject.type}</span>
-                <span>{spotlightProject.downloads}</span>
-              </div>
-            </div>
-            <div className="explorer-item__actions">
-              <button type="button" onClick={() => setSelectedItem(spotlightProject)}>Ver más</button>
-              <button type="button" className="explorer-item__secondary" onClick={() => setInstallItem(spotlightProject)}>Instalar</button>
-            </div>
-          </article>
-        </div>
-      ) : null}
-
-      <div className="news-section">
-        <div className="news-section__header">
-          <h3>Ranking por relevancia</h3>
-          <span className="news-section__meta">Top global</span>
-        </div>
-        <div className="explorer-layout__cards">
-          {(news?.trendingItems ?? []).map((item) => {
-            const project = catalog.find((entry) => entry.id === item.id);
-            if (!project) return null;
-            return (
-              <article key={item.id} className="explorer-item explorer-item--card">
-                {item.thumbnail ? <img className="explorer-item__icon" src={item.thumbnail} alt={item.title} /> : <div className="explorer-item__icon" />}
-                <div className="explorer-item__info">
-                  <h4>{item.title}</h4>
-                  <p>{project.description}</p>
-                  <div className="explorer-item__meta">
-                    <span>{project.type}</span>
-                    <span>{project.author}</span>
-                    <span>{project.downloads}</span>
-                  </div>
-                </div>
-                <div className="explorer-item__actions">
-                  <button type="button" onClick={() => setSelectedItem(project)}>Ver más</button>
-                  <button type="button" className="explorer-item__secondary" onClick={() => setInstallItem(project)}>Instalar</button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-
-      {byCategory.map((entry) => (
+      {byCategory.map((entry) =>
         entry.items.length ? (
           <div className="news-section" key={entry.category}>
             <div className="news-section__header">
@@ -228,7 +213,15 @@ export const NewsPanel = () => {
             <div className="explorer-layout__cards">
               {entry.items.map((item) => (
                 <article key={item.id} className="explorer-item explorer-item--card">
-                  {item.thumbnail ? <img className="explorer-item__icon" src={item.thumbnail} alt={item.name} /> : <div className="explorer-item__icon" />}
+                  {item.thumbnail ? (
+                    <img
+                      className="explorer-item__icon"
+                      src={item.thumbnail}
+                      alt={item.name}
+                    />
+                  ) : (
+                    <div className="explorer-item__icon" />
+                  )}
                   <div className="explorer-item__info">
                     <h4>{item.name}</h4>
                     <p>{item.description}</p>
@@ -238,15 +231,23 @@ export const NewsPanel = () => {
                     </div>
                   </div>
                   <div className="explorer-item__actions">
-                    <button type="button" onClick={() => setSelectedItem(item)}>Ver más</button>
-                    <button type="button" className="explorer-item__secondary" onClick={() => setInstallItem(item)}>Instalar</button>
+                    <button type="button" onClick={() => setSelectedItem(item)}>
+                      Ver más
+                    </button>
+                    <button
+                      type="button"
+                      className="explorer-item__secondary"
+                      onClick={() => setInstallItem(item)}
+                    >
+                      Instalar
+                    </button>
                   </div>
                 </article>
               ))}
             </div>
           </div>
-        ) : null
-      ))}
+        ) : null,
+      )}
 
       {selectedItem ? (
         <ProductDetailsDialog
@@ -258,7 +259,9 @@ export const NewsPanel = () => {
         />
       ) : null}
 
-      {installItem ? <ProductInstallDialog item={installItem} onClose={() => setInstallItem(null)} /> : null}
+      {installItem ? (
+        <ProductInstallDialog item={installItem} onClose={() => setInstallItem(null)} />
+      ) : null}
     </section>
   );
 };

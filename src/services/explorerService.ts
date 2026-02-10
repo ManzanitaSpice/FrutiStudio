@@ -168,11 +168,18 @@ interface CurseforgeModResponse {
   };
 }
 
+interface CurseforgeDescriptionResponse {
+  data: string;
+}
+
 const MODRINTH_BASE = "https://api.modrinth.com/v2";
 const CURSEFORGE_BASE = "https://api.curseforge.com/v1";
 const CURSE_MINECRAFT_GAME_ID = 432;
 const CURSE_MAX_PAGE_SIZE = 50;
-const cache = new Map<string, { expiresAt: number; value: ExplorerResult | ExplorerItemDetails }>();
+const cache = new Map<
+  string,
+  { expiresAt: number; value: ExplorerResult | ExplorerItemDetails }
+>();
 
 const categoryProjectTypes: Record<ExplorerCategory, string> = {
   Modpacks: "modpack",
@@ -221,16 +228,13 @@ const requestCurseforgeV1 = async <T>(
     });
   }
 
-  const params = query
-    ? `?${new URLSearchParams(query).toString()}`
-    : "";
+  const params = query ? `?${new URLSearchParams(query).toString()}` : "";
 
   return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
     init: { headers: { "x-api-key": apiKey } },
     ttl: 45_000,
   });
 };
-
 
 const stripHtml = (value: string) =>
   value
@@ -248,7 +252,9 @@ const extractChangelog = (value?: string) => {
   if (!value) return "";
   const normalized = stripHtml(value);
   const parts = normalized.split(/\n{2,}/);
-  const changelogStart = parts.findIndex((part) => /novedades|changelog|changes/i.test(part));
+  const changelogStart = parts.findIndex((part) =>
+    /novedades|changelog|changes/i.test(part),
+  );
   if (changelogStart === -1) return "";
   return parts.slice(changelogStart).join("\n\n").trim();
 };
@@ -258,7 +264,9 @@ const extractDescription = (summary: string, body?: string) => {
   const normalized = stripHtml(body);
   if (!normalized) return summary;
   const sections = normalized.split(/\n{2,}/);
-  const stopIndex = sections.findIndex((part) => /novedades|changelog|changes/i.test(part));
+  const stopIndex = sections.findIndex((part) =>
+    /novedades|changelog|changes/i.test(part),
+  );
   const picked = stopIndex > 0 ? sections.slice(0, stopIndex).join("\n\n") : normalized;
   return picked || summary;
 };
@@ -308,7 +316,10 @@ const getCached = <T>(key: string): T | null => {
 };
 
 const setCached = <T>(key: string, value: T, ttl = 45_000) => {
-  cache.set(key, { value: value as ExplorerResult | ExplorerItemDetails, expiresAt: Date.now() + ttl });
+  cache.set(key, {
+    value: value as ExplorerResult | ExplorerItemDetails,
+    expiresAt: Date.now() + ttl,
+  });
 };
 
 const buildCacheKey = (scope: string, filters: ExplorerFilters) =>
@@ -388,32 +399,32 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
   const page = Math.max(0, filters.page ?? 0);
 
   const response = await requestCurseforgeV1<CurseforgeSearchResponse>(
-      "/mods/search",
-      apiKey,
-      Object.entries({
-        gameId: String(CURSE_MINECRAFT_GAME_ID),
-        searchFilter:
-          filters.query?.trim() ||
-          (filters.category === "Modpacks" ? "modpack" : "minecraft"),
-        gameVersion: filters.gameVersion,
-        classId: classId ? String(classId) : undefined,
-        modLoaderType: filters.loader
-          ? String(curseforgeLoaders[filters.loader.toLowerCase()] ?? "")
-          : undefined,
-        sortField: String(mapSort(filters.sort)),
-        sortOrder: "desc",
-        pageSize: String(pageSize),
-        index: String(page * pageSize),
-      }).reduce<Record<string, string>>((acc, [key, value]) => {
-        if (value !== undefined && value !== "") {
-          acc[key] = value;
-        }
-        return acc;
-      }, {}),
+    "/mods/search",
+    apiKey,
+    Object.entries({
+      gameId: String(CURSE_MINECRAFT_GAME_ID),
+      searchFilter:
+        filters.query?.trim() ||
+        (filters.category === "Modpacks" ? "modpack" : "minecraft"),
+      gameVersion: filters.gameVersion,
+      classId: classId ? String(classId) : undefined,
+      modLoaderType: filters.loader
+        ? String(curseforgeLoaders[filters.loader.toLowerCase()] ?? "")
+        : undefined,
+      sortField: String(mapSort(filters.sort)),
+      sortOrder: "desc",
+      pageSize: String(pageSize),
+      index: String(page * pageSize),
+    }).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (value !== undefined && value !== "") {
+        acc[key] = value;
+      }
+      return acc;
+    }, {}),
   );
 
   const items = (response.data ?? [])
-        .filter((item) => (classId ? item.classId === classId : true))
+    .filter((item) => (classId ? item.classId === classId : true))
     .map((item) => ({
       id: `curseforge-${item.id}`,
       projectId: String(item.id),
@@ -562,7 +573,10 @@ export const fetchExplorerItemDetails = async (
       { ttl: 60_000 },
     );
 
-    const versionData = await apiFetch<ModrinthVersionResponse[]>(`${MODRINTH_BASE}/project/${item.projectId}/version`, { ttl: 60_000 });
+    const versionData = await apiFetch<ModrinthVersionResponse[]>(
+      `${MODRINTH_BASE}/project/${item.projectId}/version`,
+      { ttl: 60_000 },
+    );
 
     const details: ExplorerItemDetails = {
       id: item.id,
@@ -582,18 +596,25 @@ export const fetchExplorerItemDetails = async (
       updatedAt: data.updated ?? item.updatedAt,
       url: item.url,
       type: data.project_type,
-      versions: (versionData ?? []).map((version) => ({
-        id: version.id,
-        name: version.name || version.version_number,
-        releaseType: version.version_type,
-        publishedAt: version.date_published,
-        gameVersions: version.game_versions ?? [],
-        loaders: version.loaders ?? [],
-        loaderVersion: resolveLoaderVersion(version.name || version.version_number, (version.loaders ?? [])[0]),
-        downloadUrl: version.files?.[0]?.url,
-      })).sort((a,b)=>(b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")),
-      primaryMinecraftVersion: (versionData ?? []).flatMap((version)=>version.game_versions ?? [])[0],
-      primaryLoader: (versionData ?? []).flatMap((version)=>version.loaders ?? [])[0],
+      versions: (versionData ?? [])
+        .map((version) => ({
+          id: version.id,
+          name: version.name || version.version_number,
+          releaseType: version.version_type,
+          publishedAt: version.date_published,
+          gameVersions: version.game_versions ?? [],
+          loaders: version.loaders ?? [],
+          loaderVersion: resolveLoaderVersion(
+            version.name || version.version_number,
+            (version.loaders ?? [])[0],
+          ),
+          downloadUrl: version.files?.[0]?.url,
+        }))
+        .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")),
+      primaryMinecraftVersion: (versionData ?? []).flatMap(
+        (version) => version.game_versions ?? [],
+      )[0],
+      primaryLoader: (versionData ?? []).flatMap((version) => version.loaders ?? [])[0],
       primaryLoaderVersion: undefined,
       changelog: extractChangelog(data.body),
     };
@@ -645,7 +666,9 @@ export const fetchExplorerItemDetails = async (
       (file.modLoader !== undefined ? loaderFromCurseforge[file.modLoader] : undefined) ??
       uniqueVersions.find((value) => /fabric|forge|quilt|neoforge/i.test(value));
     const normalizedLoader = detectedLoader?.toLowerCase();
-    const minecraftVersions = uniqueVersions.filter((value) => /^\d+(\.\d+)+/.test(value));
+    const minecraftVersions = uniqueVersions.filter((value) =>
+      /^\d+(\.\d+)+/.test(value),
+    );
     return {
       id: String(file.id ?? file.fileName ?? file.displayName ?? `file-${index}`),
       name: file.displayName ?? file.fileName ?? "Versión sin nombre",
@@ -664,9 +687,18 @@ export const fetchExplorerItemDetails = async (
     (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""),
   );
   const latestStable =
-    sortedVersions.find((version) => version.releaseType === "release") ?? sortedVersions[0];
+    sortedVersions.find((version) => version.releaseType === "release") ??
+    sortedVersions[0];
 
-  const detailBody = extractDescription(data.data.summary || item.description, data.data.summary);
+  const descriptionResponse = await requestCurseforgeV1<CurseforgeDescriptionResponse>(
+    `/mods/${item.projectId}/description`,
+    apiKey,
+  ).catch(() => ({ data: data.data.summary ?? item.description }));
+
+  const detailBody = extractDescription(
+    data.data.summary || item.description,
+    descriptionResponse.data,
+  );
 
   const details: ExplorerItemDetails = {
     id: item.id,
@@ -675,21 +707,22 @@ export const fetchExplorerItemDetails = async (
     author: data.data.authors?.[0]?.name || item.author,
     description: detailBody || data.data.summary || item.description,
     body: detailBody || data.data.summary || item.description,
-    changelog: extractChangelog(data.data.summary),
+    changelog: extractChangelog(descriptionResponse.data),
     gallery: [
       ...(data.data.logo?.url ? [data.data.logo.url] : []),
       ...(data.data.screenshots ?? [])
         .map((screen) => screen.url ?? screen.thumbnailUrl)
         .filter((url): url is string => Boolean(url)),
     ],
-    gameVersions: Array.from(new Set(sortedVersions.flatMap((version) => version.gameVersions))),
+    gameVersions: Array.from(
+      new Set(sortedVersions.flatMap((version) => version.gameVersions)),
+    ),
     loaders: Array.from(new Set(sortedVersions.flatMap((version) => version.loaders))),
-    dependencies:
-      files
-        .flatMap((file) => file.dependencies ?? [])
-        .map((dep) => dep.modId)
-        .filter((value): value is number => Boolean(value))
-        .map(String),
+    dependencies: files
+      .flatMap((file) => file.dependencies ?? [])
+      .map((dep) => dep.modId)
+      .filter((value): value is number => Boolean(value))
+      .map(String),
     downloads: data.data.downloadCount ?? item.rawDownloads,
     updatedAt: data.data.dateReleased ?? item.updatedAt,
     url: data.data.links?.websiteUrl ?? item.url,
