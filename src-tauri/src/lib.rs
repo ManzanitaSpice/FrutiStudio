@@ -1242,9 +1242,70 @@ fn expand_launch_placeholders(value: &str, variables: &HashMap<&str, String>) ->
     expanded
 }
 
-fn normalize_java_launch_args(args: Vec<String>, classpath: String) -> Vec<String> {
+fn has_unresolved_placeholder(value: &str) -> bool {
+    value.contains("${") && value.contains('}')
+}
+
+fn sanitize_game_args(args: &mut Vec<String>) {
+    let mut sanitized = Vec::new();
+    let mut index = 0;
+
+    while index < args.len() {
+        let current = &args[index];
+
+        if current == "--demo" {
+            index += 1;
+            continue;
+        }
+
+        if current.starts_with("--") && index + 1 < args.len() && !args[index + 1].starts_with("--")
+        {
+            let value = &args[index + 1];
+            if has_unresolved_placeholder(current) || has_unresolved_placeholder(value) {
+                index += 2;
+                continue;
+            }
+            sanitized.push(current.clone());
+            sanitized.push(value.clone());
+            index += 2;
+            continue;
+        }
+
+        if !has_unresolved_placeholder(current) {
+            sanitized.push(current.clone());
+        }
+        index += 1;
+    }
+
+    *args = sanitized;
+}
+
+fn normalize_resolution_args(args: &mut Vec<String>) {
+    let width = extract_or_fallback_arg(args, "--width", "1280")
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value > 0)
+        .unwrap_or(1280)
+        .to_string();
+    let height = extract_or_fallback_arg(args, "--height", "720")
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value > 0)
+        .unwrap_or(720)
+        .to_string();
+
+    upsert_game_arg(args, "--width", width);
+    upsert_game_arg(args, "--height", height);
+}
+
+fn normalize_java_launch_args(
+    args: Vec<String>,
+    classpath: String,
+    natives_dir: &Path,
+) -> Vec<String> {
     let mut normalized = Vec::new();
     let mut index = 0;
+    let mut java_library_path_seen = false;
 
     while index < args.len() {
         let current = &args[index];
@@ -1261,8 +1322,36 @@ fn normalize_java_launch_args(args: Vec<String>, classpath: String) -> Vec<Strin
             continue;
         }
 
+        if current.starts_with("-Djava.library.path=") {
+            if java_library_path_seen {
+                index += 1;
+                continue;
+            }
+
+            let value = current
+                .split_once('=')
+                .map(|(_, value)| value)
+                .unwrap_or_default();
+            let resolved = if value.trim().is_empty() || has_unresolved_placeholder(value) {
+                natives_dir.to_string_lossy().to_string()
+            } else {
+                value.to_string()
+            };
+            normalized.push(format!("-Djava.library.path={resolved}"));
+            java_library_path_seen = true;
+            index += 1;
+            continue;
+        }
+
         normalized.push(current.clone());
         index += 1;
+    }
+
+    if !java_library_path_seen {
+        normalized.push(format!(
+            "-Djava.library.path={}",
+            natives_dir.to_string_lossy()
+        ));
     }
 
     normalized.push("-cp".to_string());
@@ -1603,10 +1692,23 @@ fn ensure_single_game_arg(plan: &mut LaunchPlan, flag: &str, value: &str) {
 }
 
 fn normalize_critical_game_args(plan: &mut LaunchPlan, version: &str) {
-    let username = plan.auth.username.clone();
+    sanitize_game_args(&mut plan.game_args);
+    let username = if plan.auth.username.trim().is_empty() {
+        "Player".to_string()
+    } else {
+        plan.auth.username.clone()
+    };
     let uuid = plan.auth.uuid.clone();
-    let access_token = plan.auth.access_token.clone();
-    let user_type = plan.auth.user_type.clone();
+    let user_type = if plan.auth.user_type.trim().is_empty() {
+        "offline".to_string()
+    } else {
+        plan.auth.user_type.clone()
+    };
+    let access_token = if user_type == "offline" {
+        "0".to_string()
+    } else {
+        plan.auth.access_token.clone()
+    };
     let version_type = extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiStudio");
 
     ensure_single_game_arg(plan, "--username", &username);
@@ -1615,6 +1717,11 @@ fn normalize_critical_game_args(plan: &mut LaunchPlan, version: &str) {
     ensure_single_game_arg(plan, "--accessToken", &access_token);
     ensure_single_game_arg(plan, "--userType", &user_type);
     ensure_single_game_arg(plan, "--versionType", &version_type);
+    normalize_resolution_args(&mut plan.game_args);
+
+    plan.auth.username = username;
+    plan.auth.user_type = user_type;
+    plan.auth.access_token = access_token;
 }
 
 fn extract_or_fallback_arg(args: &[String], flag: &str, fallback: &str) -> String {
@@ -1963,7 +2070,7 @@ async fn bootstrap_instance_runtime(
 
     let auth_player_name = user.to_string();
     let auth_uuid = uuid.clone();
-    let auth_access_token = "offline".to_string();
+    let auth_access_token = "0".to_string();
     let version_name = version.to_string();
     let game_dir = minecraft_root.to_string_lossy().to_string();
     let assets_root = minecraft_root.join("assets").to_string_lossy().to_string();
@@ -2024,7 +2131,7 @@ async fn bootstrap_instance_runtime(
         ),
         ("--assetIndex", asset_index_id.to_string()),
         ("--uuid", uuid.clone()),
-        ("--accessToken", "offline".to_string()),
+        ("--accessToken", "0".to_string()),
         ("--userType", "offline".to_string()),
         ("--versionType", "FrutiStudio".to_string()),
     ];
@@ -2033,7 +2140,10 @@ async fn bootstrap_instance_runtime(
         upsert_game_arg(&mut game_args, key, value);
     }
 
-    java_args = normalize_java_launch_args(java_args, classpath_value);
+    sanitize_game_args(&mut game_args);
+    normalize_resolution_args(&mut game_args);
+
+    java_args = normalize_java_launch_args(java_args, classpath_value, &natives_dir);
 
     let launch_plan = LaunchPlan {
         java_path: selected.path.clone(),
@@ -2149,6 +2259,18 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ("main_class_resuelta", !plan.main_class.trim().is_empty()),
         ("argumentos_jvm", !plan.java_args.is_empty()),
         ("argumentos_juego", !plan.game_args.is_empty()),
+        (
+            "placeholders_resueltos",
+            !plan
+                .java_args
+                .iter()
+                .chain(plan.game_args.iter())
+                .any(|arg| has_unresolved_placeholder(arg)),
+        ),
+        (
+            "modo_demo_desactivado",
+            !plan.game_args.iter().any(|arg| arg == "--demo"),
+        ),
         ("classpath_completo", !plan.classpath_entries.is_empty()),
         (
             "libraries_descargadas_compatibles",
@@ -2871,7 +2993,7 @@ async fn launch_instance(
             username: auth_username,
             uuid: auth_uuid,
             access_token: if auth_access_token.is_empty() {
-                "offline".to_string()
+                "0".to_string()
             } else {
                 auth_access_token
             },
@@ -3554,7 +3676,8 @@ mod tests {
             "-classpath=fromjson".to_string(),
         ];
 
-        let normalized = normalize_java_launch_args(args, "final-cp".to_string());
+        let normalized =
+            normalize_java_launch_args(args, "final-cp".to_string(), Path::new("/tmp/natives"));
         assert_eq!(
             normalized,
             vec![
@@ -3580,6 +3703,44 @@ mod tests {
                 "--version".to_string(),
                 "1.21.11".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn sanitize_game_args_removes_demo_and_unresolved_placeholders() {
+        let mut args = vec![
+            "--demo".to_string(),
+            "--username".to_string(),
+            "${auth_player_name}".to_string(),
+            "--width".to_string(),
+            "${resolution_width}".to_string(),
+            "--height".to_string(),
+            "720".to_string(),
+        ];
+
+        sanitize_game_args(&mut args);
+
+        assert_eq!(args, vec!["--height".to_string(), "720".to_string()]);
+    }
+
+    #[test]
+    fn normalize_resolution_args_applies_defaults_for_invalid_values() {
+        let mut args = vec![
+            "--width".to_string(),
+            "no-num".to_string(),
+            "--height".to_string(),
+            "0".to_string(),
+        ];
+
+        normalize_resolution_args(&mut args);
+
+        assert_eq!(
+            extract_or_fallback_arg(&args, "--width", "0"),
+            "1280".to_string()
+        );
+        assert_eq!(
+            extract_or_fallback_arg(&args, "--height", "0"),
+            "720".to_string()
         );
     }
 
