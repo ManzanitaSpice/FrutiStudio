@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,7 +18,8 @@ use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
-use zip::ZipArchive;
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +135,14 @@ struct InstanceCommandArgs {
     access_token: Option<String>,
     #[serde(alias = "user_type")]
     user_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstanceArchiveArgs {
+    #[serde(alias = "instance_id", alias = "id", alias = "uuid")]
+    instance_id: Option<String>,
+    archive_path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1303,6 +1312,13 @@ fn default_offline_uuid(username: &str) -> String {
     format!("{left:08x}{right:08x}{:016x}", time)
 }
 
+fn current_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
 fn apply_auth_to_launch_plan(plan: &mut LaunchPlan, auth: LaunchAuth) {
     let mut replace_flag_value = |flag: &str, value: &str| {
         if let Some(index) = plan.game_args.iter().position(|arg| arg == flag) {
@@ -2037,6 +2053,85 @@ fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn add_directory_to_zip(
+    writer: &mut ZipWriter<fs::File>,
+    source: &Path,
+    base: &Path,
+) -> Result<(), String> {
+    let entries =
+        fs::read_dir(source).map_err(|error| format!("No se pudo recorrer directorio: {error}"))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let relative = path
+            .strip_prefix(base)
+            .map_err(|error| format!("No se pudo relativizar ruta para exportar: {error}"))?;
+        let archive_name = relative.to_string_lossy().replace('\\', "/");
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .unix_permissions(0o644);
+
+        if path.is_dir() {
+            writer
+                .add_directory(format!("{archive_name}/"), options)
+                .map_err(|error| format!("No se pudo agregar directorio al zip: {error}"))?;
+            add_directory_to_zip(writer, &path, base)?;
+            continue;
+        }
+
+        writer
+            .start_file(archive_name, options)
+            .map_err(|error| format!("No se pudo agregar archivo al zip: {error}"))?;
+        let content = fs::read(&path)
+            .map_err(|error| format!("No se pudo leer archivo para exportar: {error}"))?;
+        writer
+            .write_all(&content)
+            .map_err(|error| format!("No se pudo escribir contenido al zip: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn extract_instance_zip(archive_path: &Path, target_root: &Path) -> Result<(), String> {
+    let file = fs::File::open(archive_path)
+        .map_err(|error| format!("No se pudo abrir el archivo zip: {error}"))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|error| format!("ZIP inválido para importar: {error}"))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("No se pudo leer entrada ZIP: {error}"))?;
+        let Some(safe_name) = entry.enclosed_name().map(|name| name.to_path_buf()) else {
+            continue;
+        };
+        let out_path = target_root.join(safe_name);
+
+        if entry.is_dir() {
+            fs::create_dir_all(&out_path)
+                .map_err(|error| format!("No se pudo crear directorio importado: {error}"))?;
+            continue;
+        }
+
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("No se pudo crear carpeta importada: {error}"))?;
+        }
+
+        let mut output = fs::File::create(&out_path)
+            .map_err(|error| format!("No se pudo crear archivo importado: {error}"))?;
+        let mut buffer = Vec::new();
+        entry
+            .read_to_end(&mut buffer)
+            .map_err(|error| format!("No se pudo leer contenido ZIP: {error}"))?;
+        output
+            .write_all(&buffer)
+            .map_err(|error| format!("No se pudo escribir archivo importado: {error}"))?;
+    }
+
+    Ok(())
+}
+
 fn read_instance_record(
     app: &tauri::AppHandle,
     instance_id: &str,
@@ -2093,6 +2188,146 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     .map_err(|error| format!("No se pudo escribir metadata de instancia: {error}"))?;
 
     Ok(())
+}
+
+#[command]
+async fn export_instance(
+    app: tauri::AppHandle,
+    args: InstanceArchiveArgs,
+) -> Result<String, String> {
+    ensure_launcher_layout(&app)?;
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
+    if instance_id.is_empty() {
+        return Err("instance_id es requerido".to_string());
+    }
+
+    let archive_path = PathBuf::from(args.archive_path.trim());
+    if archive_path.as_os_str().is_empty() {
+        return Err("archive_path es requerido".to_string());
+    }
+
+    with_instance_lock(&instance_id, || {
+        let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+        if !instance_root.exists() {
+            return Err("No existe la instancia seleccionada para exportar".to_string());
+        }
+
+        if let Some(parent) = archive_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("No se pudo crear carpeta de exportación: {error}"))?;
+        }
+
+        let file = fs::File::create(&archive_path)
+            .map_err(|error| format!("No se pudo crear el archivo ZIP de exportación: {error}"))?;
+        let mut writer = ZipWriter::new(file);
+        add_directory_to_zip(&mut writer, &instance_root, &instance_root)?;
+        writer
+            .finish()
+            .map_err(|error| format!("No se pudo cerrar ZIP de exportación: {error}"))?;
+
+        Ok(archive_path.to_string_lossy().to_string())
+    })
+}
+
+#[command]
+async fn import_instance(
+    app: tauri::AppHandle,
+    args: InstanceArchiveArgs,
+) -> Result<InstanceRecord, String> {
+    ensure_launcher_layout(&app)?;
+    let archive_path = PathBuf::from(args.archive_path.trim());
+    if archive_path.as_os_str().is_empty() {
+        return Err("archive_path es requerido".to_string());
+    }
+    if !archive_path.exists() {
+        return Err("No se encontró el archivo a importar".to_string());
+    }
+
+    let parsed_instance_id = args
+        .instance_id
+        .unwrap_or_else(|| {
+            archive_path
+                .file_stem()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| format!("instance-import-{}", current_unix_secs()))
+        })
+        .trim()
+        .to_string();
+    let instance_id = if parsed_instance_id.is_empty() {
+        format!("instance-import-{}", current_unix_secs())
+    } else {
+        parsed_instance_id
+    };
+
+    with_instance_lock(&instance_id, || {
+        let root = launcher_root(&app)?;
+        let instance_root = root.join("instances").join(&instance_id);
+        if instance_root.exists() {
+            fs::remove_dir_all(&instance_root).map_err(|error| {
+                format!("No se pudo limpiar carpeta previa de instancia: {error}")
+            })?;
+        }
+        fs::create_dir_all(&instance_root)
+            .map_err(|error| format!("No se pudo crear carpeta de instancia importada: {error}"))?;
+
+        extract_instance_zip(&archive_path, &instance_root)?;
+
+        let metadata_path = instance_root.join("instance.json");
+        if !metadata_path.exists() {
+            return Err("El archivo importado no contiene instance.json".to_string());
+        }
+        let metadata_raw = fs::read_to_string(&metadata_path)
+            .map_err(|error| format!("No se pudo leer metadata importada: {error}"))?;
+        let metadata: Value = serde_json::from_str(&metadata_raw)
+            .map_err(|error| format!("instance.json importado es inválido: {error}"))?;
+
+        let imported_name = metadata
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("Instancia importada")
+            .to_string();
+        let imported_version = metadata
+            .get("minecraft_version")
+            .or_else(|| metadata.get("version"))
+            .and_then(Value::as_str)
+            .unwrap_or("latest")
+            .to_string();
+        let imported_loader = metadata
+            .get("loader")
+            .and_then(Value::as_str)
+            .unwrap_or("vanilla")
+            .to_string();
+        let imported_loader_version = metadata
+            .get("loader_version")
+            .and_then(Value::as_str)
+            .unwrap_or("latest")
+            .to_string();
+
+        let record = InstanceRecord {
+            id: instance_id.clone(),
+            name: imported_name,
+            version: imported_version,
+            loader_name: Some(imported_loader),
+            loader_version: Some(imported_loader_version),
+        };
+
+        let connection = database_connection(&app)?;
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    record.id,
+                    record.name,
+                    record.version,
+                    record.loader_name,
+                    record.loader_version
+                ],
+            )
+            .map_err(|error| format!("No se pudo guardar la instancia importada: {error}"))?;
+        ensure_instance_layout(&instance_root)?;
+
+        Ok(record)
+    })
 }
 
 async fn prepare_instance_runtime(
@@ -2657,6 +2892,8 @@ pub fn run() {
             list_java_runtimes,
             resolve_java_for_minecraft,
             create_instance,
+            export_instance,
+            import_instance,
             delete_instance,
             repair_instance,
             preflight_instance,
