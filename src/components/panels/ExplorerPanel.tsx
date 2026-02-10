@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { ProductDetailsDialog, ProductInstallDialog } from "../ProductDialogs";
+
 import {
   type ExplorerCategory,
   type ExplorerFilters,
@@ -22,7 +24,12 @@ const explorerCategories: ExplorerCategory[] = [
 const minecraftVersions = ["", "1.21.1", "1.21", "1.20.1", "1.19.2"];
 const loaders = ["", "forge", "fabric", "quilt", "neoforge"];
 
-export const ExplorerPanel = () => {
+interface ExplorerPanelProps {
+  externalQuery?: string;
+  externalQueryToken?: number;
+}
+
+export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPanelProps) => {
   const [filters, setFilters] = useState<ExplorerFilters>({
     category: "Modpacks",
     sort: "popular",
@@ -42,6 +49,14 @@ export const ExplorerPanel = () => {
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
+
+  useEffect(() => {
+    if (!externalQueryToken || !externalQuery?.trim()) {
+      return;
+    }
+    setFilters((prev) => ({ ...prev, query: externalQuery.trim(), page: 0 }));
+    setItems([]);
+  }, [externalQuery, externalQueryToken]);
 
   useEffect(() => {
     let isActive = true;
@@ -123,7 +138,6 @@ export const ExplorerPanel = () => {
     setItems([]);
   };
 
-  const isModpackInstall = installItem?.type.toLowerCase().includes("modpack") ?? false;
 
   return (
     <section className="panel-view panel-view--explorer">
@@ -139,23 +153,6 @@ export const ExplorerPanel = () => {
 
       <div className="explorer-layout">
         <aside className="explorer-layout__sidebar">
-          <h3>Categorías</h3>
-          <div className="explorer-layout__categories">
-            {explorerCategories.map((category) => (
-              <button
-                key={category}
-                type="button"
-                onClick={() => updateFilter("category", category)}
-                className={
-                  filters.category === category
-                    ? "explorer-layout__category explorer-layout__category--active"
-                    : "explorer-layout__category"
-                }
-              >
-                {category}
-              </button>
-            ))}
-          </div>
           <div className="explorer-layout__filters">
             <h4>Filtro avanzado</h4>
             <input
@@ -206,6 +203,23 @@ export const ExplorerPanel = () => {
                 <option value="curseforge">CurseForge</option>
               </select>
             </label>
+          </div>
+          <h3>Categorías</h3>
+          <div className="explorer-layout__categories">
+            {explorerCategories.map((category) => (
+              <button
+                key={category}
+                type="button"
+                onClick={() => updateFilter("category", category)}
+                className={
+                  filters.category === category
+                    ? "explorer-layout__category explorer-layout__category--active"
+                    : "explorer-layout__category"
+                }
+              >
+                {category}
+              </button>
+            ))}
           </div>
         </aside>
 
@@ -306,93 +320,17 @@ export const ExplorerPanel = () => {
       </div>
 
       {selectedItem ? (
-        <div className="instance-editor__backdrop" onClick={() => setSelectedItem(null)}>
-          <article
-            className="status-bar__news-modal status-bar__news-modal--details"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header>
-              <h3>{selectedItem.name}</h3>
-              <button type="button" onClick={() => setSelectedItem(null)}>
-                ✕
-              </button>
-            </header>
-            {detailsLoading || !details ? (
-              <p>Cargando metadata del proyecto...</p>
-            ) : (
-              <div className="explorer-details">
-                <div className="explorer-details__gallery">
-                  {details.gallery.length ? (
-                    details.gallery
-                      .slice(0, 8)
-                      .map((image) => (
-                        <img
-                          key={image}
-                          src={image}
-                          alt={details.title}
-                          className="news-latest__icon"
-                        />
-                      ))
-                  ) : (
-                    <div className="explorer-layout__empty">Sin imágenes</div>
-                  )}
-                </div>
-                <div className="explorer-details__content">
-                  <p>{details.body ?? details.description}</p>
-                  <p>
-                    <strong>Autor:</strong> {details.author}
-                  </p>
-                  <p>
-                    <strong>Plataforma:</strong> {details.source}
-                  </p>
-                  <p>
-                    <strong>Versiones:</strong>{" "}
-                    {details.gameVersions.slice(0, 12).join(", ") || "Sin datos"}
-                  </p>
-                  <p>
-                    <strong>Loaders:</strong>{" "}
-                    {details.loaders.slice(0, 10).join(", ") || "Sin datos"}
-                  </p>
-                  <p>
-                    <strong>Dependencias:</strong>{" "}
-                    {details.dependencies.slice(0, 12).join(", ") || "Sin dependencias"}
-                  </p>
-                </div>
-              </div>
-            )}
-          </article>
-        </div>
+        <ProductDetailsDialog
+          item={selectedItem}
+          details={details}
+          loading={detailsLoading}
+          onClose={() => setSelectedItem(null)}
+          onInstall={(item) => setInstallItem(item)}
+        />
       ) : null}
 
       {installItem ? (
-        <div className="instance-editor__backdrop" onClick={() => setInstallItem(null)}>
-          <article
-            className="status-bar__news-modal status-bar__news-modal--install"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header>
-              <h3>Instalar “{installItem.name}”</h3>
-              <button type="button" onClick={() => setInstallItem(null)}>
-                ✕
-              </button>
-            </header>
-            <p>
-              <strong>Producto:</strong> {installItem.name} · <strong>Tipo:</strong>{" "}
-              {installItem.type}
-            </p>
-            <div className="instance-import__actions">
-              <button type="button">Crear nueva instancia</button>
-              {!isModpackInstall ? (
-                <button type="button">Instalar en instancia existente</button>
-              ) : null}
-            </div>
-            {isModpackInstall ? (
-              <small>
-                Los modpacks solo se instalan en una instancia nueva de forma directa.
-              </small>
-            ) : null}
-          </article>
-        </div>
+        <ProductInstallDialog item={installItem} onClose={() => setInstallItem(null)} />
       ) : null}
     </section>
   );

@@ -132,7 +132,14 @@ const officialServers = [
 
 const buildStatusUrl = (ip: string) => `${STATUS_BASE}/${ip}`;
 
-export const fetchServerListings = async (): Promise<ServerListing[]> => {
+export interface ServerListingResult {
+  items: ServerListing[];
+  total: number;
+  page: number;
+  hasMore: boolean;
+}
+
+export const fetchServerListings = async (page = 0, pageSize = 8): Promise<ServerListingResult> => {
   const results = await Promise.allSettled(
     officialServers.map(async (server) => {
       const data = await apiFetch<McStatusResponse>(buildStatusUrl(server.ip), {
@@ -156,7 +163,7 @@ export const fetchServerListings = async (): Promise<ServerListing[]> => {
     }),
   );
 
-  return results
+  const catalog = results
     .filter(
       (result): result is PromiseFulfilledResult<ServerListing> =>
         result.status === "fulfilled",
@@ -167,4 +174,13 @@ export const fetchServerListings = async (): Promise<ServerListing[]> => {
       const right = Number(b.players.split("/")[0]?.trim() ?? "0");
       return right - left;
     });
+
+  const start = Math.max(0, page) * pageSize;
+  const items = catalog.slice(start, start + pageSize);
+  return {
+    items,
+    total: catalog.length,
+    page,
+    hasMore: start + pageSize < catalog.length,
+  };
 };
