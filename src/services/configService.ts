@@ -35,6 +35,19 @@ export interface AppConfig {
     | "configuracion";
   focusMode?: boolean;
   showVerificationWindow?: boolean;
+  neverRenameFolder?: boolean;
+  replaceToolbarByMenu?: boolean;
+  updateCheckIntervalHours?: number;
+  modsTrackMetadata?: boolean;
+  modsInstallDependencies?: boolean;
+  modsSuggestPackUpdates?: boolean;
+  modsCheckBlockedSubfolders?: boolean;
+  modsMoveBlockedMods?: boolean;
+  downloadsPath?: string;
+  modsPath?: string;
+  iconsPath?: string;
+  javaPath?: string;
+  skinsPath?: string;
   explorerFilters?: {
     query?: string;
     gameVersion?: string;

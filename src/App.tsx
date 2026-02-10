@@ -75,6 +75,11 @@ const defaultCustomTheme = {
   accent: "#a070ff",
 };
 
+const pauseBootFrame = () =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 90);
+  });
+
 const AppShell = () => {
   const {
     activeSection,
@@ -97,6 +102,9 @@ const AppShell = () => {
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [globalSearchToken, setGlobalSearchToken] = useState(0);
   const [bootStep, setBootStep] = useState(0);
+  const [bootStepProgress, setBootStepProgress] = useState<number[]>(() =>
+    loadingSteps.map((_, index) => (index === 0 ? 15 : 0)),
+  );
   const [bootEvents, setBootEvents] = useState<string[]>([]);
   const [activeTip, setActiveTip] = useState(launcherTips[0]);
   const [tipIndex, setTipIndex] = useState(0);
@@ -106,16 +114,36 @@ const AppShell = () => {
   useEffect(() => {
     const runBoot = async () => {
       let shouldShowVerification = false;
+      const updateStepProgress = (index: number, progress: number) => {
+        setBootStep(index);
+        setBootStepProgress((prev) =>
+          prev.map((value, currentIndex) => {
+            if (currentIndex < index) {
+              return 100;
+            }
+            if (currentIndex === index) {
+              return Math.max(value, Math.min(100, progress));
+            }
+            return value;
+          }),
+        );
+      };
       try {
         bootStartedAt.current = Date.now();
         setBootStep(0);
+        setBootStepProgress(loadingSteps.map((_, index) => (index === 0 ? 15 : 0)));
         const config = await loadConfig();
         shouldShowVerification = Boolean(config.showVerificationWindow);
         setShowVerificationWindow(shouldShowVerification);
 
+        updateStepProgress(0, 100);
+        await pauseBootFrame();
+
         if (shouldShowVerification) {
+          updateStepProgress(1, 30);
+          await pauseBootFrame();
           const startupFiles = await collectStartupFiles();
-          setBootStep(1);
+          updateStepProgress(1, 100);
           if (startupFiles.length) {
             setBootEvents(
               startupFiles.map(
@@ -130,13 +158,15 @@ const AppShell = () => {
           }
         }
 
-        setBootStep(2);
+        updateStepProgress(2, 35);
+        await pauseBootFrame();
         const [instancesResult] = await Promise.allSettled([
           fetchInstances(),
           fetchNewsOverview(),
           fetchExplorerItems("Modpacks"),
           fetchServerListings(),
         ]);
+        updateStepProgress(2, 100);
         setBootEvents((prev) => [...prev, "Catálogos remotos sincronizados."]);
 
         if (config.uiScale) {
@@ -163,14 +193,15 @@ const AppShell = () => {
           });
         }
 
-        setBootStep(3);
+        updateStepProgress(3, 80);
+        await pauseBootFrame();
         setBootEvents((prev) => [...prev, "Preferencias de usuario aplicadas."]);
         const loadedInstances =
           instancesResult.status === "fulfilled"
             ? instancesResult.value
             : await fetchInstances();
         setInstances(loadedInstances);
-        setBootStep(4);
+        updateStepProgress(4, 100);
         setBootEvents((prev) => [...prev, "Launcher operativo. ¡Listo para jugar!"]);
       } catch (error) {
         console.error("Error durante el arranque", error);
@@ -268,9 +299,8 @@ const AppShell = () => {
     setSelectedInstanceId((prev) => (prev === instanceId ? null : prev));
   };
   const showStatusBar = activeSection === "mis-modpacks" && !isFocusMode;
-  const bootProgress = Math.min(
-    100,
-    Math.round(((bootStep + 1) / loadingSteps.length) * 100),
+  const bootProgress = Math.round(
+    bootStepProgress.reduce((acc, value) => acc + value, 0) / loadingSteps.length,
   );
 
   const handleGlobalSearch = (query: string) => {
@@ -306,10 +336,21 @@ const AppShell = () => {
               <p className="boot-screen__percent">{bootProgress}%</p>
               <ul>
                 {loadingSteps.map((step, index) => {
-                  const done = index <= bootStep;
+                  const stepProgress = Math.round(bootStepProgress[index] ?? 0);
+                  const done = stepProgress >= 100;
+                  const inProgress = index === bootStep && !done;
                   return (
-                    <li key={step} className={done ? "is-done" : ""}>
-                      {step}
+                    <li
+                      key={step}
+                      className={done ? "is-done" : inProgress ? "is-progress" : ""}
+                    >
+                      <div className="boot-screen__step-row">
+                        <span>{step}</span>
+                        <strong>{stepProgress}%</strong>
+                      </div>
+                      <div className="boot-screen__step-progress" aria-hidden="true">
+                        <div style={{ width: `${stepProgress}%` }} />
+                      </div>
                     </li>
                   );
                 })}
