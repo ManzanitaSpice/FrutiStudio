@@ -584,8 +584,9 @@ pub fn run() {
             manage_modpack
         ])
         .setup(|app| {
-            tauri::async_runtime::block_on(async {
-                if let Err(error) = force_init_database(app.handle().clone()).await {
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = force_init_database(app_handle).await {
                     eprintln!("Error al forzar la inicialización de la base de datos: {error}");
                 }
             });
