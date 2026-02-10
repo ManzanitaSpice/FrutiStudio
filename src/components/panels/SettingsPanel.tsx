@@ -1,13 +1,15 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
 
 import { useUI } from "../../hooks/useUI";
 import { useBaseDir } from "../../hooks/useBaseDir";
 import { useI18n } from "../../i18n/useI18n";
-import { loadConfig, saveConfig } from "../../services/configService";
+import { loadConfig, saveConfig, type AppConfig } from "../../services/configService";
 import {
   getCurseforgeApiKey,
   saveCurseforgeApiKey,
 } from "../../services/curseforgeKeyService";
+import { detectJavaProfiles } from "../../services/javaConfig";
+import type { JavaProfile } from "../../types/models";
 import { SelectFolderButton } from "../SelectFolderButton";
 
 const customDefaults = {
@@ -20,6 +22,11 @@ const customDefaults = {
   accent: "#a070ff",
 };
 
+const updateConfig = async (patch: Partial<AppConfig>) => {
+  const config = await loadConfig();
+  await saveConfig({ ...config, ...patch });
+};
+
 export const SettingsPanel = () => {
   const { baseDir, status } = useBaseDir();
   const { t } = useI18n();
@@ -30,6 +37,21 @@ export const SettingsPanel = () => {
   const [showVerificationWindow, setShowVerificationWindow] = useState(false);
   const [curseforgeKey, setCurseforgeKey] = useState("");
   const [customTheme, setCustomTheme] = useState(customDefaults);
+  const [neverRenameFolder, setNeverRenameFolder] = useState(false);
+  const [replaceToolbarByMenu, setReplaceToolbarByMenu] = useState(false);
+  const [updateCheckIntervalHours, setUpdateCheckIntervalHours] = useState(24);
+  const [modsTrackMetadata, setModsTrackMetadata] = useState(true);
+  const [modsInstallDependencies, setModsInstallDependencies] = useState(true);
+  const [modsSuggestPackUpdates, setModsSuggestPackUpdates] = useState(true);
+  const [modsCheckBlockedSubfolders, setModsCheckBlockedSubfolders] = useState(false);
+  const [modsMoveBlockedMods, setModsMoveBlockedMods] = useState(false);
+  const [downloadsPath, setDownloadsPath] = useState("");
+  const [modsPath, setModsPath] = useState("mods");
+  const [iconsPath, setIconsPath] = useState("icons");
+  const [javaPath, setJavaPath] = useState("java");
+  const [skinsPath, setSkinsPath] = useState("skins");
+  const [detectedJavaProfiles, setDetectedJavaProfiles] = useState<JavaProfile[]>([]);
+  const [isDetectingJava, setIsDetectingJava] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -43,10 +65,25 @@ export const SettingsPanel = () => {
       setAutoUpdates(config.autoUpdates ?? true);
       setBackgroundDownloads(config.backgroundDownloads ?? true);
       setShowVerificationWindow(config.showVerificationWindow ?? false);
+      setNeverRenameFolder(config.neverRenameFolder ?? false);
+      setReplaceToolbarByMenu(config.replaceToolbarByMenu ?? false);
+      setUpdateCheckIntervalHours(config.updateCheckIntervalHours ?? 24);
+      setModsTrackMetadata(config.modsTrackMetadata ?? true);
+      setModsInstallDependencies(config.modsInstallDependencies ?? true);
+      setModsSuggestPackUpdates(config.modsSuggestPackUpdates ?? true);
+      setModsCheckBlockedSubfolders(config.modsCheckBlockedSubfolders ?? false);
+      setModsMoveBlockedMods(config.modsMoveBlockedMods ?? false);
+      setDownloadsPath(config.downloadsPath ?? "");
+      setModsPath(config.modsPath ?? "mods");
+      setIconsPath(config.iconsPath ?? "icons");
+      setJavaPath(config.javaPath ?? "java");
+      setSkinsPath(config.skinsPath ?? "skins");
       setCurseforgeKey(getCurseforgeApiKey());
       if (config.customTheme) {
         setCustomTheme(config.customTheme);
       }
+      const javaProfiles = await detectJavaProfiles();
+      setDetectedJavaProfiles(javaProfiles);
     };
     void run();
   }, []);
@@ -68,54 +105,29 @@ export const SettingsPanel = () => {
     };
   }, [contextMenu]);
 
-  const toggleTelemetry = async () => {
-    const config = await loadConfig();
-    const nextValue = !telemetryOptIn;
-    setTelemetryOptIn(nextValue);
-    await saveConfig({ ...config, telemetryOptIn: nextValue });
-  };
+  const javaSummary = useMemo(() => {
+    if (!detectedJavaProfiles.length) {
+      return "No se detectaron instalaciones de Java todavía.";
+    }
+    const recommended = detectedJavaProfiles.find((runtime) => runtime.recommended);
+    if (recommended) {
+      return `Se detectaron ${detectedJavaProfiles.length} instalaciones. Recomendado: ${recommended.name}.`;
+    }
+    return `Se detectaron ${detectedJavaProfiles.length} instalaciones de Java en el sistema.`;
+  }, [detectedJavaProfiles]);
 
-  const toggleAutoUpdates = async () => {
-    const config = await loadConfig();
-    const nextValue = !autoUpdates;
-    setAutoUpdates(nextValue);
-    await saveConfig({ ...config, autoUpdates: nextValue });
-  };
-
-  const toggleBackgroundDownloads = async () => {
-    const config = await loadConfig();
-    const nextValue = !backgroundDownloads;
-    setBackgroundDownloads(nextValue);
-    await saveConfig({ ...config, backgroundDownloads: nextValue });
-  };
-
-  const toggleVerificationWindow = async () => {
-    const config = await loadConfig();
-    const nextValue = !showVerificationWindow;
-    setShowVerificationWindow(nextValue);
-    await saveConfig({ ...config, showVerificationWindow: nextValue });
-  };
-  const handleScaleChange = async (nextScale: number) => {
-    setScale(nextScale);
-    const config = await loadConfig();
-    await saveConfig({ ...config, uiScale: nextScale });
-  };
-
-  const handleThemeChange = async (nextTheme: typeof theme) => {
-    setTheme(nextTheme);
-    const config = await loadConfig();
-    await saveConfig({ ...config, theme: nextTheme, customTheme });
-  };
-
-  const handleCustomColorChange = async (
-    key: keyof typeof customDefaults,
-    value: string,
-  ) => {
-    const nextTheme = { ...customTheme, [key]: value };
-    setCustomTheme(nextTheme);
-    const config = await loadConfig();
-    await saveConfig({ ...config, customTheme: nextTheme, theme: "custom" });
-    setTheme("custom");
+  const handleDetectJava = async () => {
+    setIsDetectingJava(true);
+    try {
+      const javaProfiles = await detectJavaProfiles();
+      setDetectedJavaProfiles(javaProfiles);
+      if (javaProfiles[0]?.path) {
+        setJavaPath(javaProfiles[0].path);
+        await updateConfig({ javaPath: javaProfiles[0].path });
+      }
+    } finally {
+      setIsDetectingJava(false);
+    }
   };
 
   const handleCardContextMenu = (event: ReactMouseEvent<HTMLElement>, card: string) => {
@@ -136,7 +148,7 @@ export const SettingsPanel = () => {
         <section className="settings-section">
           <header className="settings-section__header">
             <h3>General</h3>
-            <p>Ruta base, cuentas y privacidad.</p>
+            <p>Ruta base, cuentas, carpetas y privacidad.</p>
           </header>
           <div className="settings-grid settings-grid--organized">
             <article
@@ -154,22 +166,116 @@ export const SettingsPanel = () => {
                 {status === "invalid" ? t("baseDir").statusInvalid : null}
                 {status === "idle" ? t("baseDir").statusIdle : null}
               </p>
+              <label className="panel-view__toggle">
+                <input
+                  type="checkbox"
+                  checked={neverRenameFolder}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setNeverRenameFolder(next);
+                    void updateConfig({ neverRenameFolder: next });
+                  }}
+                />
+                Nunca renombrar carpetas de instancia
+              </label>
+              <label className="panel-view__toggle">
+                <input
+                  type="checkbox"
+                  checked={replaceToolbarByMenu}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setReplaceToolbarByMenu(next);
+                    void updateConfig({ replaceToolbarByMenu: next });
+                  }}
+                />
+                Reemplazar barra de herramientas por barra de menú
+              </label>
             </article>
+
+            <article
+              className="settings-card settings-card--glow"
+              onContextMenu={(event) => handleCardContextMenu(event, "folders")}
+            >
+              <div className="settings-card__header">
+                <h3>Carpetas</h3>
+                <p>Rutas al estilo Prism para instancias y recursos globales.</p>
+              </div>
+              <label className="settings-card__field">
+                <span>Instancias</span>
+                <input value={baseDir ?? ""} readOnly />
+              </label>
+              <label className="settings-card__field">
+                <span>Mods</span>
+                <input
+                  value={modsPath}
+                  onChange={(event) => {
+                    setModsPath(event.target.value);
+                    void updateConfig({ modsPath: event.target.value });
+                  }}
+                />
+              </label>
+              <label className="settings-card__field">
+                <span>Iconos</span>
+                <input
+                  value={iconsPath}
+                  onChange={(event) => {
+                    setIconsPath(event.target.value);
+                    void updateConfig({ iconsPath: event.target.value });
+                  }}
+                />
+              </label>
+              <label className="settings-card__field">
+                <span>Java</span>
+                <input
+                  value={javaPath}
+                  onChange={(event) => {
+                    setJavaPath(event.target.value);
+                    void updateConfig({ javaPath: event.target.value });
+                  }}
+                />
+              </label>
+              <label className="settings-card__field">
+                <span>%Skins</span>
+                <input
+                  value={skinsPath}
+                  onChange={(event) => {
+                    setSkinsPath(event.target.value);
+                    void updateConfig({ skinsPath: event.target.value });
+                  }}
+                />
+              </label>
+              <label className="settings-card__field">
+                <span>Descargas</span>
+                <input
+                  value={downloadsPath}
+                  placeholder="C:/Users/TuUsuario/Downloads"
+                  onChange={(event) => {
+                    setDownloadsPath(event.target.value);
+                    void updateConfig({ downloadsPath: event.target.value });
+                  }}
+                />
+              </label>
+            </article>
+
             <article
               className="settings-card settings-card--glow"
               onContextMenu={(event) => handleCardContextMenu(event, "privacy")}
             >
               <div className="settings-card__header">
                 <h3>Privacidad</h3>
-                <p>Controla telemetría y permisos de datos.</p>
+                <p>Controla telemetría y permisos de diagnóstico.</p>
               </div>
               <label className="panel-view__toggle">
                 <input
                   type="checkbox"
                   checked={telemetryOptIn}
-                  onChange={toggleTelemetry}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setTelemetryOptIn(next);
+                    void updateConfig({ telemetryOptIn: next });
+                  }}
                 />
-                Activar telemetría opcional
+                Telemetría opcional
               </label>
             </article>
           </div>
@@ -177,8 +283,8 @@ export const SettingsPanel = () => {
 
         <section className="settings-section">
           <header className="settings-section__header">
-            <h3>Apariencia y rendimiento</h3>
-            <p>Temas, zoom y opciones globales.</p>
+            <h3>Apariencia, Java y mods</h3>
+            <p>Opciones equivalentes a launchers avanzados como Prism.</p>
           </header>
           <div className="settings-grid settings-grid--organized">
             <article
@@ -193,9 +299,11 @@ export const SettingsPanel = () => {
                 <span>Preferencia de tema</span>
                 <select
                   value={theme}
-                  onChange={(event) =>
-                    void handleThemeChange(event.target.value as typeof theme)
-                  }
+                  onChange={(event) => {
+                    const nextTheme = event.target.value as typeof theme;
+                    setTheme(nextTheme);
+                    void updateConfig({ theme: nextTheme, customTheme });
+                  }}
                 >
                   <option value="default">Default</option>
                   <option value="light">Claro</option>
@@ -216,7 +324,11 @@ export const SettingsPanel = () => {
                   max={1.35}
                   step={0.05}
                   value={uiScale}
-                  onChange={(event) => void handleScaleChange(Number(event.target.value))}
+                  onChange={(event) => {
+                    const nextScale = Number(event.target.value);
+                    setScale(nextScale);
+                    void updateConfig({ uiScale: nextScale });
+                  }}
                 />
                 <strong>{Math.round(uiScale * 100)}%</strong>
               </label>
@@ -234,31 +346,113 @@ export const SettingsPanel = () => {
                       <input
                         type="color"
                         value={customTheme[key as keyof typeof customDefaults]}
-                        onChange={(event) =>
-                          void handleCustomColorChange(
-                            key as keyof typeof customDefaults,
-                            event.target.value,
-                          )
-                        }
+                        onChange={(event) => {
+                          const nextTheme = {
+                            ...customTheme,
+                            [key as keyof typeof customDefaults]: event.target.value,
+                          };
+                          setCustomTheme(nextTheme);
+                          setTheme("custom");
+                          void updateConfig({ customTheme: nextTheme, theme: "custom" });
+                        }}
                       />
                     </label>
                   ))}
                 </div>
               ) : null}
             </article>
+
             <article
               className="settings-card settings-card--glow"
               onContextMenu={(event) => handleCardContextMenu(event, "java")}
             >
               <div className="settings-card__header">
-                <h3>Java y memoria</h3>
-                <p>Configura rendimiento global.</p>
+                <h3>Java</h3>
+                <p>{javaSummary}</p>
               </div>
               <div className="settings-card__actions">
-                <button type="button">Detectar versiones de Java</button>
-                <button type="button">Asignar memoria</button>
-                <button type="button">Parámetros de JVM</button>
+                <button type="button" onClick={() => void handleDetectJava()}>
+                  {isDetectingJava ? "Detectando..." : "Detectar instalaciones Java"}
+                </button>
               </div>
+              <ul className="settings-card__java-list">
+                {detectedJavaProfiles.map((runtime) => (
+                  <li key={`${runtime.path}-${runtime.version}`}>
+                    <strong>{runtime.name}</strong>
+                    <span>{runtime.path}</span>
+                  </li>
+                ))}
+              </ul>
+            </article>
+
+            <article
+              className="settings-card settings-card--glow"
+              onContextMenu={(event) => handleCardContextMenu(event, "mods")}
+            >
+              <div className="settings-card__header">
+                <h3>Mods y modpacks</h3>
+                <p>Opciones de compatibilidad inspiradas en Prism Launcher.</p>
+              </div>
+              <label className="panel-view__toggle">
+                <input
+                  type="checkbox"
+                  checked={modsCheckBlockedSubfolders}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setModsCheckBlockedSubfolders(next);
+                    void updateConfig({ modsCheckBlockedSubfolders: next });
+                  }}
+                />
+                Revisar subcarpetas por mods bloqueados
+              </label>
+              <label className="panel-view__toggle">
+                <input
+                  type="checkbox"
+                  checked={modsMoveBlockedMods}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setModsMoveBlockedMods(next);
+                    void updateConfig({ modsMoveBlockedMods: next });
+                  }}
+                />
+                Mover mods bloqueados en vez de copiarlos
+              </label>
+              <label className="panel-view__toggle">
+                <input
+                  type="checkbox"
+                  checked={modsTrackMetadata}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setModsTrackMetadata(next);
+                    void updateConfig({ modsTrackMetadata: next });
+                  }}
+                />
+                Mantener metadata de mods
+              </label>
+              <label className="panel-view__toggle">
+                <input
+                  type="checkbox"
+                  checked={modsInstallDependencies}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setModsInstallDependencies(next);
+                    void updateConfig({ modsInstallDependencies: next });
+                  }}
+                />
+                Instalar dependencias automáticamente
+              </label>
+              <label className="panel-view__toggle">
+                <input
+                  type="checkbox"
+                  checked={modsSuggestPackUpdates}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setModsSuggestPackUpdates(next);
+                    void updateConfig({ modsSuggestPackUpdates: next });
+                  }}
+                />
+                Sugerir actualización de instancia en instalación de modpacks
+              </label>
             </article>
           </div>
         </section>
@@ -291,7 +485,11 @@ export const SettingsPanel = () => {
                 <input
                   type="checkbox"
                   checked={backgroundDownloads}
-                  onChange={() => void toggleBackgroundDownloads()}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setBackgroundDownloads(next);
+                    void updateConfig({ backgroundDownloads: next });
+                  }}
                 />
                 Mantener descargas en segundo plano
               </label>
@@ -307,15 +505,39 @@ export const SettingsPanel = () => {
                 <input
                   type="checkbox"
                   checked={autoUpdates}
-                  onChange={() => void toggleAutoUpdates()}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setAutoUpdates(next);
+                    void updateConfig({ autoUpdates: next });
+                  }}
                 />
-                Actualizar launcher automáticamente
+                Comprobar actualizaciones al iniciar
+              </label>
+              <label className="settings-card__field">
+                <span>Frecuencia</span>
+                <select
+                  value={updateCheckIntervalHours}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setUpdateCheckIntervalHours(next);
+                    void updateConfig({ updateCheckIntervalHours: next });
+                  }}
+                >
+                  <option value={6}>Cada 6 horas</option>
+                  <option value={12}>Cada 12 horas</option>
+                  <option value={24}>Cada 24 horas</option>
+                  <option value={48}>Cada 48 horas</option>
+                </select>
               </label>
               <label className="panel-view__toggle">
                 <input
                   type="checkbox"
                   checked={showVerificationWindow}
-                  onChange={() => void toggleVerificationWindow()}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setShowVerificationWindow(next);
+                    void updateConfig({ showVerificationWindow: next });
+                  }}
                 />
                 Mostrar ventana de verificación al iniciar
               </label>

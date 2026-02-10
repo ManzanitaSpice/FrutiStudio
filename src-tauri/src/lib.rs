@@ -34,6 +34,19 @@ struct AppConfig {
     active_section: Option<String>,
     focus_mode: Option<bool>,
     show_verification_window: Option<bool>,
+    never_rename_folder: Option<bool>,
+    replace_toolbar_by_menu: Option<bool>,
+    update_check_interval_hours: Option<u32>,
+    mods_track_metadata: Option<bool>,
+    mods_install_dependencies: Option<bool>,
+    mods_suggest_pack_updates: Option<bool>,
+    mods_check_blocked_subfolders: Option<bool>,
+    mods_move_blocked_mods: Option<bool>,
+    downloads_path: Option<String>,
+    mods_path: Option<String>,
+    icons_path: Option<String>,
+    java_path: Option<String>,
+    skins_path: Option<String>,
     explorer_filters: Option<Value>,
 }
 
@@ -983,21 +996,13 @@ impl JavaManager {
             }
         }
 
-        let mut by_major: HashMap<u32, JavaRuntime> = HashMap::new();
-        for runtime in runtimes {
-            by_major
-                .entry(runtime.major)
-                .and_modify(|current| {
-                    if current.source != "embebido" && runtime.source == "embebido" {
-                        *current = runtime.clone();
-                    }
-                })
-                .or_insert(runtime);
-        }
-
-        let mut deduped: Vec<JavaRuntime> = by_major.into_values().collect();
-        deduped.sort_by_key(|r| r.major);
-        deduped
+        runtimes.sort_by(|a, b| {
+            a.major
+                .cmp(&b.major)
+                .then_with(|| a.path.cmp(&b.path))
+                .then_with(|| a.source.cmp(&b.source))
+        });
+        runtimes
     }
 
     fn resolve_for_minecraft(&self, mc_version: &str) -> JavaResolution {
