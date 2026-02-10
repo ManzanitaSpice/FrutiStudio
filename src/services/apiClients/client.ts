@@ -11,9 +11,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const buildCacheKey = (url: string, init?: RequestInit) => {
   const headers = init?.headers ? new Headers(init.headers) : undefined;
   const headerEntries = headers ? Array.from(headers.entries()) : [];
-  const headerKey = headerEntries.length
-    ? JSON.stringify(headerEntries)
-    : "no-headers";
+  const headerKey = headerEntries.length ? JSON.stringify(headerEntries) : "no-headers";
   const method = init?.method ?? "GET";
   return `${method}:${url}:${headerKey}`;
 };
@@ -36,7 +34,11 @@ const fetchWithTimeout = async (url: string, init?: RequestInit) => {
 
 export const apiFetch = async <T>(
   url: string,
-  { ttl = 60_000, init }: { ttl?: number; init?: RequestInit } = {},
+  {
+    ttl = 60_000,
+    init,
+    parseJson = true,
+  }: { ttl?: number; init?: RequestInit; parseJson?: boolean } = {},
 ): Promise<T> => {
   const cacheKey = buildCacheKey(url, init);
   const cached = cache.get(cacheKey);
@@ -70,7 +72,7 @@ export const apiFetch = async <T>(
         await wait(RETRY_DELAY_MS * (attempt + 1));
         continue;
       }
-      const data = (await response.json()) as T;
+      const data = (parseJson ? await response.json() : await response.text()) as T;
       cache.set(cacheKey, { value: data, expiresAt: Date.now() + ttl });
       return data;
     } catch (error) {
