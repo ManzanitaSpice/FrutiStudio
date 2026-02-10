@@ -1802,141 +1802,159 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
-    let mc_version_valid = !plan.asset_index.trim().is_empty();
-    checks.insert(
-        "metadata_instancia".to_string(),
-        instance_root.join("instance.json").exists(),
-    );
-    checks.insert("version_minecraft_valida".to_string(), mc_version_valid);
-    checks.insert(
-        "json_version_minecraft".to_string(),
-        Path::new(&plan.version_json).exists(),
-    );
-    checks.insert(
-        "main_class_resuelta".to_string(),
-        !plan.main_class.trim().is_empty(),
-    );
-    checks.insert("argumentos_jvm".to_string(), !plan.java_args.is_empty());
-    checks.insert("argumentos_juego".to_string(), !plan.game_args.is_empty());
-    checks.insert(
-        "classpath_completo".to_string(),
-        !plan.classpath_entries.is_empty(),
-    );
-    checks.insert(
-        "libraries_descargadas_compatibles".to_string(),
-        plan.classpath_entries
-            .iter()
-            .all(|entry| Path::new(entry).exists()),
-    );
-    checks.insert(
-        "assets_index".to_string(),
-        !plan.asset_index.trim().is_empty(),
-    );
-    checks.insert(
-        "assets_descargados".to_string(),
-        Path::new(&plan.assets_dir).join("objects").exists(),
-    );
-    checks.insert(
-        "natives_extraidos".to_string(),
-        Path::new(&plan.natives_dir).exists(),
-    );
-    checks.insert(
-        "runtime_java_compatible".to_string(),
-        Path::new(&plan.java_path).exists() || plan.java_path == "java",
-    );
-    checks.insert(
-        "ruta_java_correcta".to_string(),
-        !plan.java_path.trim().is_empty(),
-    );
-    checks.insert("game_dir".to_string(), Path::new(&plan.game_dir).exists());
-    checks.insert(
-        "assets_dir".to_string(),
-        Path::new(&plan.assets_dir).exists(),
-    );
-    checks.insert(
-        "libraries_dir".to_string(),
-        Path::new(&plan.libraries_dir).exists(),
-    );
-    checks.insert(
-        "loader_instalado_si_aplica".to_string(),
-        if plan.loader == "vanilla" {
-            true
-        } else {
-            plan.loader_profile_resolved
-        },
-    );
-    checks.insert(
-        "perfil_loader_resuelto".to_string(),
-        if plan.loader == "vanilla" {
-            true
-        } else {
-            plan.loader_profile_resolved
-        },
-    );
-    checks.insert(
-        "mods_descargados_si_aplica".to_string(),
-        if plan.loader == "vanilla" {
-            true
-        } else {
-            Path::new(&plan.game_dir).join("mods").exists()
-        },
-    );
-    checks.insert(
-        "configuracion_memoria".to_string(),
-        plan.java_args.iter().any(|arg| arg.starts_with("-Xms"))
-            && plan.java_args.iter().any(|arg| arg.starts_with("-Xmx")),
-    );
-    checks.insert("variables_entorno".to_string(), !plan.env.is_empty());
-    checks.insert(
-        "usuario_uuid".to_string(),
-        !plan.auth.username.is_empty() && !plan.auth.uuid.is_empty(),
-    );
-    checks.insert(
-        "access_token".to_string(),
-        !plan.auth.access_token.is_empty(),
-    );
-    checks.insert(
-        "opciones_autenticacion".to_string(),
-        !plan.auth.user_type.is_empty(),
-    );
-    checks.insert(
-        "sistema_logs".to_string(),
-        instance_root.join("logs").exists(),
-    );
-    checks.insert(
-        "permisos_ejecucion".to_string(),
-        Path::new(&plan.java_path).is_file() || plan.java_path == "java",
-    );
-    checks.insert(
-        "validacion_previa".to_string(),
-        instance_root.join("launch-plan.json").exists(),
-    );
-    checks.insert(
-        "comando_correcto".to_string(),
-        instance_root.join("launch-command.txt").exists(),
-    );
-    checks.insert("ejecucion_java".to_string(), true);
-    checks.insert(
-        "monitoreo_proceso".to_string(),
-        instance_root.join("instance-state.json").exists(),
-    );
-    checks.insert(
-        "captura_stdout_stderr".to_string(),
-        instance_root.join("logs").exists(),
-    );
-    checks.insert(
-        "manejo_crash".to_string(),
-        Path::new(&plan.game_dir).join("crash-reports").exists()
-            || instance_root.join("logs").exists(),
-    );
-    checks.insert(
-        "estado_instancia_actualizado".to_string(),
-        instance_root.join("instance-state.json").exists(),
-    );
+    let is_non_empty_file = |path: &Path| -> bool {
+        fs::metadata(path)
+            .map(|meta| meta.is_file() && meta.len() > 0)
+            .unwrap_or(false)
+    };
 
-    for (name, ok) in &checks {
+    let is_non_empty_dir = |path: &Path| -> bool {
+        if !path.is_dir() {
+            return false;
+        }
+        fs::read_dir(path)
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false)
+    };
+
+    let launch_plan_path = instance_root.join("launch-plan.json");
+    let launch_command_path = instance_root.join("launch-command.txt");
+    let logs_dir = instance_root.join("logs");
+    let crash_reports_dir = Path::new(&plan.game_dir).join("crash-reports");
+
+    let required_checks = [
+        (
+            "metadata_instancia",
+            instance_root.join("instance.json").exists(),
+        ),
+        (
+            "version_minecraft_valida",
+            !plan.asset_index.trim().is_empty(),
+        ),
+        (
+            "json_version_minecraft",
+            is_non_empty_file(Path::new(&plan.version_json)),
+        ),
+        ("main_class_resuelta", !plan.main_class.trim().is_empty()),
+        ("argumentos_jvm", !plan.java_args.is_empty()),
+        ("argumentos_juego", !plan.game_args.is_empty()),
+        ("classpath_completo", !plan.classpath_entries.is_empty()),
+        (
+            "libraries_descargadas_compatibles",
+            plan.classpath_entries
+                .iter()
+                .all(|entry| is_non_empty_file(Path::new(entry))),
+        ),
+        ("assets_index", !plan.asset_index.trim().is_empty()),
+        (
+            "assets_descargados",
+            is_non_empty_dir(&Path::new(&plan.assets_dir).join("objects")),
+        ),
+        (
+            "natives_extraidos",
+            is_non_empty_dir(Path::new(&plan.natives_dir)),
+        ),
+        (
+            "runtime_java_compatible",
+            Path::new(&plan.java_path).exists() || plan.java_path == "java",
+        ),
+        ("ruta_java_correcta", !plan.java_path.trim().is_empty()),
+        ("game_dir", Path::new(&plan.game_dir).exists()),
+        ("assets_dir", Path::new(&plan.assets_dir).exists()),
+        ("libraries_dir", Path::new(&plan.libraries_dir).exists()),
+        (
+            "loader_instalado_si_aplica",
+            if plan.loader == "vanilla" {
+                true
+            } else {
+                plan.loader_profile_resolved
+            },
+        ),
+        (
+            "perfil_loader_resuelto",
+            if plan.loader == "vanilla" {
+                true
+            } else {
+                plan.loader_profile_resolved
+            },
+        ),
+        (
+            "configuracion_memoria",
+            plan.java_args.iter().any(|arg| arg.starts_with("-Xms"))
+                && plan.java_args.iter().any(|arg| arg.starts_with("-Xmx")),
+        ),
+        (
+            "usuario_uuid",
+            !plan.auth.username.is_empty() && !plan.auth.uuid.is_empty(),
+        ),
+        ("opciones_autenticacion", !plan.auth.user_type.is_empty()),
+        (
+            "permisos_ejecucion",
+            Path::new(&plan.java_path).is_file() || plan.java_path == "java",
+        ),
+        ("validacion_previa", is_non_empty_file(&launch_plan_path)),
+        ("comando_correcto", is_non_empty_file(&launch_command_path)),
+        ("ejecucion_java", true),
+    ];
+
+    for (name, ok) in required_checks {
+        checks.insert(name.to_string(), ok);
         if !ok {
-            errors.push(format!("Fallo en requisito: {name}"));
+            errors.push(format!("Fallo en requisito crítico: {name}"));
+        }
+    }
+
+    let advisory_checks = [
+        (
+            "mods_descargados_si_aplica",
+            if plan.loader == "vanilla" {
+                true
+            } else {
+                Path::new(&plan.game_dir).join("mods").exists()
+            },
+            "No hay carpeta de mods para el loader configurado.",
+        ),
+        (
+            "variables_entorno",
+            !plan.env.is_empty(),
+            "No hay variables de entorno personalizadas definidas.",
+        ),
+        (
+            "access_token",
+            !plan.auth.access_token.is_empty(),
+            "Se usará sesión offline o token temporal para autenticación.",
+        ),
+        (
+            "sistema_logs",
+            logs_dir.exists(),
+            "No existe carpeta de logs; se creará al primer arranque.",
+        ),
+        (
+            "monitoreo_proceso",
+            instance_root.join("instance-state.json").exists(),
+            "No hay estado previo de ejecución registrado.",
+        ),
+        (
+            "captura_stdout_stderr",
+            logs_dir.exists(),
+            "No hay capturas de logs previas disponibles.",
+        ),
+        (
+            "manejo_crash",
+            crash_reports_dir.exists() || logs_dir.exists(),
+            "No hay reportes de crash previos para diagnóstico.",
+        ),
+        (
+            "estado_instancia_actualizado",
+            instance_root.join("instance-state.json").exists(),
+            "El estado de instancia aún no fue actualizado en disco.",
+        ),
+    ];
+
+    for (name, ok, warning_message) in advisory_checks {
+        checks.insert(name.to_string(), ok);
+        if !ok {
+            warnings.push(format!("{warning_message} ({name})"));
         }
     }
 

@@ -3,6 +3,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -207,6 +208,9 @@ export const InstancePanel = ({
   const [launchChecklistChecks, setLaunchChecklistChecks] = useState<
     Array<{ name: string; ok: boolean }>
   >([]);
+  const [launchChecklistRunning, setLaunchChecklistRunning] = useState(false);
+  const [launchChecklistSummary, setLaunchChecklistSummary] = useState<string | null>(null);
+  const launchChecklistRunRef = useRef(0);
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
   const [editorMemory, setEditorMemory] = useState("4 GB");
@@ -311,12 +315,21 @@ export const InstancePanel = ({
   const runLaunchChecklist = async (instanceId: string) => {
     const checklistTimeoutMs = 20_000;
     const checklistPollIntervalMs = 2_000;
+    const runId = Date.now();
+    launchChecklistRunRef.current = runId;
 
     setLaunchChecklistOpen(true);
+    setLaunchChecklistRunning(true);
+    setLaunchChecklistSummary(null);
     setLaunchChecklistChecks([]);
     setLaunchChecklistLogs(["Abriendo verificación previa de instancia..."]);
 
+    const isCurrentRun = () => launchChecklistRunRef.current === runId;
+
     const appendLog = (line: string) => {
+      if (!isCurrentRun()) {
+        return;
+      }
       setLaunchChecklistLogs((prev) => [...prev, line]);
     };
 
@@ -330,11 +343,14 @@ export const InstancePanel = ({
       const start = Date.now();
       let latestReport = await preflightInstance(instanceId);
 
-      while (!latestReport.ok && Date.now() - start < checklistTimeoutMs) {
+      while (isCurrentRun() && !latestReport.ok && Date.now() - start < checklistTimeoutMs) {
         appendLog(
           "⚠ Faltan componentes en la estructura de la instancia. Reintentando verificación...",
         );
         await wait(checklistPollIntervalMs);
+        if (!isCurrentRun()) {
+          throw new Error("Proceso de verificación cancelado por el usuario.");
+        }
         latestReport = await preflightInstance(instanceId);
       }
 
@@ -349,40 +365,49 @@ export const InstancePanel = ({
       });
     };
 
-    let report = await runTimedPreflight("1/4: Revisando estructura y runtime de la instancia...");
-    appendLog("2/4: Validando checklist técnico de arranque...");
-    printChecklist(report.checks);
-
-    if (!report.ok) {
-      appendLog(
-        "✖ Después de 20 segundos la validación no encontró todo lo necesario. La instancia funciona mal.",
+    try {
+      let report = await runTimedPreflight(
+        "1/4: Revisando estructura, runtime y archivos críticos de la instancia...",
       );
-      appendLog("3/4: Iniciando reparación automática y reinstalación por componentes...");
-      await repairInstance(instanceId);
-      appendLog("Reparación completada. Repitiendo checklist inicial...");
-
-      report = await runTimedPreflight("4/4: Revalidando estructura tras la reparación...");
+      appendLog("2/4: Validando checklist técnico de arranque...");
       printChecklist(report.checks);
-    }
 
-    if (report.warnings.length > 0) {
-      report.warnings.forEach((warning) => {
-        appendLog(`⚠ Aviso: ${warning}`);
-      });
-    }
+      if (!report.ok) {
+        appendLog(
+          "✖ La verificación inicial encontró inconsistencias. Iniciando reparación profesional por fases...",
+        );
+        appendLog("3/4: Reinstalando componentes base y regenerando plan de lanzamiento...");
+        await repairInstance(instanceId);
+        appendLog("Reparación completada. Ejecutando validación final...");
 
-    if (!report.ok) {
-      report.errors.forEach((error) => {
-        appendLog(`✖ Error: ${error}`);
-      });
-      throw new Error(
-        report.errors.join("; ") ||
-          "La validación previa de la instancia falló incluso después de la reparación.",
-      );
-    }
+        report = await runTimedPreflight("4/4: Revalidando estructura tras la reparación...");
+        printChecklist(report.checks);
+      }
 
-    appendLog("Checklist completo, iniciando Java...");
-    return report;
+      if (report.warnings.length > 0) {
+        report.warnings.forEach((warning) => {
+          appendLog(`⚠ Aviso: ${warning}`);
+        });
+      }
+
+      if (!report.ok) {
+        report.errors.forEach((error) => {
+          appendLog(`✖ Error: ${error}`);
+        });
+        throw new Error(
+          report.errors.join("; ") ||
+            "La validación previa de la instancia falló incluso después de la reparación.",
+        );
+      }
+
+      appendLog("Checklist completo, iniciando Java...");
+      setLaunchChecklistSummary("✅ Verificación finalizada correctamente.");
+      return report;
+    } finally {
+      if (isCurrentRun()) {
+        setLaunchChecklistRunning(false);
+      }
+    }
   };
 
   const instanceHealth = useMemo(() => {
@@ -410,6 +435,7 @@ export const InstancePanel = ({
         action: () => {
           void (async () => {
             try {
+              setLaunchChecklistSummary(null);
               await repairInstance(selectedInstance.id);
               setLaunchStatus(
                 "Reparación completada: reinstalación total ejecutada y verificada.",
@@ -447,6 +473,7 @@ export const InstancePanel = ({
       disabled: false,
       action: async () => {
         setLaunchChecklistOpen(true);
+        setLaunchChecklistSummary(null);
         try {
           setLaunchStatus("Iniciando Minecraft...");
           await runLaunchChecklist(selectedInstance.id);
@@ -472,6 +499,7 @@ export const InstancePanel = ({
           const message =
             error instanceof Error ? error.message : "No se pudo iniciar la instancia.";
           setLaunchStatus(`${message} Usa "Reparar instancia" para corregirlo.`);
+          setLaunchChecklistSummary(`❌ ${message}`);
           setLaunchChecklistLogs((prev) => [...prev, `✖ Inicio cancelado: ${message}`]);
         }
       },
@@ -2620,19 +2648,42 @@ ${rows.join("\n")}`;
       {launchChecklistOpen ? (
         <div className="instance-editor__backdrop" onClick={() => undefined}>
           <article
-            className="product-dialog product-dialog--install"
+            className="product-dialog product-dialog--install product-dialog--checklist"
             onClick={(event) => event.stopPropagation()}
           >
             <header>
               <h3>Checklist de inicio de instancia</h3>
+              <div className="product-dialog__checklist-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    launchChecklistRunRef.current = 0;
+                    setLaunchChecklistRunning(false);
+                    setLaunchChecklistSummary("⚠ Verificación cancelada por el usuario.");
+                    setLaunchChecklistLogs((prev) => [
+                      ...prev,
+                      "⚠ Verificación cancelada manualmente.",
+                    ]);
+                  }}
+                  disabled={!launchChecklistRunning}
+                >
+                  Cancelar verificación
+                </button>
+                <button type="button" onClick={() => setLaunchChecklistOpen(false)}>
+                  Cerrar
+                </button>
+              </div>
             </header>
             <div className="product-dialog__install-body">
               <p>
                 Verificando punto por punto antes de abrir Minecraft. Esta ventana se cierra
                 automáticamente al finalizar.
               </p>
+              {launchChecklistSummary ? (
+                <p className="product-dialog__checklist-summary">{launchChecklistSummary}</p>
+              ) : null}
               {launchChecklistChecks.length > 0 ? (
-                <ul>
+                <ul className="product-dialog__checklist-results">
                   {launchChecklistChecks.map((check) => (
                     <li key={check.name}>
                       {check.ok ? "✅" : "❌"} {check.name}
