@@ -949,7 +949,15 @@ fn startup_crash_hint(stderr_lines: &[String]) -> Option<String> {
 
     let joined = stderr_lines.join("\n").to_lowercase();
 
-    if joined.contains("net.fabricmc.tinyremapper.tinyremapper.readfile") {
+    let has_tinyremapper_read_failure = joined
+        .contains("net.fabricmc.tinyremapper.tinyremapper.readfile")
+        || (joined.contains("tinyremapper")
+            && (joined.contains("readfile")
+                || joined.contains("zipexception")
+                || joined.contains("invalid loc header")
+                || joined.contains("zip end header not found")));
+
+    if has_tinyremapper_read_failure {
         return Some(
             "Diagnóstico Fabric: TinyRemapper no pudo leer uno de los jars requeridos. \
             Suele indicar librerías/runtime corruptos o incompletos. Abre la instancia y prueba \
@@ -5584,5 +5592,32 @@ mod tests {
             compare_numeric_versions("21.1.218", "21.1.218"),
             std::cmp::Ordering::Equal
         );
+    }
+
+    #[test]
+    fn startup_crash_hint_detects_tinyremapper_zip_failures() {
+        let stderr_lines = vec![
+            "Exception in thread \"main\" java.util.zip.ZipException: zip END header not found"
+                .to_string(),
+            "at net.fabricmc.tinyremapper.TinyRemapper.readFile(TinyRemapper.java:311)".to_string(),
+        ];
+
+        let hint = startup_crash_hint(&stderr_lines).expect("hint");
+        assert!(hint.contains("Diagnóstico Fabric"));
+    }
+
+    #[test]
+    fn format_startup_crash_message_includes_hint_and_excerpt() {
+        let stderr_lines = vec![
+            "at net.fabricmc.tinyremapper.TinyRemapper$1$1.call(TinyRemapper.java:281)"
+                .to_string(),
+            "at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)"
+                .to_string(),
+            "at java.base/java.lang.Thread.run(Thread.java:1583)".to_string(),
+        ];
+
+        let message = format_startup_crash_message(1, &stderr_lines);
+        assert!(message.contains("Diagnóstico Fabric"));
+        assert!(message.contains("Últimas líneas"));
     }
 }
