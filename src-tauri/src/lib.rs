@@ -3542,6 +3542,8 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             .unwrap_or(false)
     };
 
+    let natives_dir_ready = |path: &Path| -> bool { path.is_dir() };
+
     let launch_plan_path = instance_root.join("launch-plan.json");
     let launch_command_path = instance_root.join("launch-command.txt");
     let logs_dir = instance_root.join("logs");
@@ -3623,7 +3625,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ),
         (
             "natives_extraidos",
-            is_non_empty_dir(Path::new(&plan.natives_dir)),
+            natives_dir_ready(Path::new(&plan.natives_dir)),
         ),
         (
             "runtime_java_compatible",
@@ -5207,6 +5209,84 @@ mod tests {
                 "final-cp".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn validate_launch_plan_accepts_existing_empty_natives_dir() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("frutistudio-test-{unique}"));
+        let instance_root = base.join("instance");
+        let game_dir = base.join("game");
+        let assets_dir = game_dir.join("assets");
+        let assets_objects = assets_dir.join("objects");
+        let libraries_dir = game_dir.join("libraries");
+        let natives_dir = game_dir.join("natives");
+        let version_dir = game_dir.join("versions").join("1.21.4");
+        let version_json = version_dir.join("1.21.4.json");
+        let version_jar = version_dir.join("1.21.4.jar");
+        let launch_plan_path = instance_root.join("launch-plan.json");
+        let launch_command_path = instance_root.join("launch-command.txt");
+
+        fs::create_dir_all(&instance_root).expect("instance root");
+        fs::create_dir_all(&assets_objects).expect("assets objects");
+        fs::create_dir_all(&libraries_dir).expect("libraries dir");
+        fs::create_dir_all(&natives_dir).expect("natives dir");
+        fs::create_dir_all(&version_dir).expect("version dir");
+        fs::create_dir_all(game_dir.join("mods")).expect("mods dir");
+        fs::create_dir_all(game_dir.join("crash-reports")).expect("crash reports dir");
+
+        fs::write(instance_root.join("instance.json"), "{}\n").expect("instance metadata");
+        fs::write(&version_json, "{\"id\":\"1.21.4\"}\n").expect("version json");
+        fs::write(&version_jar, b"jar").expect("version jar");
+        fs::write(&launch_plan_path, "{}\n").expect("launch plan");
+        fs::write(&launch_command_path, "java\n").expect("launch command");
+
+        let plan = LaunchPlan {
+            java_path: "java".to_string(),
+            java_args: vec!["-Xms1G".to_string(), "-Xmx2G".to_string()],
+            game_args: vec!["--username".to_string(), "Steve".to_string()],
+            main_class: "net.minecraft.client.main.Main".to_string(),
+            classpath_entries: vec![version_jar.to_string_lossy().to_string()],
+            classpath_separator: if cfg!(target_os = "windows") {
+                ";".to_string()
+            } else {
+                ":".to_string()
+            },
+            game_dir: game_dir.to_string_lossy().to_string(),
+            assets_dir: assets_dir.to_string_lossy().to_string(),
+            libraries_dir: libraries_dir.to_string_lossy().to_string(),
+            natives_dir: natives_dir.to_string_lossy().to_string(),
+            version_json: version_json.to_string_lossy().to_string(),
+            asset_index: "19".to_string(),
+            required_java_major: 17,
+            resolved_java_major: 17,
+            loader: "vanilla".to_string(),
+            loader_profile_resolved: true,
+            auth: LaunchAuth {
+                username: "Steve".to_string(),
+                uuid: "uuid".to_string(),
+                access_token: "token".to_string(),
+                user_type: "offline".to_string(),
+            },
+            env: HashMap::from([(
+                "MINECRAFT_LAUNCHER_BRAND".to_string(),
+                "FrutiLauncher".to_string(),
+            )]),
+        };
+
+        let report = validate_launch_plan(&instance_root, &plan);
+        assert!(
+            *report
+                .checks
+                .get("natives_extraidos")
+                .expect("check natives_extraidos"),
+            "Se esperaba natives_extraidos=true cuando existe el directorio de natives"
+        );
+
+        fs::remove_dir_all(base).expect("cleanup");
     }
 
     #[test]
