@@ -59,6 +59,7 @@ export interface ExplorerItemFileVersion {
   downloadUrl?: string;
   modId?: string;
   fileId?: string;
+  dependencies?: string[];
 }
 
 export interface ExplorerItemDetails {
@@ -125,6 +126,11 @@ interface ModrinthVersionResponse {
   game_versions?: string[];
   loaders?: string[];
   files?: Array<{ url?: string }>;
+  dependencies?: Array<{
+    project_id?: string;
+    version_id?: string;
+    dependency_type?: "required" | "optional" | "incompatible" | "embedded";
+  }>;
 }
 
 interface CurseforgeSearchItem {
@@ -160,7 +166,7 @@ interface CurseforgeModResponse {
       downloadUrl?: string;
       gameVersions?: string[];
       sortableGameVersions?: Array<{ gameVersionName?: string }>;
-      dependencies?: Array<{ modId?: number }>;
+      dependencies?: Array<{ modId?: number; relationType?: number }>;
       fileDate?: string;
       releaseType?: number;
       modLoader?: number;
@@ -628,6 +634,10 @@ export const fetchExplorerItemDetails = async (
             (version.loaders ?? [])[0],
           ),
           downloadUrl: version.files?.[0]?.url,
+          dependencies: (version.dependencies ?? [])
+            .filter((dependency) => dependency.dependency_type === "required")
+            .map((dependency) => dependency.project_id)
+            .filter((value): value is string => Boolean(value)),
         }))
         .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")),
       primaryMinecraftVersion: (versionData ?? []).flatMap(
@@ -707,6 +717,11 @@ export const fetchExplorerItemDetails = async (
       downloadUrl: file.downloadUrl,
       modId: item.projectId,
       fileId: String(file.id ?? ""),
+      dependencies: (file.dependencies ?? [])
+        .filter((dependency) => dependency.relationType === 3)
+        .map((dependency) => dependency.modId)
+        .filter((value): value is number => Boolean(value))
+        .map(String),
     };
   });
 
