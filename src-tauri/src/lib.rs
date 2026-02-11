@@ -3801,7 +3801,8 @@ fn classpath_entries_complete(plan: &LaunchPlan) -> bool {
 enum ModLoaderKind {
     Fabric,
     Quilt,
-    ForgeLike,
+    Forge,
+    NeoForge,
     Unknown,
 }
 
@@ -3815,16 +3816,17 @@ fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
 
     let has_fabric = zip.by_name("fabric.mod.json").is_ok();
     let has_quilt = zip.by_name("quilt.mod.json").is_ok();
-    let has_forge = zip.by_name("META-INF/mods.toml").is_ok()
-        || zip.by_name("mcmod.info").is_ok()
-        || zip.by_name("META-INF/neoforge.mods.toml").is_ok();
+    let has_forge = zip.by_name("META-INF/mods.toml").is_ok() || zip.by_name("mcmod.info").is_ok();
+    let has_neoforge = zip.by_name("META-INF/neoforge.mods.toml").is_ok();
 
     if has_fabric {
         ModLoaderKind::Fabric
     } else if has_quilt {
         ModLoaderKind::Quilt
+    } else if has_neoforge {
+        ModLoaderKind::NeoForge
     } else if has_forge {
-        ModLoaderKind::ForgeLike
+        ModLoaderKind::Forge
     } else {
         ModLoaderKind::Unknown
     }
@@ -3878,7 +3880,10 @@ fn evaluate_mod_loader_compatibility(
                     || kind == ModLoaderKind::Unknown
             }
             "forge" | "neoforge" => {
-                kind == ModLoaderKind::ForgeLike || kind == ModLoaderKind::Unknown
+                matches!(
+                    kind,
+                    ModLoaderKind::Forge | ModLoaderKind::NeoForge | ModLoaderKind::Unknown
+                )
             }
             _ => kind == ModLoaderKind::Unknown,
         };
