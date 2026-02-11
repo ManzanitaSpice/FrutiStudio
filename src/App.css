@@ -3788,7 +3788,24 @@ textarea {
 .instance-config__inline-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+}
+
+.instance-config__inline-actions button {
+  border: 1px solid rgba(160, 112, 255, 0.35);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: linear-gradient(180deg, rgba(166, 122, 255, 0.2), rgba(69, 44, 129, 0.28));
+  color: #f5ebff;
+  font-weight: 600;
+  font-size: 12px;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.instance-config__inline-actions button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(196, 164, 255, 0.7);
+  box-shadow: 0 6px 18px rgba(88, 49, 158, 0.35);
 }
 
 .instance-config__warning {
