@@ -109,6 +109,39 @@ struct LaunchInstanceResult {
     pid: u32,
 }
 
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum StartupFailureClassification {
+    CorruptMinecraftJar,
+    LoaderProfileMismatch,
+    ModEarlyBootIncompatibility,
+    UnknownEarlyLoaderFailure,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoaderCrashDiagnostic {
+    timestamp: u64,
+    instance_id: String,
+    version: String,
+    loader: String,
+    loader_version: Option<String>,
+    main_class: String,
+    exit_code: i32,
+    classification: StartupFailureClassification,
+    fingerprint: String,
+    jar_path: String,
+    jar_size_bytes: Option<u64>,
+    jar_sha1: Option<String>,
+    expected_client_sha1: Option<String>,
+    jar_is_zip: bool,
+    jar_has_client_markers: bool,
+    version_json_path: String,
+    version_json_inherits_from: Option<String>,
+    version_json_jar: Option<String>,
+    stack_excerpt: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeLogSnapshot {
@@ -1877,7 +1910,10 @@ async fn launcher_factory_reset(
         roots.push(default_root);
     }
     let legacy_default_root = app_data_dir.join(LEGACY_DEFAULT_LAUNCHER_DIR_NAME);
-    if !roots.iter().any(|candidate| candidate == &legacy_default_root) {
+    if !roots
+        .iter()
+        .any(|candidate| candidate == &legacy_default_root)
+    {
         roots.push(legacy_default_root);
     }
     let local_root = local_data_dir.join(DEFAULT_LAUNCHER_DIR_NAME);
@@ -2116,6 +2152,232 @@ fn is_loader_runtime_repair_recommended(runtime_lines: &[String]) -> bool {
             && (joined.contains("could not find or load main class")
                 || joined.contains("classnotfoundexception")
                 || joined.contains("main class")))
+}
+
+fn normalize_stack_line(line: &str) -> String {
+    line.trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn loader_failure_fingerprint(
+    classification: StartupFailureClassification,
+    main_class: &str,
+    loader: &str,
+    version: &str,
+    stack_excerpt: &[String],
+) -> String {
+    let normalized_stack = stack_excerpt
+        .iter()
+        .map(|line| normalize_stack_line(line))
+        .collect::<Vec<_>>()
+        .join("|");
+    format!(
+        "{:?}|{}|{}|{}|{}",
+        classification,
+        main_class.trim().to_lowercase(),
+        loader.trim().to_lowercase(),
+        version.trim().to_lowercase(),
+        normalized_stack
+    )
+}
+
+fn classify_loader_failure(
+    launch_plan: &LaunchPlan,
+    lines: &[String],
+    jar_validation: &MinecraftJarValidation,
+) -> StartupFailureClassification {
+    if !jar_validation.ok {
+        return StartupFailureClassification::CorruptMinecraftJar;
+    }
+
+    let joined = lines.join("\n").to_lowercase();
+    let expected_main = expected_main_class_for_loader(&launch_plan.loader);
+    if !launch_plan.main_class.eq_ignore_ascii_case(expected_main)
+        || (joined.contains("knotclient") && joined.contains("could not find or load main class"))
+    {
+        return StartupFailureClassification::LoaderProfileMismatch;
+    }
+
+    if joined.contains("mod")
+        || joined.contains("fabric.mod.json")
+        || joined.contains("quilt.mod.json")
+        || joined.contains("failed to load")
+    {
+        return StartupFailureClassification::ModEarlyBootIncompatibility;
+    }
+
+    StartupFailureClassification::UnknownEarlyLoaderFailure
+}
+
+fn read_loader_stack_excerpt(lines: &[String], max_items: usize) -> Vec<String> {
+    lines
+        .iter()
+        .filter(|line| {
+            let normalized = line.to_lowercase();
+            normalized.contains("mcversionlookup")
+                || normalized.contains("classreader")
+                || normalized.contains("knot")
+                || normalized.contains("tinyremapper")
+                || normalized.contains("exception")
+        })
+        .take(max_items)
+        .cloned()
+        .collect()
+}
+
+fn write_loader_crash_diagnostic(
+    instance_root: &Path,
+    launch_plan: &LaunchPlan,
+    instance: &InstanceRecord,
+    exit_code: i32,
+    lines: &[String],
+) -> Result<LoaderCrashDiagnostic, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or_default();
+    let version_jar =
+        Path::new(&launch_plan.version_json).with_file_name(format!("{}.jar", instance.version));
+    let expected_sha1 =
+        expected_client_sha1_from_version_json(Path::new(&launch_plan.version_json));
+    let jar_validation = validate_minecraft_client_jar(&version_jar, expected_sha1.as_deref());
+    let version_json_raw = fs::read_to_string(&launch_plan.version_json).unwrap_or_default();
+    let version_json = serde_json::from_str::<Value>(&version_json_raw).unwrap_or(Value::Null);
+    let stack_excerpt = read_loader_stack_excerpt(lines, 12);
+    let classification = classify_loader_failure(launch_plan, lines, &jar_validation);
+    let fingerprint = loader_failure_fingerprint(
+        classification,
+        &launch_plan.main_class,
+        &launch_plan.loader,
+        &instance.version,
+        &stack_excerpt,
+    );
+
+    let diagnostic = LoaderCrashDiagnostic {
+        timestamp,
+        instance_id: instance.id.clone(),
+        version: instance.version.clone(),
+        loader: launch_plan.loader.clone(),
+        loader_version: instance.loader_version.clone(),
+        main_class: launch_plan.main_class.clone(),
+        exit_code,
+        classification,
+        fingerprint,
+        jar_path: version_jar.to_string_lossy().to_string(),
+        jar_size_bytes: fs::metadata(&version_jar).ok().map(|meta| meta.len()),
+        jar_sha1: file_sha1(&version_jar).ok(),
+        expected_client_sha1: expected_sha1,
+        jar_is_zip: is_valid_zip_stream(&version_jar),
+        jar_has_client_markers: has_minecraft_client_marker(&version_jar),
+        version_json_path: launch_plan.version_json.clone(),
+        version_json_inherits_from: version_json
+            .get("inheritsFrom")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        version_json_jar: version_json
+            .get("jar")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        stack_excerpt,
+    };
+
+    let logs_dir = instance_root.join("logs");
+    fs::create_dir_all(&logs_dir)
+        .map_err(|error| format!("No se pudo crear carpeta logs para diagnóstico: {error}"))?;
+    let path = logs_dir.join(format!("loader-diagnostic-{timestamp}.json"));
+    let payload = serde_json::to_vec_pretty(&diagnostic)
+        .map_err(|error| format!("No se pudo serializar diagnóstico de loader: {error}"))?;
+    fs::write(&path, payload).map_err(|error| {
+        format!(
+            "No se pudo escribir diagnóstico de loader {}: {error}",
+            path.display()
+        )
+    })?;
+
+    Ok(diagnostic)
+}
+
+fn purge_minecraft_version_tree(game_dir: &Path, minecraft_version: &str) -> Result<(), String> {
+    let version_dir = game_dir.join("versions").join(minecraft_version);
+    if version_dir.exists() {
+        fs::remove_dir_all(&version_dir).map_err(|error| {
+            format!(
+                "No se pudo purgar versions/{minecraft_version} en {}: {error}",
+                game_dir.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+struct ScopedModsDisable {
+    source: PathBuf,
+    disabled: PathBuf,
+    active: bool,
+}
+
+impl ScopedModsDisable {
+    fn disable(game_dir: &Path) -> Result<Option<Self>, String> {
+        let source = game_dir.join("mods");
+        if !source.exists() {
+            return Ok(None);
+        }
+
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_secs())
+            .unwrap_or_default();
+        let disabled = game_dir.join(format!("mods.disabled.{ts}"));
+        fs::rename(&source, &disabled).map_err(|error| {
+            format!(
+                "No se pudo desactivar mods para arranque seguro ({} -> {}): {error}",
+                source.display(),
+                disabled.display()
+            )
+        })?;
+
+        Ok(Some(Self {
+            source,
+            disabled,
+            active: true,
+        }))
+    }
+
+    fn restore(&mut self) -> Result<(), String> {
+        if !self.active {
+            return Ok(());
+        }
+
+        if self.source.exists() {
+            fs::remove_dir_all(&self.source).map_err(|error| {
+                format!(
+                    "No se pudo limpiar mods temporal antes de restaurar {}: {error}",
+                    self.source.display()
+                )
+            })?;
+        }
+
+        fs::rename(&self.disabled, &self.source).map_err(|error| {
+            format!(
+                "No se pudo restaurar mods desactivados ({} -> {}): {error}",
+                self.disabled.display(),
+                self.source.display()
+            )
+        })?;
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for ScopedModsDisable {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.restore();
+        }
+    }
 }
 
 fn format_startup_crash_message(
@@ -3765,16 +4027,16 @@ where
                     task.object_name, task.sha1
                 )
             })?
-                .map_err(|error| {
-                    format!(
-                        "Asset {} ({}) falló: {} | final={} | temp={}",
-                        task.object_name,
-                        task.sha1,
-                        error,
-                        normalized_display_path(&task.path),
-                        normalized_display_path(&temp_path)
-                    )
-                })
+            .map_err(|error| {
+                format!(
+                    "Asset {} ({}) falló: {} | final={} | temp={}",
+                    task.object_name,
+                    task.sha1,
+                    error,
+                    normalized_display_path(&task.path),
+                    normalized_display_path(&temp_path)
+                )
+            })
         });
     }
 
@@ -6995,6 +7257,10 @@ async fn launch_instance(
     }
 
     let mut launch_repair_attempted = false;
+    let mut safe_mode_attempted = false;
+    let mut safe_mode_mods_result: Option<bool> = None;
+    let mut version_purge_attempted = false;
+    let mut previous_fingerprint: Option<String> = None;
 
     let (mut instance_root, mut instance) =
         prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
@@ -7083,6 +7349,20 @@ async fn launch_instance(
             ));
         }
 
+        let mut safe_mode_guard = None;
+        if safe_mode_attempted && safe_mode_mods_result.is_none() {
+            safe_mode_guard = ScopedModsDisable::disable(Path::new(&launch_plan.game_dir))?;
+            write_instance_state(
+                &instance_root,
+                "launch_safe_mode",
+                serde_json::json!({
+                    "instance": instance.id,
+                    "reason": "repeat_loader_failure",
+                    "modsDisabled": safe_mode_guard.is_some()
+                }),
+            );
+        }
+
         write_instance_state(
             &instance_root,
             "launching",
@@ -7139,7 +7419,10 @@ async fn launch_instance(
                     .into_iter()
                     .rev()
                     .collect::<Vec<_>>()
-                    .join("\n");
+                    .join(
+                        "
+",
+                    );
                 write_instance_state(
                     &instance_root,
                     "crashed",
@@ -7151,9 +7434,34 @@ async fn launch_instance(
                 diagnostic_lines.extend(stderr_lines.iter().cloned());
                 diagnostic_lines.extend(stdout_lines.iter().cloned());
 
-                if !launch_repair_attempted
-                    && is_loader_runtime_repair_recommended(&diagnostic_lines)
-                {
+                let is_loader_failure = is_loader_runtime_repair_recommended(&diagnostic_lines);
+                let diagnostic = if is_loader_failure {
+                    write_loader_crash_diagnostic(
+                        &instance_root,
+                        &launch_plan,
+                        &instance,
+                        code,
+                        &diagnostic_lines,
+                    )
+                    .ok()
+                } else {
+                    None
+                };
+
+                let same_fingerprint = diagnostic
+                    .as_ref()
+                    .and_then(|item| {
+                        previous_fingerprint
+                            .as_ref()
+                            .map(|prev| prev == &item.fingerprint)
+                    })
+                    .unwrap_or(false);
+
+                if let Some(item) = diagnostic.as_ref() {
+                    previous_fingerprint = Some(item.fingerprint.clone());
+                }
+
+                if is_loader_failure && !launch_repair_attempted {
                     launch_repair_attempted = true;
                     write_instance_state(
                         &instance_root,
@@ -7161,12 +7469,56 @@ async fn launch_instance(
                         serde_json::json!({
                             "instance": instance.id,
                             "reason": "loader_runtime_crash",
-                            "exitCode": code
+                            "exitCode": code,
+                            "classification": diagnostic.as_ref().map(|value| value.classification),
                         }),
                     );
                     (instance_root, instance) =
                         prepare_instance_runtime(&app, &instance_id, true, true, true).await?;
                     continue 'launch_attempt;
+                }
+
+                if is_loader_failure && same_fingerprint && !safe_mode_attempted {
+                    safe_mode_attempted = true;
+                    continue 'launch_attempt;
+                }
+
+                if safe_mode_attempted && safe_mode_mods_result.is_none() {
+                    if status.success() {
+                        safe_mode_mods_result = Some(true);
+                    } else {
+                        safe_mode_mods_result = Some(false);
+                    }
+                }
+
+                if is_loader_failure
+                    && safe_mode_mods_result == Some(false)
+                    && !version_purge_attempted
+                {
+                    version_purge_attempted = true;
+                    purge_minecraft_version_tree(
+                        Path::new(&launch_plan.game_dir),
+                        &instance.version,
+                    )?;
+                    write_instance_state(
+                        &instance_root,
+                        "purge_version_runtime",
+                        serde_json::json!({
+                            "instance": instance.id,
+                            "version": instance.version,
+                            "reason": "safe_mode_failed_loader_crash"
+                        }),
+                    );
+                    (instance_root, instance) =
+                        prepare_instance_runtime(&app, &instance_id, true, true, true).await?;
+                    continue 'launch_attempt;
+                }
+
+                if safe_mode_mods_result == Some(true) {
+                    return Err(
+                        "Diagnóstico: MOD_EARLY_BOOT_INCOMPATIBILITY. El juego inicia en modo seguro sin mods; revisa incompatibilidades o dependencias en la carpeta mods/."
+                            .to_string(),
+                    );
                 }
 
                 return Err(format_startup_crash_message(
@@ -7175,6 +7527,15 @@ async fn launch_instance(
                     &stdout_lines,
                 ));
             }
+        }
+
+        if let Some(mut guard) = safe_mode_guard {
+            guard.restore()?;
+            safe_mode_mods_result = Some(true);
+            return Err(
+                "Diagnóstico: MOD_EARLY_BOOT_INCOMPATIBILITY. El juego pudo mantenerse en ejecución en modo seguro sin mods."
+                    .to_string(),
+            );
         }
 
         write_instance_state(
@@ -8073,6 +8434,121 @@ mod tests {
             compare_numeric_versions("21.1.218", "21.1.218"),
             std::cmp::Ordering::Equal
         );
+    }
+
+    #[test]
+    fn classify_loader_failure_detects_corrupt_jar() {
+        let plan = LaunchPlan {
+            java_path: "java".to_string(),
+            java_args: vec![],
+            game_args: vec![],
+            main_class: "net.fabricmc.loader.launch.knot.KnotClient".to_string(),
+            classpath_entries: vec![],
+            classpath_separator: ":".to_string(),
+            game_dir: "/tmp".to_string(),
+            assets_dir: "/tmp/assets".to_string(),
+            libraries_dir: "/tmp/libraries".to_string(),
+            natives_dir: "/tmp/natives".to_string(),
+            version_json: "/tmp/version.json".to_string(),
+            asset_index: "1.21.1".to_string(),
+            required_java_major: 17,
+            resolved_java_major: 17,
+            loader: "fabric".to_string(),
+            loader_profile_resolved: true,
+            auth: LaunchAuth {
+                username: "dev".to_string(),
+                uuid: "00000000000000000000000000000000".to_string(),
+                access_token: "0".to_string(),
+                user_type: "offline".to_string(),
+            },
+            env: HashMap::new(),
+        };
+
+        let jar_validation = MinecraftJarValidation {
+            ok: false,
+            reason: Some("broken".to_string()),
+        };
+        let result = classify_loader_failure(&plan, &[], &jar_validation);
+        assert_eq!(result, StartupFailureClassification::CorruptMinecraftJar);
+    }
+
+    #[test]
+    fn classify_loader_failure_detects_loader_profile_mismatch() {
+        let mut plan = LaunchPlan {
+            java_path: "java".to_string(),
+            java_args: vec![],
+            game_args: vec![],
+            main_class: "net.minecraft.client.main.Main".to_string(),
+            classpath_entries: vec![],
+            classpath_separator: ":".to_string(),
+            game_dir: "/tmp".to_string(),
+            assets_dir: "/tmp/assets".to_string(),
+            libraries_dir: "/tmp/libraries".to_string(),
+            natives_dir: "/tmp/natives".to_string(),
+            version_json: "/tmp/version.json".to_string(),
+            asset_index: "1.21.1".to_string(),
+            required_java_major: 17,
+            resolved_java_major: 17,
+            loader: "fabric".to_string(),
+            loader_profile_resolved: true,
+            auth: LaunchAuth {
+                username: "dev".to_string(),
+                uuid: "00000000000000000000000000000000".to_string(),
+                access_token: "0".to_string(),
+                user_type: "offline".to_string(),
+            },
+            env: HashMap::new(),
+        };
+
+        let jar_validation = MinecraftJarValidation {
+            ok: true,
+            reason: None,
+        };
+        let result = classify_loader_failure(&plan, &[], &jar_validation);
+        assert_eq!(result, StartupFailureClassification::LoaderProfileMismatch);
+
+        plan.main_class = "net.fabricmc.loader.launch.knot.KnotClient".to_string();
+        let lines = vec![
+            "Could not find or load main class net.fabricmc.loader.launch.knot.KnotClient"
+                .to_string(),
+        ];
+        let result = classify_loader_failure(&plan, &lines, &jar_validation);
+        assert_eq!(result, StartupFailureClassification::LoaderProfileMismatch);
+    }
+
+    #[test]
+    fn scoped_mods_disable_restores_mods_folder() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let game_dir = std::env::temp_dir().join(format!("frutistudio-safe-mode-{unique}"));
+        let mods_dir = game_dir.join("mods");
+        fs::create_dir_all(&mods_dir).expect("mods dir");
+        fs::write(mods_dir.join("marker.txt"), b"ok").expect("marker");
+
+        let mut guard = ScopedModsDisable::disable(&game_dir)
+            .expect("disable ok")
+            .expect("guard present");
+        assert!(!mods_dir.exists());
+        let disabled_count = game_dir
+            .read_dir()
+            .expect("read")
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("mods.disabled.")
+            })
+            .count();
+        assert_eq!(disabled_count, 1);
+
+        guard.restore().expect("restore");
+        assert!(mods_dir.exists());
+        assert!(mods_dir.join("marker.txt").exists());
+
+        fs::remove_dir_all(game_dir).expect("cleanup");
     }
 
     #[test]
