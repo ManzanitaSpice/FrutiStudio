@@ -1481,6 +1481,168 @@ fn resolve_loader_profile_json(
     None
 }
 
+async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) -> Option<String> {
+    if loader == "forge" {
+        let promotions_url =
+            "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
+        if let Ok(resp) = reqwest::get(promotions_url).await {
+            if let Ok(json) = resp.json::<Value>().await {
+                let key_recommended = format!("{minecraft_version}-recommended");
+                let key_latest = format!("{minecraft_version}-latest");
+                if let Some(version) = json
+                    .get("promos")
+                    .and_then(|v| v.get(&key_recommended).or_else(|| v.get(&key_latest)))
+                    .and_then(|v| v.as_str())
+                {
+                    return Some(format!("{minecraft_version}-{version}"));
+                }
+            }
+        }
+    }
+
+    let metadata_urls = if loader == "neoforge" {
+        vec!["https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"]
+    } else {
+        vec!["https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"]
+    };
+
+    for url in metadata_urls {
+        let Ok(resp) = reqwest::get(url).await else {
+            continue;
+        };
+        let Ok(xml) = resp.text().await else {
+            continue;
+        };
+        let mut matches = xml
+            .match_indices("<version>")
+            .filter_map(|(start, _)| {
+                let rest = &xml[start + 9..];
+                let end = rest.find("</version>")?;
+                Some(rest[..end].to_string())
+            })
+            .collect::<Vec<_>>();
+        matches.retain(|value| value.starts_with(minecraft_version));
+        matches.sort();
+        if let Some(last) = matches.last() {
+            return Some(last.clone());
+        }
+    }
+
+    None
+}
+
+async fn resolve_latest_fabric_like_loader_version(
+    loader: &str,
+    minecraft_version: &str,
+) -> Option<String> {
+    let endpoint = if loader == "quilt" {
+        format!("https://meta.quiltmc.org/v3/versions/loader/{minecraft_version}")
+    } else {
+        format!("https://meta.fabricmc.net/v2/versions/loader/{minecraft_version}")
+    };
+
+    let Ok(resp) = reqwest::get(&endpoint).await else {
+        return None;
+    };
+    let Ok(json) = resp.json::<Value>().await else {
+        return None;
+    };
+    json.as_array()
+        .and_then(|values| values.first())
+        .and_then(|entry| entry.get("loader"))
+        .and_then(|loader| loader.get("version"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+async fn install_forge_like_loader(
+    minecraft_root: &Path,
+    minecraft_version: &str,
+    loader: &str,
+    requested_loader_version: Option<&str>,
+) -> Result<String, String> {
+    let requested = requested_loader_version
+        .unwrap_or("latest")
+        .trim()
+        .to_string();
+    let resolved_version = if requested.is_empty() || requested.eq_ignore_ascii_case("latest") {
+        resolve_latest_loader_version(loader, minecraft_version)
+            .await
+            .ok_or_else(|| {
+                format!(
+                    "No se pudo resolver una versión {loader} para Minecraft {minecraft_version}."
+                )
+            })?
+    } else {
+        requested
+    };
+
+    let (base_url, artifact_name, expected_id) = if loader == "neoforge" {
+        (
+            "https://maven.neoforged.net/releases/net/neoforged/neoforge",
+            "neoforge",
+            if resolved_version.starts_with(minecraft_version) {
+                resolved_version.clone()
+            } else {
+                format!("{minecraft_version}-{resolved_version}")
+            },
+        )
+    } else {
+        (
+            "https://maven.minecraftforge.net/net/minecraftforge/forge",
+            "forge",
+            resolved_version.clone(),
+        )
+    };
+
+    let installer_url =
+        format!("{base_url}/{resolved_version}/{artifact_name}-{resolved_version}-installer.jar");
+    let installer_target = minecraft_root
+        .join("installers")
+        .join(format!("{artifact_name}-{resolved_version}-installer.jar"));
+    download_to(&installer_url, &installer_target).await?;
+
+    let java_bin = if command_available("java") {
+        "java".to_string()
+    } else {
+        return Err("No se encontró Java en PATH para instalar Forge/NeoForge.".to_string());
+    };
+
+    let install_flag = if loader == "neoforge" {
+        "--install-client"
+    } else {
+        "--installClient"
+    };
+    let output = Command::new(&java_bin)
+        .current_dir(minecraft_root)
+        .arg("-jar")
+        .arg(&installer_target)
+        .arg(install_flag)
+        .arg(minecraft_root)
+        .output()
+        .map_err(|error| format!("No se pudo ejecutar el instalador {loader}: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(format!(
+            "Falló la instalación de {loader} {resolved_version}. stdout: {} stderr: {}",
+            stdout.trim(),
+            stderr.trim()
+        ));
+    }
+
+    let version_dir = minecraft_root.join("versions").join(&expected_id);
+    let version_json = version_dir.join(format!("{expected_id}.json"));
+    if !version_json.exists() {
+        return Err(format!(
+            "El instalador de {loader} terminó pero no creó {}",
+            version_json.display()
+        ));
+    }
+
+    Ok(expected_id)
+}
+
 fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
     if let Some(position) = args.iter().position(|arg| arg == key) {
         if position + 1 < args.len() {
@@ -1709,7 +1871,7 @@ fn normalize_critical_game_args(plan: &mut LaunchPlan, version: &str) {
     } else {
         plan.auth.access_token.clone()
     };
-    let version_type = extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiStudio");
+    let version_type = extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiLauncher");
 
     ensure_single_game_arg(plan, "--username", &username);
     ensure_single_game_arg(plan, "--version", version);
@@ -1839,6 +2001,13 @@ async fn bootstrap_instance_runtime(
 
     let mut effective_version_json = base_version_json.clone();
     if loader == "forge" || loader == "neoforge" {
+        let _installed_profile_id = install_forge_like_loader(
+            &minecraft_root,
+            version,
+            &loader,
+            instance.loader_version.as_deref(),
+        )
+        .await?;
         if let Some(profile_json) = resolve_loader_profile_json(
             &minecraft_root,
             version,
@@ -1872,15 +2041,19 @@ async fn bootstrap_instance_runtime(
         .unwrap_or(Value::Array(Vec::new()));
 
     if loader == "fabric" || loader == "quilt" {
-        let fabric_loader_version = instance
+        let requested_loader_version = instance
             .loader_version
             .as_deref()
             .unwrap_or("latest")
             .trim();
-        let loader_version = if fabric_loader_version.is_empty() {
-            "latest"
+        let loader_version = if requested_loader_version.is_empty()
+            || requested_loader_version.eq_ignore_ascii_case("latest")
+        {
+            resolve_latest_fabric_like_loader_version(&loader, version)
+                .await
+                .unwrap_or_else(|| "latest".to_string())
         } else {
-            fabric_loader_version
+            requested_loader_version.to_string()
         };
         let profile_urls = if loader == "quilt" {
             vec![
@@ -1894,10 +2067,16 @@ async fn bootstrap_instance_runtime(
                 ),
             ]
         } else {
-            vec![format!(
-                "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
-                version, loader_version
-            )]
+            vec![
+                format!(
+                    "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+                    version, loader_version
+                ),
+                format!(
+                    "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+                    version, "stable"
+                ),
+            ]
         };
         let profile = fetch_json_with_fallback(&profile_urls, "perfil del loader").await?;
         effective_version_json = merge_version_json(&effective_version_json, &profile);
@@ -2085,7 +2264,7 @@ async fn bootstrap_instance_runtime(
             "natives_directory",
             natives_dir.to_string_lossy().to_string(),
         ),
-        ("launcher_name", "FrutiStudio".to_string()),
+        ("launcher_name", "FrutiLauncher".to_string()),
         ("launcher_version", "1.0.0".to_string()),
         ("classpath", classpath_value.clone()),
         ("classpath_separator", cp_separator.to_string()),
@@ -2097,7 +2276,7 @@ async fn bootstrap_instance_runtime(
         ("auth_uuid", auth_uuid.clone()),
         ("auth_access_token", auth_access_token.clone()),
         ("user_type", "offline".to_string()),
-        ("version_type", "FrutiStudio".to_string()),
+        ("version_type", "FrutiLauncher".to_string()),
         ("library_directory", library_directory.clone()),
     ]);
 
@@ -2133,7 +2312,7 @@ async fn bootstrap_instance_runtime(
         ("--uuid", uuid.clone()),
         ("--accessToken", "0".to_string()),
         ("--userType", "offline".to_string()),
-        ("--versionType", "FrutiStudio".to_string()),
+        ("--versionType", "FrutiLauncher".to_string()),
     ];
 
     for (key, value) in required_game_args {
@@ -2174,7 +2353,7 @@ async fn bootstrap_instance_runtime(
         },
         env: HashMap::from([(
             "MINECRAFT_LAUNCHER_BRAND".to_string(),
-            "FrutiStudio".to_string(),
+            "FrutiLauncher".to_string(),
         )]),
     };
 
