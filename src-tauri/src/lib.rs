@@ -4378,7 +4378,7 @@ async fn preflight_instance(
     }
 
     let (instance_root, _) =
-        prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
+        prepare_instance_runtime(&app, &instance_id, false, false, true).await?;
     write_instance_state(
         &instance_root,
         "preflight",
@@ -4419,7 +4419,7 @@ async fn launch_instance(
     }
 
     let (instance_root, instance) =
-        prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
+        prepare_instance_runtime(&app, &instance_id, false, false, false).await?;
 
     let mut launch_plan = read_launch_plan(&instance_root)?;
 
