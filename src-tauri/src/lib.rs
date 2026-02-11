@@ -2694,6 +2694,37 @@ fn is_valid_zip_stream(path: &Path) -> bool {
     true
 }
 
+fn has_minecraft_client_marker(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let Ok(mut zip) = ZipArchive::new(file) else {
+        return false;
+    };
+
+    [
+        "net/minecraft/client/main/Main.class",
+        "net/minecraft/client/Minecraft.class",
+    ]
+    .iter()
+    .any(|entry| zip.by_name(entry).is_ok())
+}
+
+fn looks_like_minecraft_version_jar(path: &Path) -> bool {
+    let Some(file_stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let Some(version_dir) = path
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|value| value.to_str())
+    else {
+        return false;
+    };
+
+    file_stem == version_dir
+}
+
 fn scan_runtime_integrity(game_dir: &Path) -> RuntimeIntegrityReport {
     let mut report = RuntimeIntegrityReport::default();
     let mut seen_corrupt = HashSet::new();
@@ -2789,6 +2820,21 @@ fn scan_runtime_integrity(game_dir: &Path) -> RuntimeIntegrityReport {
                     report.issues.push(RuntimeIntegrityIssue {
                         path: path.clone(),
                         reason: "ZIP/JAR inválido o ilegible".to_string(),
+                    });
+                    if seen_corrupt.insert(path.clone()) {
+                        report.corrupt_files.push(path.clone());
+                    }
+                    continue;
+                }
+
+                if scope == "versions"
+                    && looks_like_minecraft_version_jar(&path)
+                    && !has_minecraft_client_marker(&path)
+                {
+                    report.issues.push(RuntimeIntegrityIssue {
+                        path: path.clone(),
+                        reason: "JAR de Minecraft sin clases cliente esperadas (Main/Minecraft)"
+                            .to_string(),
                     });
                     if seen_corrupt.insert(path.clone()) {
                         report.corrupt_files.push(path.clone());
@@ -3959,6 +4005,11 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let minecraft_jar_size_ok = fs::metadata(&version_jar_path)
         .map(|meta| meta.is_file() && meta.len() >= MIN_MINECRAFT_JAR_SIZE_BYTES)
         .unwrap_or(false);
+    let minecraft_jar_client_marker_ok = if version_jar_path.is_file() {
+        has_minecraft_client_marker(&version_jar_path)
+    } else {
+        false
+    };
     let expected_client_sha1 =
         expected_client_sha1_from_version_json(Path::new(&plan.version_json));
     let minecraft_jar_sha1_ok = if !version_jar_path.is_file() {
@@ -4022,6 +4073,10 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ),
         ("jar_minecraft_valido", is_non_empty_file(&version_jar_path)),
         ("jar_minecraft_tamano_minimo", minecraft_jar_size_ok),
+        (
+            "jar_minecraft_cliente_valido",
+            minecraft_jar_client_marker_ok,
+        ),
         ("jar_minecraft_sha1", minecraft_jar_sha1_ok),
         ("main_class_resuelta", !plan.main_class.trim().is_empty()),
         ("main_class_loader_compatible", main_class_matches_loader),
@@ -4142,6 +4197,13 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
                 "minecraft.jar no coincide con el hash SHA1 esperado ({expected_sha1}); se obtuvo {actual_sha1}. Borra versions/<mc_version> y ejecuta \"Reparar runtime\"."
             ));
         }
+    }
+
+    if version_jar_path.is_file() && !minecraft_jar_client_marker_ok {
+        errors.push(
+            "minecraft.jar no contiene clases cliente válidas (Main/Minecraft). Esto suele ocurrir cuando el archivo quedó mezclado/corrupto tras una descarga fallida. Elimina versions/<mc_version> y ejecuta \"Reparar runtime\" para reinstalar la versión completa."
+                .to_string(),
+        );
     }
 
     let classpath_separator_valid = if cfg!(target_os = "windows") {
@@ -6092,6 +6154,38 @@ mod tests {
 
         let report = scan_runtime_integrity(&game_dir);
         assert!(report.ok());
+
+        fs::remove_dir_all(game_dir).expect("cleanup");
+    }
+
+    #[test]
+    fn scan_runtime_integrity_flags_version_jar_without_client_markers() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let game_dir =
+            std::env::temp_dir().join(format!("frutistudio-integrity-client-marker-{unique}"));
+        let versions_dir = game_dir.join("versions").join("1.21.4");
+        fs::create_dir_all(&versions_dir).expect("versions dir");
+
+        let jar_path = versions_dir.join("1.21.4.jar");
+        let file = fs::File::create(&jar_path).expect("jar file");
+        let mut writer = ZipWriter::new(file);
+        writer
+            .start_file("META-INF/MANIFEST.MF", SimpleFileOptions::default())
+            .expect("manifest entry");
+        writer
+            .write_all(b"Manifest-Version: 1.0\n")
+            .expect("manifest content");
+        writer.finish().expect("finish jar");
+
+        let report = scan_runtime_integrity(&game_dir);
+        assert!(!report.ok());
+        assert!(report
+            .issues
+            .iter()
+            .any(|issue| issue.reason.contains("sin clases cliente esperadas")));
 
         fs::remove_dir_all(game_dir).expect("cleanup");
     }
