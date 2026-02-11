@@ -2685,7 +2685,7 @@ fn scan_runtime_integrity(game_dir: &Path) -> RuntimeIntegrityReport {
                     continue;
                 };
 
-                let min_size = if scope == "mods" { 1024 } else { 10 * 1024 };
+                let min_size = if scope == "mods" { 1024 } else { 512 };
                 if meta.len() < min_size {
                     report.issues.push(RuntimeIntegrityIssue {
                         path: path.clone(),
@@ -5862,6 +5862,41 @@ mod tests {
         let large_payload = "x".repeat(2048);
         zip.write_all(large_payload.as_bytes())
             .expect("zip write metadata");
+        zip.finish().expect("zip finish");
+
+        let report = scan_runtime_integrity(&game_dir);
+        assert!(report.ok());
+
+        fs::remove_dir_all(game_dir).expect("cleanup");
+    }
+
+    #[test]
+    fn scan_runtime_integrity_accepts_small_valid_library_archive() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let game_dir = std::env::temp_dir().join(format!("frutistudio-integrity-lib-ok-{unique}"));
+        let library_dir = game_dir
+            .join("libraries")
+            .join("com")
+            .join("example")
+            .join("tiny")
+            .join("1.0.0");
+        fs::create_dir_all(&library_dir).expect("library dir");
+
+        let jar_path = library_dir.join("tiny-1.0.0.jar");
+        let file = fs::File::create(&jar_path).expect("library jar");
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.start_file("META-INF/MANIFEST.MF", options)
+            .expect("zip start manifest");
+        zip.write_all(b"Manifest-Version: 1.0\n")
+            .expect("zip write manifest");
+        zip.start_file("tiny/Marker.class", options)
+            .expect("zip start class");
+        let payload = vec![0_u8; 900];
+        zip.write_all(&payload).expect("zip write class");
         zip.finish().expect("zip finish");
 
         let report = scan_runtime_integrity(&game_dir);
