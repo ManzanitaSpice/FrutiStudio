@@ -193,3 +193,30 @@ export const readInstanceRuntimeLogs = async (instanceId: string) => {
     },
   });
 };
+
+
+export interface MinecraftLauncherInstallation {
+  launcher: string;
+  root: string;
+  kind: string;
+  usable: boolean;
+}
+
+export interface InstalledModEntry {
+  fileName: string;
+  path: string;
+  loaderHint: string;
+  sizeBytes: number;
+}
+
+export const detectMinecraftLaunchers = async () =>
+  invokeWithHandling<MinecraftLauncherInstallation[]>("detect_minecraft_launchers");
+
+export const detectInstalledMods = async (instanceId: string) => {
+  const validInstanceId = assertValidInstanceId(instanceId);
+  return invokeWithHandling<InstalledModEntry[]>("detect_installed_mods", {
+    args: {
+      instanceId: validInstanceId,
+    },
+  });
+};

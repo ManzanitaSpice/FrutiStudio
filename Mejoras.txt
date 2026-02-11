@@ -1,62 +1,163 @@
-# Mejoras propuestas para Fruti Launcher (mínimo 50)
+# Diagnóstico técnico completo del flujo de instancias, loaders y catálogos (Fruti Launcher)
 
-1. Separar los datos simulados de instancias en fixtures o JSON de desarrollo para evitar que `App.tsx` crezca y facilitar el reemplazo por datos reales.
-2. Crear un servicio de datos (por ejemplo `instanceService`) que entregue instancias desde una API/archivo local en vez de tenerlas hardcodeadas.
-3. Reemplazar el `useMemo` dependiente de un array literal recreado en cada render por un estado/contexto o una memoización más estable.
-4. Añadir un estado global para UI (zoom, modo foco, sección activa) con un contexto dedicado o store (Zustand/Redux) para evitar prop drilling futuro.
-5. Mover el manejo de zoom global a un hook reutilizable con cleanup centralizado y tests.
-6. Persistir `uiScale` en configuración local (Tauri) para recuperar el zoom entre sesiones.
-7. Añadir un sistema de atajos de teclado para navegación entre secciones y toggles de focus.
-8. Crear un sistema de feature flags para habilitar secciones en desarrollo (explorador, noticias, servers) de forma segura.
-9. Implementar lazy loading de paneles (React.lazy + Suspense) para reducir el bundle inicial.
-10. Añadir error boundaries en `App` y paneles críticos para evitar pantallas en blanco.
-11. Definir un esquema de tipos (TypeScript) para `Instance`, `Modpack`, `Mod`, `Server` y reutilizar en todo el código.
-12. Unificar el formato de fechas/tiempos (por ejemplo `lastPlayed`, `playtime`) usando una utilidad de formateo consistente.
-13. Incorporar un sistema de i18n para poder traducir textos de UI y mensajes de errores.
-14. Normalizar y centralizar los textos de UI en un archivo de constantes.
-15. Añadir un componente de “empty state” para cuando no haya instancias seleccionadas o disponibles.
-16. Definir un theme system con variables CSS (light/dark) y preferencia del usuario.
-17. Mejorar accesibilidad: roles ARIA, navegación por teclado y foco visible en Sidebar/Toolbar.
-18. Optimizar `App.css` con variables CSS y evitar repetición de colores y tamaños.
-19. Incluir tests de snapshot para componentes principales con Vitest/Testing Library.
-20. Añadir pruebas de integración para el flujo de selección de carpeta base.
-21. Implementar un logger frontend con niveles y salida opcional a Tauri `append_log`.
-22. Centralizar manejo de errores de `invoke` (Tauri) en un wrapper que transforme errores en mensajes amigables.
-23. Agregar un “retry” para llamadas críticas (load/save config) con backoff.
-24. Implementar cache en memoria para evitar llamadas repetidas a `loadConfig`.
-25. Añadir validaciones de baseDir en el frontend antes de invocar al backend (e.g. string vacío).
-26. Manejar cancelación en `select_folder` de forma más explícita, devolviendo un estado tipo `Result` con `ok/error`.
-27. Asegurar que el `BaseDirProvider` no realice `saveBaseDir` si el valor es idéntico al anterior.
-28. Añadir un estado “validating” con spinner visual para el usuario cuando se valida el directorio.
-29. Crear un panel de configuración donde el usuario pueda ver y cambiar la baseDir.
-30. Mejorar los contextos vacíos (`instanceContext`, `modContext`, `modpackContext`, `serverContext`) con reducers y acciones claras.
-31. Definir una capa API para modpacks/mods/versions (CurseForge/Modrinth) con un cliente robusto en `apiClients`.
-32. Agregar rate limiting y caching para llamadas a APIs externas.
-33. Implementar una estrategia de actualización de mods con comparaciones de versiones semánticas.
-34. Añadir soporte para perfiles de Java con detección automática en `javaConfig`.
-35. Persistir preferencias del usuario (tema, escala, ruta base) en `config.json`.
-36. Añadir migraciones de configuración para futuros cambios en la estructura del config.
-37. Incluir tests en Rust para validación de directorio base y config.
-38. Agregar una “dry run” del `validate_base_dir` para no crear carpetas automáticamente si el usuario aún no confirma.
-39. Mejorar el manejo de logs para incluir niveles (info/warn/error) y rotación.
-40. Usar timestamps en formato ISO-8601 en los logs para mejor legibilidad.
-41. Añadir una cola de logs con buffering para reducir el I/O cuando se escriben muchos mensajes.
-42. Mejorar el manejo de permisos en `validate_base_dir`, devolviendo códigos o tipos de error más claros para la UI.
-43. Añadir verificación de espacio libre en disco al validar la carpeta base.
-44. Crear un comando Tauri para listar instancias almacenadas localmente.
-45. Agregar un comando Tauri para gestionar modpacks (crear/duplicar/eliminar).
-46. Incluir un servicio para descargar mods con verificación de hash.
-47. Implementar un sistema de lock para evitar que dos procesos escriban la misma instancia al mismo tiempo.
-48. Añadir un sistema de backup automático al modificar configuraciones de instancias/modpacks.
-49. Crear una capa de persistencia local (por ejemplo SQLite) para almacenar metadatos de instancias y mods.
-50. Agregar un pipeline de CI que ejecute lint, tests y build de Tauri.
-51. Configurar ESLint/Prettier para mantener estilo consistente en todo el frontend.
-52. Añadir scripts npm para `lint`, `format`, y `typecheck`.
-53. Documentar en README los flujos principales y la arquitectura (servicios, contextos, Tauri).
-54. Añadir documentación de API interna (por ejemplo en `docs/`) para servicios y hooks.
-55. Incluir un modo offline con caché de datos de modpacks/mods.
-56. Añadir telemetría opcional (opt-in) para mejorar UX con métricas reales.
-57. Mejorar la seguridad revisando permisos en `tauri.conf.json` y limitando comandos expuestos.
-58. Agregar pruebas end-to-end con Playwright para flujos críticos.
-59. Implementar un sistema de notificaciones in-app para updates, errores y estados de descarga.
-60. Añadir un sistema de cola de descargas con progreso y reintentos.
+## Estado actual investigado
+
+Se revisó el flujo de extremo a extremo desde frontend (servicios TS) y backend (Tauri/Rust):
+
+1. **Crear instancia**
+   - Frontend manda `create_instance` con `id`, `name`, `version`, `loaderName`, `loaderVersion`.
+   - Backend guarda registro SQLite y escribe `instance.json`.
+
+2. **Bootstrap runtime al preflight/launch**
+   - `prepare_instance_runtime` llama `bootstrap_instance_runtime` cuando falta plan o se fuerza reparación.
+   - Se descarga:
+     - `version_manifest`
+     - metadata de versión de Mojang
+     - `client.jar`
+     - `asset index` + assets
+     - libraries
+     - profile/instalación loader (Fabric/Quilt/Forge/NeoForge)
+   - Se genera `launch-plan.json` y comando final.
+
+3. **Resolver Java**
+   - Detección automática de runtimes instalados por `JavaManager`.
+   - Verificación por versión mayor requerida según Minecraft.
+   - Fallback a `java` en PATH.
+
+4. **Preflight y validación**
+   - Se valida classpath, mainClass, rutas, argumentos JVM, Java compatible, integridad de runtime/mods.
+
+5. **Launch + auto reparación**
+   - Si el proceso cae al inicio y se detectan firmas típicas (TinyRemapper / metadata loader), ejecuta autorreparación.
+
+---
+
+## Problemas detectados (causas raíz probables)
+
+### 1) Integración con launcher oficial y terceros incompleta
+
+- El flujo estaba centrado en una carpeta aislada por instancia (`instances/<id>/.minecraft`) sin hidratar desde instalaciones válidas existentes.
+- Forge/NeoForge frecuentemente dependen de estructura/base de launcher existente (ej. perfiles/versiones base presentes).
+- Resultado: instalaciones que no encontraban metadata/versiones esperadas o quedaban inconsistentes.
+
+### 2) Falta de detector de rutas de launcher para compatibilidad tipo Prism/CurseForge
+
+- No existía comando explícito para detectar rutas estándar de:
+  - Minecraft Launcher oficial
+  - Prism Launcher
+  - CurseForge
+- Esto impedía tomar decisiones automáticas de “usar instalación existente como fuente base”.
+
+### 3) Falta de detector explícito de mods instalados por instancia
+
+- Había escaneo por fingerprints CurseForge y validación interna, pero faltaba un comando simple y directo para inventario de mods instalados por instancia con hint de loader.
+- Esto dificulta diagnóstico rápido cuando la instancia falla por mods incompatibles.
+
+### 4) Fallos típicos de loader en campo real
+
+- **Fabric/Quilt**: errores de metadata (`McVersionLookup`) o `TinyRemapper` por jars incompletos/corruptos.
+- **Forge/NeoForge**: fallas por preflight incompleto o perfil no resuelto, además de diferencias de IDs/versiones.
+- **Vanilla**: fallos cuando faltan archivos base por descargas parciales y cachés corruptos.
+
+### 5) Catálogos y descargas de contenido (mods/modpacks/shaders/resourcepacks)
+
+- El pipeline de catálogos mezcla múltiples fuentes (Modrinth/CurseForge/proxies).
+- Riesgos identificados:
+  - dependencia de proxies para CurseForge sin API key;
+  - enlaces de descarga no siempre disponibles por políticas del proveedor;
+  - variaciones por categoría/tipo (`project_type`, `classId`) que exigen mapeos robustos.
+
+---
+
+## Re-implementación aplicada en este ciclo
+
+Se implementó hardening real del flujo actual (sin romper la arquitectura existente):
+
+### A) Detector de launchers instalados (nuevo comando)
+
+Se añadió detección automática multiplataforma de rutas típicas:
+
+- `MINECRAFT_HOME` (si existe)
+- Minecraft oficial
+- Prism Launcher
+- CurseForge
+
+con metadato:
+
+- `launcher`
+- `root`
+- `kind`
+- `usable` (si la estructura detectada es utilizable)
+
+### B) Hidratación automática desde launcher detectado
+
+Antes de descargar todo desde cero, ahora el bootstrap intenta reutilizar archivos base existentes cuando están disponibles:
+
+- `versions/<mcVersion>/<mcVersion>.json`
+- `versions/<mcVersion>/<mcVersion>.jar`
+- `launcher_profiles.json`
+
+Esto reduce fallos de bootstrap, mejora compatibilidad con instalaciones ya funcionales y acerca el comportamiento a launchers maduros.
+
+### C) Detector de mods instalados por instancia (nuevo comando)
+
+Se añadió comando para inventariar mods `.jar` en `mods/` con:
+
+- nombre de archivo
+- ruta
+- tamaño
+- `loader_hint` (fabric/quilt/forge/neoforge/unknown) usando detección por contenido
+
+### D) Exposición frontend de nuevas capacidades
+
+Se añadieron funciones en `instanceService.ts` para:
+
+- detectar launchers (`detectMinecraftLaunchers`)
+- detectar mods instalados (`detectInstalledMods`)
+
+Esto permite cablear diagnósticos en panel de instancias sin volver a tocar backend.
+
+---
+
+## Qué puede seguir fallando (debug preventivo)
+
+### 1) Java incorrecto aunque exista runtime
+
+- Si hay varios Java, puede elegirse uno “compatible por major” pero no ideal por vendor/build.
+- Recomendación: priorizar Temurin/Adoptium y fijar runtime por instancia.
+
+### 2) Modloader versión “latest” inestable temporalmente
+
+- En ventanas de publicación, `latest` puede resolver una versión recién subida con dependencias no propagadas aún.
+- Recomendación: permitir “pin” explícito recomendado y fallback automático a la penúltima versión estable.
+
+### 3) Mod incompatibles por loader cruzado
+
+- Aunque exista detector, usuarios mezclan Forge/Fabric/Quilt en la misma instancia.
+- Recomendación: bloqueo preventivo por loader al instalar mod y validación previa al launch.
+
+### 4) APIs externas degradadas
+
+- Si Modrinth/CurseForge tienen throttling o cambios de respuesta, el catálogo puede quedar incompleto.
+- Recomendación: cache persistente + circuit breaker + telemetría de errores por endpoint.
+
+### 5) Descargas parciales por red
+
+- Ya hay limpieza de `.part` y validaciones, pero conexiones inestables pueden seguir provocando ciclos de reparación.
+- Recomendación: exponer UI de “estado detallado de archivo corrupto” y botón de limpieza selectiva.
+
+---
+
+## Plan recomendado inmediato (siguiente iteración)
+
+1. UI de diagnóstico técnico por instancia (timeline + checks + acciones rápidas).
+2. Perfil de Java por instancia con selector/manual override.
+3. Regla dura: no instalar mod incompatible con loader objetivo.
+4. Pin de versiones sugeridas para Forge/NeoForge/Fabric por Minecraft.
+5. Mejorar resolución de catálogos con caché persistente y fallback controlado.
+
+---
+
+## Conclusión
+
+El problema no era un único bug, sino un conjunto de brechas de resiliencia en el flujo completo. Con esta re-implementación se cubren puntos críticos que impedían operar de forma estable con Fabric/Forge/NeoForge/Vanilla y se añade infraestructura concreta para depurar instancias rotas con enfoque similar a launchers maduros.
