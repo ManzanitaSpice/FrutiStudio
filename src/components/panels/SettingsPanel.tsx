@@ -47,6 +47,8 @@ export const SettingsPanel = () => {
   const [modsPath, setModsPath] = useState("mods");
   const [iconsPath, setIconsPath] = useState("icons");
   const [javaPath, setJavaPath] = useState("java");
+  const [javaMode, setJavaMode] = useState<"auto" | "embedded" | "manual">("auto");
+  const [minecraftRoot, setMinecraftRoot] = useState("");
   const [skinsPath, setSkinsPath] = useState("skins");
   const [fontFamily, setFontFamily] = useState<
     "inter" | "system" | "poppins" | "jetbrains" | "fira"
@@ -77,6 +79,8 @@ export const SettingsPanel = () => {
       setModsPath(config.modsPath ?? "mods");
       setIconsPath(config.iconsPath ?? "icons");
       setJavaPath(config.javaPath ?? "java");
+      setJavaMode(config.javaMode ?? "auto");
+      setMinecraftRoot(config.minecraftRoot ?? "");
       setSkinsPath(config.skinsPath ?? "skins");
       setCurseforgeKey(getCurseforgeApiKey());
       setFontFamily(config.fontFamily ?? "inter");
@@ -464,6 +468,48 @@ export const SettingsPanel = () => {
                   {isDetectingJava ? "Detectando..." : "Detectar instalaciones Java"}
                 </button>
               </div>
+              <label className="panel-view__field">
+                Modo de Java
+                <select
+                  value={javaMode}
+                  onChange={(event) => {
+                    const next = event.target.value as "auto" | "embedded" | "manual";
+                    setJavaMode(next);
+                    void updateConfig({ javaMode: next });
+                  }}
+                >
+                  <option value="auto">Auto (detectar/selección automática)</option>
+                  <option value="embedded">Embebido del launcher</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </label>
+              <label className="panel-view__field">
+                Java manual
+                <input
+                  type="text"
+                  value={javaPath}
+                  placeholder="Ruta a java/javaw"
+                  disabled={javaMode !== "manual"}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setJavaPath(next);
+                    void updateConfig({ javaPath: next });
+                  }}
+                />
+              </label>
+              <label className="panel-view__field">
+                Launcher principal (oficial)
+                <input
+                  type="text"
+                  value={minecraftRoot}
+                  placeholder="Ej. C:\Users\Arthur\AppData\Roaming\.minecraft"
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setMinecraftRoot(next);
+                    void updateConfig({ minecraftRoot: next });
+                  }}
+                />
+              </label>
               <ul className="settings-card__java-list">
                 {detectedJavaProfiles.map((runtime) => (
                   <li key={`${runtime.path}-${runtime.version}`}>

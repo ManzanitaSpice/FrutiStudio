@@ -78,11 +78,45 @@ pub(crate) fn resolve_instance_launch_config(
         .and_then(Value::as_u64)
         .map(|value| value as u32);
 
+    let java_mode = metadata
+        .get("java")
+        .and_then(|value| value.get("mode"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            instance
+                .java_mode
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        });
+
+    let java_path = metadata
+        .get("java")
+        .and_then(|value| value.get("path"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            instance
+                .java_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        });
+
     InstanceLaunchConfig {
         minecraft_version,
         modloader,
         modloader_version,
         java_version_required,
         game_dir: instance_game_dir(instance_root),
+        java_mode,
+        java_path,
     }
 }

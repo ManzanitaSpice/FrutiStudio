@@ -28,6 +28,8 @@ export interface Instance {
   sourceLauncher?: string;
   sourcePath?: string;
   sourceInstanceName?: string;
+  javaMode?: "auto" | "embedded" | "manual";
+  javaPath?: string;
 }
 
 export interface Modpack {
@@ -77,6 +79,8 @@ export interface LocalInstance {
   sourceLauncher?: string;
   sourcePath?: string;
   sourceInstanceName?: string;
+  javaMode?: "auto" | "embedded" | "manual";
+  javaPath?: string;
 }
 
 export interface FeatureFlags {

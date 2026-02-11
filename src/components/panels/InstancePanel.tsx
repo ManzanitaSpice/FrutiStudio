@@ -232,6 +232,8 @@ export const InstancePanel = ({
   const [instanceVersion, setInstanceVersion] = useState("");
   const [instanceLoader, setInstanceLoader] = useState("Vanilla");
   const [instanceLoaderVersion, setInstanceLoaderVersion] = useState("");
+  const [creatorJavaMode, setCreatorJavaMode] = useState<"auto" | "embedded" | "manual">("auto");
+  const [creatorJavaPath, setCreatorJavaPath] = useState("");
   const [versionFilters, setVersionFilters] = useState({
     release: true,
     snapshot: true,
@@ -2462,6 +2464,12 @@ export const InstancePanel = ({
                       name: editorName.trim() || selectedInstance.name,
                       group: editorGroup.trim() || "No agrupado",
                       memory: editorMemory.trim() || "4 GB",
+                      javaMode: selectedConfig.javaOverrideEnabled
+                        ? "manual"
+                        : "auto",
+                      javaPath: selectedConfig.javaOverrideEnabled
+                        ? selectedConfig.javaExecutable.trim()
+                        : "",
                     })
                   }
                 >
@@ -2568,6 +2576,8 @@ export const InstancePanel = ({
     sourceLauncher?: string;
     sourcePath?: string;
     sourceInstanceName?: string;
+    javaMode?: "auto" | "embedded" | "manual";
+    javaPath?: string;
   }): Instance => ({
     id: imported.id,
     name: imported.name,
@@ -2586,6 +2596,8 @@ export const InstancePanel = ({
     sourceLauncher: imported.sourceLauncher,
     sourcePath: imported.sourcePath,
     sourceInstanceName: imported.sourceInstanceName,
+    javaMode: imported.javaMode,
+    javaPath: imported.javaPath,
   });
 
   const handleImportArchive = async () => {
@@ -2787,6 +2799,30 @@ export const InstancePanel = ({
               )}
             </select>
           </div>
+          <div className="instance-creator__field">
+            <label htmlFor="instance-java-mode">Java de la instancia</label>
+            <select
+              id="instance-java-mode"
+              value={creatorJavaMode}
+              onChange={(event) =>
+                setCreatorJavaMode(event.target.value as "auto" | "embedded" | "manual")
+              }
+            >
+              <option value="auto">Auto (detectar instalado)</option>
+              <option value="embedded">Embebido del launcher</option>
+              <option value="manual">Manual</option>
+            </select>
+          </div>
+          <div className="instance-creator__field">
+            <label htmlFor="instance-java-path">Ruta Java manual</label>
+            <input
+              id="instance-java-path"
+              value={creatorJavaPath}
+              disabled={creatorJavaMode !== "manual"}
+              onChange={(event) => setCreatorJavaPath(event.target.value)}
+              placeholder="C:/Program Files/Java/jdk-21/bin/javaw.exe"
+            />
+          </div>
           <div className="instance-creator__hint">
             {versionsStatus === "loading" && "Cargando versiones oficiales..."}
             {versionsStatus === "error" &&
@@ -2983,6 +3019,8 @@ export const InstancePanel = ({
       isRunning: false,
       downloadProgress: 0,
       downloadLabel: "Instancia creada. Pulsa Iniciar para descargar/verificar runtime.",
+      javaMode: creatorJavaMode,
+      javaPath: creatorJavaMode === "manual" ? creatorJavaPath.trim() : "",
     };
     onCreateInstance(newInstance);
     try {
