@@ -152,6 +152,25 @@ interface StartupProgressState {
   details?: string;
 }
 
+const transientBackendStatuses = new Set([
+  "cleaning_partials",
+  "downloading_manifest",
+  "downloading_version_metadata",
+  "downloading_client",
+  "downloading_asset_index",
+  "downloading_assets",
+  "assets_ready",
+  "installing_loader",
+  "downloading_libraries",
+  "libraries_ready",
+  "building_launch_plan",
+  "preflight",
+  "repairing",
+  "repair_fallback_reinstall",
+  "repaired",
+  "launching",
+]);
+
 const mapBackendStepDetail = (detail: unknown): string | undefined => {
   if (typeof detail !== "string") {
     return undefined;
@@ -347,6 +366,17 @@ export const InstancePanel = ({
     }));
   };
 
+  const clearStartupProgress = (instanceId: string) => {
+    setStartupProgressByInstance((prev) => {
+      if (!(instanceId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[instanceId];
+      return next;
+    });
+  };
+
   const statusLabels: Record<Instance["status"], string> = {
     ready: "Listo para jugar",
     "pending-update": "Actualización pendiente",
@@ -440,6 +470,27 @@ export const InstancePanel = ({
       new Promise<void>((resolve) => {
         window.setTimeout(resolve, ms);
       });
+
+    const withTimeout = async <T,>(
+      promise: Promise<T>,
+      timeoutMs: number,
+      timeoutMessage: string,
+    ): Promise<T> => {
+      let timerId: number | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timerId = window.setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      });
+
+      try {
+        return await Promise.race([promise, timeoutPromise]);
+      } finally {
+        if (timerId !== null) {
+          window.clearTimeout(timerId);
+        }
+      }
+    };
 
     const logBackendState = async () => {
       const statusMap: Record<string, { progress: number; label: string }> = {
@@ -547,7 +598,11 @@ export const InstancePanel = ({
         stage: "Validando estructura y runtime",
       });
       await logBackendState();
-      let latestReport = await preflightInstance(instanceId);
+      let latestReport = await withTimeout(
+        preflightInstance(instanceId),
+        4 * 60_000,
+        "La verificación previa superó el tiempo límite de 4 minutos. Revisa red, disco y Java.",
+      );
 
       for (
         let attempt = 1;
@@ -561,7 +616,11 @@ export const InstancePanel = ({
         if (!isCurrentRun()) {
           throw new Error("Proceso de verificación cancelado por el usuario.");
         }
-        latestReport = await preflightInstance(instanceId);
+        latestReport = await withTimeout(
+          preflightInstance(instanceId),
+          4 * 60_000,
+          "La verificación previa superó el tiempo límite de 4 minutos. Revisa red, disco y Java.",
+        );
       }
 
       return latestReport;
@@ -601,7 +660,11 @@ export const InstancePanel = ({
           progress: 72,
           stage: "Reparando estructura",
         });
-        await repairInstance(instanceId);
+        await withTimeout(
+          repairInstance(instanceId),
+          12 * 60_000,
+          "La reparación tardó demasiado (más de 12 minutos). Se canceló para evitar un bloqueo del launcher.",
+        );
         appendLog("Reparación completada. Ejecutando validación final...");
 
         report = await runTimedPreflight(
@@ -1475,34 +1538,22 @@ export const InstancePanel = ({
         const backendStatus = snapshot.status ?? "";
         if (backendStatus && backendStatusMap[backendStatus]) {
           const mapped = backendStatusMap[backendStatus];
-          const transientStatuses = new Set([
-            "cleaning_partials",
-            "downloading_manifest",
-            "downloading_version_metadata",
-            "downloading_client",
-            "downloading_asset_index",
-            "downloading_assets",
-            "assets_ready",
-            "installing_loader",
-            "downloading_libraries",
-            "libraries_ready",
-            "building_launch_plan",
-            "preflight",
-            "repairing",
-            "repair_fallback_reinstall",
-            "repaired",
-            "launching",
-          ]);
           const nowSeconds = Math.floor(Date.now() / 1000);
           const stateAgeSeconds =
             typeof snapshot.stateUpdatedAt === "number"
               ? Math.max(0, nowSeconds - snapshot.stateUpdatedAt)
               : Number.POSITIVE_INFINITY;
           const shouldRespectTransientState =
-            transientStatuses.has(backendStatus) &&
+            transientBackendStatuses.has(backendStatus) &&
             stateAgeSeconds <= 90 &&
             (launchChecklistRunning ||
               startupProgressByInstance[selectedInstance.id]?.active);
+
+          if (transientBackendStatuses.has(backendStatus) && !shouldRespectTransientState) {
+            clearStartupProgress(selectedInstance.id);
+            setInstanceLaunchStatus(selectedInstance.id, "Esperando inicio manual");
+            return;
+          }
 
           updateStartupProgress(selectedInstance.id, {
             active: mapped.active && shouldRespectTransientState,
@@ -2884,7 +2935,7 @@ export const InstancePanel = ({
                           ? "Inicializando"
                           : (statusLabels[instance.status] ?? "Estado desconocido")}
                       </span>
-                      {startupProgressByInstance[instance.id] ? (
+                      {startupProgressByInstance[instance.id]?.active ? (
                         <div className="instance-card__startup">
                           <div className="instance-card__startup-head">
                             <strong>
