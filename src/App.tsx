@@ -18,7 +18,7 @@ import { fetchNewsOverview } from "./services/newsService";
 import { fetchExplorerItems } from "./services/explorerService";
 import { fetchServerListings } from "./services/serverService";
 import { loadConfig, saveConfig } from "./services/configService";
-import { collectStartupFiles } from "./services/startupService";
+import { collectStartupFiles, preloadStartupCatalogs } from "./services/startupService";
 import { logMessage } from "./services/logService";
 import type { Instance } from "./types/models";
 import "./App.css";
@@ -118,6 +118,23 @@ const AppShell = () => {
   const bootHydrated = useRef(false);
 
   useEffect(() => {
+    const syncViewportHeight = () => {
+      document.documentElement.style.setProperty("--app-height", `${window.innerHeight}px`);
+    };
+
+    syncViewportHeight();
+    window.addEventListener("resize", syncViewportHeight);
+    document.addEventListener("visibilitychange", syncViewportHeight);
+    window.addEventListener("focus", syncViewportHeight);
+
+    return () => {
+      window.removeEventListener("resize", syncViewportHeight);
+      document.removeEventListener("visibilitychange", syncViewportHeight);
+      window.removeEventListener("focus", syncViewportHeight);
+    };
+  }, []);
+
+  useEffect(() => {
     const runBoot = async () => {
       let shouldShowVerification = false;
       const updateStepProgress = (index: number, progress: number) => {
@@ -171,6 +188,7 @@ const AppShell = () => {
           fetchNewsOverview(),
           fetchExplorerItems("Modpacks"),
           fetchServerListings(),
+          preloadStartupCatalogs(),
         ]);
         updateStepProgress(2, 100);
         setBootEvents((prev) => [...prev, "Catálogos remotos sincronizados."]);
