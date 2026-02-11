@@ -339,10 +339,22 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
 
 const REQUIRED_LAUNCHER_DIRS: [&str; 3] = ["instances", "downloads", "logs"];
 const ASSET_MIRROR_BASES: [&str; 3] = [
-    "https://resources.download.minecraft.net",
     "https://bmclapi2.bangbang93.com/assets",
+    "https://resources.download.minecraft.net",
     "https://download.mcbbs.net/assets",
 ];
+const ASSET_VALIDATION_RECHECK_SECS: u64 = 3 * 24 * 60 * 60;
+
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(12))
+        .timeout(std::time::Duration::from_secs(120))
+        .pool_max_idle_per_host(32)
+        .tcp_keepalive(std::time::Duration::from_secs(30))
+        .user_agent("FrutiLauncher/1.0")
+        .build()
+        .expect("No se pudo preparar cliente HTTP global")
+});
 
 #[derive(Clone)]
 struct AssetDownloadTask {
@@ -352,8 +364,104 @@ struct AssetDownloadTask {
     object_name: String,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssetValidationCache {
+    assets: HashMap<String, AssetValidationEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssetValidationEntry {
+    size: u64,
+    last_checked: u64,
+}
+
 fn launcher_assets_cache_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(launcher_root(app)?.join("assets_cache").join("objects"))
+}
+
+fn launcher_assets_validation_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(launcher_root(app)?
+        .join("assets_cache")
+        .join("assets_cache.json"))
+}
+
+fn load_asset_validation_cache(app: &tauri::AppHandle) -> AssetValidationCache {
+    let Ok(path) = launcher_assets_validation_cache_path(app) else {
+        return AssetValidationCache::default();
+    };
+    let Ok(raw) = fs::read_to_string(path) else {
+        return AssetValidationCache::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn save_asset_validation_cache(
+    app: &tauri::AppHandle,
+    cache: &AssetValidationCache,
+) -> Result<(), String> {
+    let path = launcher_assets_validation_cache_path(app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "No se pudo crear carpeta para assets_cache.json {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+    fs::write(
+        &path,
+        serde_json::to_string_pretty(cache)
+            .map_err(|error| format!("No se pudo serializar assets_cache.json: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo escribir {}: {error}", path.display()))
+}
+
+fn unix_now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn existing_asset_is_valid(
+    path: &Path,
+    expected_size: u64,
+    expected_sha1: &str,
+    now_secs: u64,
+    cache: &mut AssetValidationCache,
+) -> Result<bool, String> {
+    let Ok(metadata) = fs::metadata(path) else {
+        return Ok(false);
+    };
+    if !metadata.is_file() || metadata.len() != expected_size {
+        cache.assets.remove(expected_sha1);
+        return Ok(false);
+    }
+
+    if let Some(entry) = cache.assets.get(expected_sha1) {
+        if entry.size == expected_size
+            && now_secs.saturating_sub(entry.last_checked) <= ASSET_VALIDATION_RECHECK_SECS
+        {
+            return Ok(true);
+        }
+    }
+
+    let hash = file_sha1(path)?;
+    if hash.eq_ignore_ascii_case(expected_sha1) {
+        cache.assets.insert(
+            expected_sha1.to_string(),
+            AssetValidationEntry {
+                size: expected_size,
+                last_checked: now_secs,
+            },
+        );
+        return Ok(true);
+    }
+
+    cache.assets.remove(expected_sha1);
+    Ok(false)
 }
 
 fn sync_asset_from_cache(
@@ -1056,6 +1164,18 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
         && (joined.contains("could not find or load main class")
             || joined.contains("classnotfoundexception")
             || joined.contains("main class"));
+
+    let has_java_too_old = joined.contains("unsupportedclassversionerror")
+        || joined.contains("class file version")
+        || (joined.contains("compiled by a more recent version of the java runtime")
+            && joined.contains("this version of the java runtime"));
+
+    if has_java_too_old {
+        return Some(
+            "Diagnóstico Java: la instancia fue compilada para una versión más nueva de Java que la disponible. Minecraft 1.20.5+ requiere Java 21. Abre Configuración > Java y selecciona/instala Java 21 para esta instancia."
+                .to_string(),
+        );
+    }
 
     if has_loader_metadata_failure
         || has_corrupt_or_incomplete_jar_signal
@@ -2895,12 +3015,7 @@ async fn download_with_retries(
         ensure_writable_dir(parent)?;
     }
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(12))
-        .timeout(std::time::Duration::from_secs(120))
-        .user_agent("FrutiLauncher/1.0")
-        .build()
-        .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
+    let client = HTTP_CLIENT.clone();
 
     let partial_path = download_partial_path(path);
     if partial_path.exists() {
@@ -4210,14 +4325,18 @@ async fn bootstrap_instance_runtime(
         let assets_cache_root = launcher_assets_cache_root(app)?;
         ensure_writable_dir(&assets_cache_root)?;
 
+        let mut validation_cache = load_asset_validation_cache(app);
         let mut seen_hashes = HashSet::new();
         let mut downloads = Vec::new();
         let mut restored_from_cache = 0_u64;
+        let mut reused_existing = 0_u64;
+        let now_secs = unix_now_secs();
 
         for value in objects.values() {
             let Some(hash) = value.get("hash").and_then(|v| v.as_str()) else {
                 continue;
             };
+            let expected_size = value.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
             if hash.len() < 2 || !seen_hashes.insert(hash.to_string()) {
                 continue;
             }
@@ -4229,8 +4348,30 @@ async fn bootstrap_instance_runtime(
                 .join(sub)
                 .join(hash);
 
+            if expected_size > 0
+                && existing_asset_is_valid(
+                    &target,
+                    expected_size,
+                    hash,
+                    now_secs,
+                    &mut validation_cache,
+                )?
+            {
+                reused_existing += 1;
+                continue;
+            }
+
             if sync_asset_from_cache(&assets_cache_root, hash, &target, hash)? {
                 restored_from_cache += 1;
+                if expected_size > 0 {
+                    validation_cache.assets.insert(
+                        hash.to_string(),
+                        AssetValidationEntry {
+                            size: expected_size,
+                            last_checked: now_secs,
+                        },
+                    );
+                }
                 continue;
             }
 
@@ -4257,10 +4398,11 @@ async fn bootstrap_instance_runtime(
             serde_json::json!({
                 "assetIndex": asset_index_id,
                 "total": total_downloads,
-                "restoredFromCache": restored_from_cache
+                "restoredFromCache": restored_from_cache,
+                "reusedExisting": reused_existing
             }),
         );
-        download_many_with_limit(downloads.clone(), 16, |completed| {
+        download_many_with_limit(downloads.clone(), 32, |completed| {
             if completed == 1 || completed % 25 == 0 || completed == total_downloads {
                 write_instance_state(
                     instance_root,
@@ -4269,8 +4411,10 @@ async fn bootstrap_instance_runtime(
                         "assetIndex": asset_index_id,
                         "total": total_downloads,
                         "restoredFromCache": restored_from_cache,
+                        "reusedExisting": reused_existing,
                         "completed": completed,
                         "remaining": total_downloads.saturating_sub(completed),
+                        "progress": if total_downloads == 0 { 100 } else { completed * 100 / total_downloads },
                     }),
                 );
             }
@@ -4279,14 +4423,25 @@ async fn bootstrap_instance_runtime(
         .await?;
         for task in downloads {
             persist_asset_to_cache(&assets_cache_root, &task.path, &task.sha1, &task.sha1)?;
+            if let Ok(meta) = fs::metadata(&task.path) {
+                validation_cache.assets.insert(
+                    task.sha1.clone(),
+                    AssetValidationEntry {
+                        size: meta.len(),
+                        last_checked: now_secs,
+                    },
+                );
+            }
         }
+        save_asset_validation_cache(app, &validation_cache)?;
         write_instance_state(
             instance_root,
             "assets_ready",
             serde_json::json!({
                 "assetIndex": asset_index_id,
                 "total": total_downloads,
-                "restoredFromCache": restored_from_cache
+                "restoredFromCache": restored_from_cache,
+                "reusedExisting": reused_existing
             }),
         );
     }
@@ -4647,7 +4802,7 @@ async fn bootstrap_instance_runtime(
                 None
             }
         })
-        .ok_or_else(|| format!("No se encontró Java compatible. Requerido Java {java_major}."))?;
+        .ok_or_else(|| format!("No se encontró Java compatible. Minecraft requiere Java {java_major}. Instala Java {java_major} (Temurin recomendado) o configura una ruta java válida en el launcher."))?;
 
     write_instance_state(
         instance_root,
