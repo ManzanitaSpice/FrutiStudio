@@ -1029,6 +1029,17 @@ fn format_startup_crash_message(
     }
 }
 
+fn expected_client_sha1_from_version_json(version_json_path: &Path) -> Option<String> {
+    let raw = fs::read_to_string(version_json_path).ok()?;
+    let json: Value = serde_json::from_str(&raw).ok()?;
+    json.get("downloads")
+        .and_then(|downloads| downloads.get("client"))
+        .and_then(|client| client.get("sha1"))
+        .and_then(|sha1| sha1.as_str())
+        .map(|sha1| sha1.trim().to_string())
+        .filter(|sha1| !sha1.is_empty())
+}
+
 fn latest_runtime_log(logs_dir: &Path, suffix: &str) -> Option<PathBuf> {
     let Ok(entries) = fs::read_dir(logs_dir) else {
         return None;
@@ -3895,6 +3906,8 @@ fn write_instance_state(instance_root: &Path, status: &str, details: Value) {
 }
 
 fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationReport {
+    const MIN_MINECRAFT_JAR_SIZE_BYTES: u64 = 15 * 1024 * 1024;
+
     let mut checks = HashMap::new();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -3921,6 +3934,20 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let logs_dir = instance_root.join("logs");
     let crash_reports_dir = Path::new(&plan.game_dir).join("crash-reports");
     let version_jar_path = Path::new(&plan.version_json).with_extension("jar");
+    let minecraft_jar_size_ok = fs::metadata(&version_jar_path)
+        .map(|meta| meta.is_file() && meta.len() >= MIN_MINECRAFT_JAR_SIZE_BYTES)
+        .unwrap_or(false);
+    let expected_client_sha1 =
+        expected_client_sha1_from_version_json(Path::new(&plan.version_json));
+    let minecraft_jar_sha1_ok = if !version_jar_path.is_file() {
+        false
+    } else if let Some(expected_sha1) = expected_client_sha1.as_deref() {
+        file_sha1(&version_jar_path)
+            .map(|actual_sha1| actual_sha1.eq_ignore_ascii_case(expected_sha1))
+            .unwrap_or(false)
+    } else {
+        true
+    };
 
     let classpath_entries_paths: Vec<&Path> = plan
         .classpath_entries
@@ -3972,6 +3999,8 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             is_non_empty_file(Path::new(&plan.version_json)),
         ),
         ("jar_minecraft_valido", is_non_empty_file(&version_jar_path)),
+        ("jar_minecraft_tamano_minimo", minecraft_jar_size_ok),
+        ("jar_minecraft_sha1", minecraft_jar_sha1_ok),
         ("main_class_resuelta", !plan.main_class.trim().is_empty()),
         ("main_class_loader_compatible", main_class_matches_loader),
         ("argumentos_jvm", !plan.java_args.is_empty()),
@@ -4072,6 +4101,25 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         errors.push(format!(
             "Se detectaron archivos corruptos/incompletos en libraries, versions o mods: {formatted}"
         ));
+    }
+
+    if version_jar_path.is_file() && !minecraft_jar_size_ok {
+        let size = fs::metadata(&version_jar_path)
+            .map(|meta| meta.len())
+            .unwrap_or_default();
+        errors.push(format!(
+            "minecraft.jar tiene tamaño inválido ({size} bytes). Se esperaba al menos {MIN_MINECRAFT_JAR_SIZE_BYTES} bytes; ejecuta \"Reparar runtime\" para forzar una descarga limpia."
+        ));
+    }
+
+    if version_jar_path.is_file() && !minecraft_jar_sha1_ok {
+        if let Some(expected_sha1) = expected_client_sha1.as_deref() {
+            let actual_sha1 =
+                file_sha1(&version_jar_path).unwrap_or_else(|_| "desconocido".to_string());
+            errors.push(format!(
+                "minecraft.jar no coincide con el hash SHA1 esperado ({expected_sha1}); se obtuvo {actual_sha1}. Borra versions/<mc_version> y ejecuta \"Reparar runtime\"."
+            ));
+        }
     }
 
     let classpath_separator_valid = if cfg!(target_os = "windows") {
