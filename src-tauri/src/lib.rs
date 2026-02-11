@@ -35,11 +35,16 @@ use crate::core::instance::{
     InstalledModEntry, InstanceArchiveArgs, InstanceCommandArgs, InstancePathArgs, InstanceRecord,
     LauncherInstallation, ManualExternalRoot, RegisterExternalRootArgs, RemoveExternalRootArgs,
 };
+use crate::core::instance_config::{instance_game_dir, resolve_instance_launch_config};
 use crate::core::java::{JavaManager, JavaResolution, JavaRuntime};
 use crate::core::launcher::{
-    InstanceLaunchConfig, LaunchAuth, LaunchInstanceResult, LaunchPlan, LoaderCrashDiagnostic,
-    MinecraftJarValidation, ModInspection, ModLoaderKind, RuntimeLogSnapshot, RuntimeRepairResult,
+    LaunchAuth, LaunchInstanceResult, LaunchPlan, LoaderCrashDiagnostic, MinecraftJarValidation,
+    ModInspection, ModLoaderKind, RuntimeLogSnapshot, RuntimeRepairResult,
     StartupFailureClassification, ValidationReport,
+};
+use crate::core::launcher_discovery::{
+    detect_loader_from_version_json, detect_minecraft_launcher_installations,
+    expected_main_class_for_loader,
 };
 use crate::core::network::{
     CurseforgeDownloadResolution, CurseforgeFileData, CurseforgeFileEnvelope,
@@ -49,161 +54,6 @@ use crate::core::network::{
     MojangDownload, MojangVersionDetail, MojangVersionDownloads, MojangVersionEntry,
     MojangVersionManifest, SelectFolderResult,
 };
-
-fn detect_minecraft_launcher_installations() -> Vec<LauncherInstallation> {
-    let mut installations = Vec::new();
-
-    if let Ok(path) = std::env::var("MINECRAFT_HOME") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            let root = PathBuf::from(trimmed);
-            let usable = root.join("versions").is_dir();
-            installations.push(LauncherInstallation {
-                launcher: "minecraft".to_string(),
-                root: root.to_string_lossy().to_string(),
-                kind: "env".to_string(),
-                usable,
-            });
-        }
-    }
-
-    if let Ok(path) = std::env::var("MODRINTH_HOME") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            let root = PathBuf::from(trimmed);
-            let usable = root.join("versions").is_dir();
-            installations.push(LauncherInstallation {
-                launcher: "modrinth".to_string(),
-                root: root.to_string_lossy().to_string(),
-                kind: "env".to_string(),
-                usable,
-            });
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            let root = PathBuf::from(appdata).join(".minecraft");
-            let usable = root.join("versions").is_dir();
-            installations.push(LauncherInstallation {
-                launcher: "minecraft".to_string(),
-                root: root.to_string_lossy().to_string(),
-                kind: "official".to_string(),
-                usable,
-            });
-        }
-
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            let prism = PathBuf::from(&local_app_data)
-                .join("Programs")
-                .join("PrismLauncher");
-            let prism_instances = prism.join("instances");
-            installations.push(LauncherInstallation {
-                launcher: "prism".to_string(),
-                root: prism.to_string_lossy().to_string(),
-                kind: "third-party".to_string(),
-                usable: prism_instances.is_dir(),
-            });
-
-            let cf = PathBuf::from(local_app_data)
-                .join("CurseForge")
-                .join("minecraft")
-                .join("Install")
-                .join(".minecraft");
-            installations.push(LauncherInstallation {
-                launcher: "curseforge".to_string(),
-                root: cf.to_string_lossy().to_string(),
-                kind: "third-party".to_string(),
-                usable: cf.join("versions").is_dir(),
-            });
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            let home = PathBuf::from(home);
-            let root = home
-                .join("Library")
-                .join("Application Support")
-                .join("minecraft");
-            installations.push(LauncherInstallation {
-                launcher: "minecraft".to_string(),
-                root: root.to_string_lossy().to_string(),
-                kind: "official".to_string(),
-                usable: root.join("versions").is_dir(),
-            });
-
-            let prism = home
-                .join("Library")
-                .join("Application Support")
-                .join("PrismLauncher");
-            installations.push(LauncherInstallation {
-                launcher: "prism".to_string(),
-                root: prism.to_string_lossy().to_string(),
-                kind: "third-party".to_string(),
-                usable: prism.join("instances").is_dir(),
-            });
-
-            let cf = home
-                .join("Library")
-                .join("Application Support")
-                .join("CurseForge")
-                .join("minecraft")
-                .join("Install")
-                .join(".minecraft");
-            installations.push(LauncherInstallation {
-                launcher: "curseforge".to_string(),
-                root: cf.to_string_lossy().to_string(),
-                kind: "third-party".to_string(),
-                usable: cf.join("versions").is_dir(),
-            });
-        }
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            let home = PathBuf::from(home);
-            let root = home.join(".minecraft");
-            installations.push(LauncherInstallation {
-                launcher: "minecraft".to_string(),
-                root: root.to_string_lossy().to_string(),
-                kind: "official".to_string(),
-                usable: root.join("versions").is_dir(),
-            });
-
-            let prism = home.join(".local").join("share").join("PrismLauncher");
-            installations.push(LauncherInstallation {
-                launcher: "prism".to_string(),
-                root: prism.to_string_lossy().to_string(),
-                kind: "third-party".to_string(),
-                usable: prism.join("instances").is_dir(),
-            });
-
-            let cf = home
-                .join(".local")
-                .join("share")
-                .join("CurseForge")
-                .join("minecraft")
-                .join("Install")
-                .join(".minecraft");
-            installations.push(LauncherInstallation {
-                launcher: "curseforge".to_string(),
-                root: cf.to_string_lossy().to_string(),
-                kind: "third-party".to_string(),
-                usable: cf.join("versions").is_dir(),
-            });
-        }
-    }
-
-    let mut dedup = HashSet::new();
-    installations
-        .into_iter()
-        .filter(|entry| dedup.insert((entry.launcher.clone(), entry.root.clone())))
-        .collect()
-}
 
 fn external_discovery_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(launcher_root(app)?
@@ -618,126 +468,6 @@ fn hydrate_from_detected_launcher(
     }
 
     Ok(())
-}
-
-fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
-    match loader {
-        "fabric" => Some("net.fabricmc.loader.launch.knot.KnotClient"),
-        "quilt" => Some("org.quiltmc.loader.impl.launch.knot.KnotClient"),
-        "forge" => Some("cpw.mods.modlauncher.Launcher"),
-        "neoforge" => Some("net.neoforged.fml.loading.targets.ClientLaunchHandler"),
-        "vanilla" => Some("net.minecraft.client.main.Main"),
-        _ => None,
-    }
-}
-
-fn detect_loader_from_version_json(version_json: &Value) -> Option<&'static str> {
-    let libraries = version_json.get("libraries")?.as_array()?;
-
-    for library in libraries {
-        let Some(name) = library.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let normalized = name.to_ascii_lowercase();
-        if normalized.contains("net.fabricmc:fabric-loader") {
-            return Some("fabric");
-        }
-        if normalized.contains("org.quiltmc:quilt-loader") {
-            return Some("quilt");
-        }
-        if normalized.contains("net.neoforged:neoforge") || normalized.contains("net.neoforged:fml")
-        {
-            return Some("neoforge");
-        }
-        if normalized.contains("net.minecraftforge:forge")
-            || normalized.contains("net.minecraftforge:fmlloader")
-        {
-            return Some("forge");
-        }
-    }
-
-    Some("vanilla")
-}
-
-fn instance_game_dir(instance_root: &Path) -> PathBuf {
-    let metadata_path = instance_root.join("instance.json");
-    let explicit = fs::read_to_string(&metadata_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .and_then(|value| {
-            value
-                .get("game_dir")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-        });
-
-    if let Some(path) = explicit {
-        return path;
-    }
-
-    let canonical = instance_root.join("minecraft");
-    if canonical.exists() {
-        return canonical;
-    }
-
-    let legacy = instance_root.join(".minecraft");
-    if legacy.exists() {
-        return legacy;
-    }
-
-    canonical
-}
-
-fn resolve_instance_launch_config(
-    instance_root: &Path,
-    instance: &InstanceRecord,
-) -> InstanceLaunchConfig {
-    let metadata_path = instance_root.join("instance.json");
-    let metadata = fs::read_to_string(&metadata_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .unwrap_or(Value::Null);
-
-    let minecraft_version = metadata
-        .get("minecraft_version")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(instance.version.as_str())
-        .to_string();
-
-    let modloader = metadata
-        .get("modloader")
-        .or_else(|| metadata.get("loader"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| instance.loader_name.as_deref().unwrap_or("vanilla"))
-        .to_lowercase();
-
-    let modloader_version = metadata
-        .get("modloader_version")
-        .or_else(|| metadata.get("loader_version"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| instance.loader_version.as_deref().unwrap_or("latest"))
-        .to_string();
-
-    let java_version_required = metadata
-        .get("java_version_required")
-        .and_then(Value::as_u64)
-        .map(|value| value as u32);
-
-    InstanceLaunchConfig {
-        minecraft_version,
-        modloader,
-        modloader_version,
-        java_version_required,
-        game_dir: instance_game_dir(instance_root),
-    }
 }
 
 fn murmurhash2(data: &[u8]) -> u32 {
