@@ -5884,6 +5884,7 @@ async fn detect_installed_mods(
         let metadata = fs::metadata(&path)
             .map_err(|error| format!("No se pudo leer metadata de mod: {error}"))?;
         let loader_hint = match detect_mod_loader_kind(&path) {
+            ModLoaderKind::Vanilla => "vanilla",
             ModLoaderKind::Fabric => "fabric",
             ModLoaderKind::Quilt => "quilt",
             ModLoaderKind::Forge => "forge",
