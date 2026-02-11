@@ -4126,26 +4126,30 @@ fn inspect_mod_jar(mod_jar: &Path) -> ModInspection {
     };
 
     let fabric_json = {
-        let Ok(mut entry) = zip.by_name("fabric.mod.json") else {
-            None
-        };
-        let mut content = String::new();
-        if entry.read_to_string(&mut content).is_ok() {
-            Some(content)
-        } else {
-            None
+        match zip.by_name("fabric.mod.json") {
+            Ok(mut entry) => {
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    Some(content)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
         }
     };
 
     let quilt_json = {
-        let Ok(mut entry) = zip.by_name("quilt.mod.json") else {
-            None
-        };
-        let mut content = String::new();
-        if entry.read_to_string(&mut content).is_ok() {
-            Some(content)
-        } else {
-            None
+        match zip.by_name("quilt.mod.json") {
+            Ok(mut entry) => {
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    Some(content)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
         }
     };
 
