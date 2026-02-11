@@ -1658,27 +1658,74 @@ fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
 }
 
 async fn download_to(url: &str, path: &Path) -> Result<(), String> {
-    if path.exists() {
-        return Ok(());
+    if let Ok(meta) = fs::metadata(path) {
+        if meta.is_file() && meta.len() > 0 {
+            return Ok(());
+        }
     }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("No se pudo crear carpeta para descarga: {error}"))?;
     }
-    let bytes = reqwest::get(url)
-        .await
-        .map_err(|error| format!("No se pudo descargar {url}: {error}"))?
-        .bytes()
-        .await
-        .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
-    fs::write(path, bytes)
-        .map_err(|error| format!("No se pudo guardar archivo {}: {error}", path.display()))
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(12))
+        .timeout(std::time::Duration::from_secs(90))
+        .user_agent("FrutiLauncher/1.0")
+        .build()
+        .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
+
+    let mut last_error = None;
+    for attempt in 1..=3 {
+        match client.get(url).send().await {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    last_error = Some(format!("{url} respondió {}", response.status()));
+                } else {
+                    let bytes = response
+                        .bytes()
+                        .await
+                        .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
+                    let tmp_path = path.with_extension("part");
+                    fs::write(&tmp_path, bytes).map_err(|error| {
+                        format!("No se pudo guardar temporal {}: {error}", tmp_path.display())
+                    })?;
+                    fs::rename(&tmp_path, path).map_err(|error| {
+                        format!(
+                            "No se pudo mover temporal {} a {}: {error}",
+                            tmp_path.display(),
+                            path.display()
+                        )
+                    })?;
+                    return Ok(());
+                }
+            }
+            Err(error) => {
+                last_error = Some(format!("No se pudo descargar {url}: {error}"));
+            }
+        }
+
+        if attempt < 3 {
+            tokio::time::sleep(std::time::Duration::from_millis(250 * attempt as u64)).await;
+        }
+    }
+
+    Err(format!(
+        "No se pudo descargar {url}. Último error: {}",
+        last_error.unwrap_or_else(|| "desconocido".to_string())
+    ))
 }
 
 async fn fetch_json_with_fallback(urls: &[String], context: &str) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent("FrutiLauncher/1.0")
+        .build()
+        .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
     let mut last_error = None;
     for url in urls {
-        match reqwest::get(url).await {
+        match client.get(url).send().await {
             Ok(response) => {
                 if !response.status().is_success() {
                     last_error = Some(format!("{url} respondió {}", response.status()));
