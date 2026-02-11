@@ -3722,8 +3722,17 @@ where
                 .await
                 .map_err(|error| format!("No se pudo adquirir cupo de descarga: {error}"))?;
             let temp_path = download_partial_path(&task.path);
-            download_with_retries(&task.urls, &task.path, Some(&task.sha1), 5, false)
-                .await
+            tokio::time::timeout(
+                std::time::Duration::from_secs(240),
+                download_with_retries(&task.urls, &task.path, Some(&task.sha1), 5, false),
+            )
+            .await
+            .map_err(|_| {
+                format!(
+                    "Asset {} ({}) agotó el tiempo máximo de descarga (240s)",
+                    task.object_name, task.sha1
+                )
+            })?
                 .map_err(|error| {
                     format!(
                         "Asset {} ({}) falló: {} | final={} | temp={}",
