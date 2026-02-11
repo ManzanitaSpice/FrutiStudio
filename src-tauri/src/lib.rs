@@ -1575,6 +1575,8 @@ async fn install_forge_like_loader(
     loader: &str,
     requested_loader_version: Option<&str>,
 ) -> Result<String, String> {
+    ensure_forge_preflight_files(minecraft_root, minecraft_version)?;
+
     let requested = requested_loader_version
         .unwrap_or("latest")
         .trim()
@@ -1611,10 +1613,21 @@ async fn install_forge_like_loader(
 
     let installer_url =
         format!("{base_url}/{resolved_version}/{artifact_name}-{resolved_version}-installer.jar");
+    let mut installer_urls = vec![installer_url];
+    if loader == "forge" {
+        installer_urls.push(format!(
+            "https://files.minecraftforge.net/maven/net/minecraftforge/forge/{resolved_version}/forge-{resolved_version}-installer.jar"
+        ));
+    }
     let installer_target = minecraft_root
         .join("installers")
         .join(format!("{artifact_name}-{resolved_version}-installer.jar"));
-    download_to(&installer_url, &installer_target).await?;
+    download_from_candidates(
+        &installer_urls,
+        &installer_target,
+        "instalador Forge/NeoForge",
+    )
+    .await?;
 
     let manager = JavaManager::new(app)?;
     let required_java_major = manager.required_major_for_minecraft(minecraft_version);
@@ -1674,6 +1687,62 @@ async fn install_forge_like_loader(
     }
 
     Ok(expected_id)
+}
+
+fn ensure_forge_preflight_files(
+    minecraft_root: &Path,
+    minecraft_version: &str,
+) -> Result<(), String> {
+    let version_dir = minecraft_root.join("versions").join(minecraft_version);
+    let version_jar = version_dir.join(format!("{minecraft_version}.jar"));
+    let version_json = version_dir.join(format!("{minecraft_version}.json"));
+    if !version_jar.exists() || !version_json.exists() {
+        return Err(format!(
+            "Preflight Forge incompleto: faltan archivos base de Minecraft ({}, {}).",
+            version_jar.display(),
+            version_json.display()
+        ));
+    }
+
+    let launcher_profiles = minecraft_root.join("launcher_profiles.json");
+    if !launcher_profiles.exists() {
+        let default_profile = serde_json::json!({
+            "profiles": {
+                "FrutiLauncher": {
+                    "name": "FrutiLauncher",
+                    "type": "custom",
+                    "lastVersionId": minecraft_version
+                }
+            },
+            "selectedProfile": "FrutiLauncher",
+            "clientToken": "00000000000000000000000000000000",
+            "authenticationDatabase": {}
+        });
+        fs::write(
+            &launcher_profiles,
+            serde_json::to_string_pretty(&default_profile).map_err(|error| {
+                format!("No se pudo serializar launcher_profiles.json: {error}")
+            })?,
+        )
+        .map_err(|error| format!("No se pudo crear launcher_profiles.json para Forge: {error}"))?;
+    }
+
+    Ok(())
+}
+
+async fn download_from_candidates(urls: &[String], path: &Path, label: &str) -> Result<(), String> {
+    let mut last_error = None;
+    for url in urls {
+        match download_to(url, path).await {
+            Ok(_) => return Ok(()),
+            Err(error) => last_error = Some(format!("{url}: {error}")),
+        }
+    }
+
+    Err(format!(
+        "No se pudo descargar {label}. Último error: {}",
+        last_error.unwrap_or_else(|| "desconocido".to_string())
+    ))
 }
 
 fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
