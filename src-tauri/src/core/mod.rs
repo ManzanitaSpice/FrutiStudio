@@ -1,8 +1,13 @@
 pub mod auth;
+pub mod config;
 pub mod downloader;
+pub mod instance;
 pub mod instance_runner;
+pub mod java;
 pub mod java_manager;
+pub mod launcher;
 pub mod modloader_resolver;
+pub mod network;
 pub mod validator;
 pub mod version_resolver;
 
