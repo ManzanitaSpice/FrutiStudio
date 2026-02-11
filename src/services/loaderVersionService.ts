@@ -17,6 +17,35 @@ interface QuiltLoaderVersion {
 const uniqueSorted = (values: string[]) =>
   Array.from(new Set(values.filter(Boolean))).sort((a, b) => b.localeCompare(a));
 
+const uniqueSortedByNumericVersion = (values: string[]) => {
+  const parse = (value: string) =>
+    value
+      .split(/[^0-9]+/)
+      .filter(Boolean)
+      .map((segment) => Number.parseInt(segment, 10));
+
+  return Array.from(new Set(values.filter(Boolean))).sort((left, right) => {
+    const leftParts = parse(left);
+    const rightParts = parse(right);
+    const maxLength = Math.max(leftParts.length, rightParts.length);
+
+    for (let index = 0; index < maxLength; index += 1) {
+      const leftPart = leftParts[index] ?? 0;
+      const rightPart = rightParts[index] ?? 0;
+      if (leftPart !== rightPart) {
+        return rightPart - leftPart;
+      }
+    }
+
+    return right.localeCompare(left);
+  });
+};
+
+const neoforgeChannelForMinecraft = (mcVersion: string) => {
+  const [, minor = "", patch = "0"] = mcVersion.split(".");
+  return `${minor}.${patch}.`;
+};
+
 const loadFabricVersions = async (mcVersion: string) => {
   const url = `https://meta.fabricmc.net/v2/versions/loader/${mcVersion}`;
   const data = await apiFetch<FabricLoaderVersion[]>(url, { ttl: 120_000 });
@@ -66,6 +95,7 @@ const loadForgeVersions = async (mcVersion: string) => {
 };
 
 const loadNeoForgeVersions = async (mcVersion: string) => {
+  const channelPrefix = neoforgeChannelForMinecraft(mcVersion);
   const mirrors = [
     `https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge`,
     `https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml`,
@@ -74,15 +104,18 @@ const loadNeoForgeVersions = async (mcVersion: string) => {
   for (const url of mirrors) {
     try {
       if (url.includes("/api/maven/")) {
-        const data = await apiFetch<string[]>(url, { ttl: 120_000 });
-        const versions = data.filter((entry) => entry.startsWith(mcVersion));
-        if (versions.length) return uniqueSorted(versions);
+        const data = await apiFetch<{ versions?: string[] } | string[]>(url, {
+          ttl: 120_000,
+        });
+        const entries = Array.isArray(data) ? data : (data.versions ?? []);
+        const versions = entries.filter((entry) => entry.startsWith(channelPrefix));
+        if (versions.length) return uniqueSortedByNumericVersion(versions);
       } else {
         const xml = await apiFetch<string>(url, { ttl: 120_000, parseJson: false });
         const versions = parseForgeMetadata(xml).filter((entry) =>
-          entry.startsWith(mcVersion),
+          entry.startsWith(channelPrefix),
         );
-        if (versions.length) return uniqueSorted(versions);
+        if (versions.length) return uniqueSortedByNumericVersion(versions);
       }
     } catch {
       // Intentar siguiente mirror.

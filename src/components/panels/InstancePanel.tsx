@@ -551,6 +551,23 @@ export const InstancePanel = ({
     }
   };
 
+  const openChecklistWithContext = (instanceId: string, summary?: string) => {
+    setActiveChecklistInstanceId(instanceId);
+    setLaunchChecklistOpen(true);
+    setLaunchChecklistRunning(false);
+    if (summary) {
+      setLaunchChecklistSummary(summary);
+    }
+    setLaunchChecklistChecks([]);
+    setLaunchChecklistLogs((prev) =>
+      prev.length > 0
+        ? prev
+        : [
+            "Esperando una ejecución manual del checklist. Pulsa \"Iniciar\" para correr la validación completa.",
+          ],
+    );
+  };
+
 
   const instanceHealth = useMemo(() => {
     if (!selectedInstance) {
@@ -624,7 +641,10 @@ export const InstancePanel = ({
           if (!confirmRestart) {
             return;
           }
-          setLaunchChecklistOpen(true);
+          openChecklistWithContext(
+            selectedInstance.id,
+            "Existe una inicialización en curso. Puedes abrir la consola o volver a intentar el inicio manual.",
+          );
         },
       };
     }
@@ -632,9 +652,8 @@ export const InstancePanel = ({
       label: "▶ Iniciar",
       disabled: false,
       action: async () => {
-        setLaunchChecklistOpen(true);
+        openChecklistWithContext(selectedInstance.id);
         setLaunchChecklistSummary(null);
-        setActiveChecklistInstanceId(selectedInstance.id);
         updateStartupProgress(selectedInstance.id, {
           active: true,
           progress: 6,
@@ -668,6 +687,7 @@ export const InstancePanel = ({
           );
           window.setTimeout(() => {
             setLaunchChecklistOpen(false);
+            setActiveChecklistInstanceId(null);
           }, 900);
         } catch (error) {
           const message =
@@ -1256,16 +1276,52 @@ export const InstancePanel = ({
         const backendStatus = snapshot.status ?? "";
         if (backendStatus && backendStatusMap[backendStatus]) {
           const mapped = backendStatusMap[backendStatus];
+          const transientStatuses = new Set([
+            "cleaning_partials",
+            "downloading_manifest",
+            "downloading_version_metadata",
+            "downloading_client",
+            "downloading_asset_index",
+            "downloading_assets",
+            "assets_ready",
+            "installing_loader",
+            "downloading_libraries",
+            "libraries_ready",
+            "building_launch_plan",
+            "preflight",
+            "repairing",
+            "repair_fallback_reinstall",
+            "repaired",
+            "launching",
+          ]);
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          const stateAgeSeconds =
+            typeof snapshot.stateUpdatedAt === "number"
+              ? Math.max(0, nowSeconds - snapshot.stateUpdatedAt)
+              : Number.POSITIVE_INFINITY;
+          const shouldRespectTransientState =
+            transientStatuses.has(backendStatus) &&
+            stateAgeSeconds <= 90 &&
+            (launchChecklistRunning || startupProgressByInstance[selectedInstance.id]?.active);
+
           updateStartupProgress(selectedInstance.id, {
-            active: mapped.active,
+            active: mapped.active && shouldRespectTransientState,
             progress: mapped.progress,
-            stage: mapped.label,
+            stage:
+              mapped.active && !shouldRespectTransientState
+                ? "Esperando inicio manual"
+                : mapped.label,
             details:
               typeof snapshot.stateDetails?.step === "string"
                 ? snapshot.stateDetails.step
                 : undefined,
           });
-          setInstanceLaunchStatus(selectedInstance.id, mapped.label);
+          setInstanceLaunchStatus(
+            selectedInstance.id,
+            mapped.active && !shouldRespectTransientState
+              ? "Esperando inicio manual"
+              : mapped.label,
+          );
         }
       } catch {
         if (!isActive) {
@@ -1293,7 +1349,7 @@ export const InstancePanel = ({
       isActive = false;
       window.clearInterval(interval);
     };
-  }, [selectedInstance?.id, selectedInstance?.isRunning, startupProgressByInstance]);
+  }, [selectedInstance?.id, selectedInstance?.isRunning, startupProgressByInstance, launchChecklistRunning]);
 
   useEffect(() => {
     if (!selectedInstance && editorOpen) {
@@ -3109,12 +3165,13 @@ ${rows.join("\n")}`;
                       });
                     }
                     setLaunchChecklistOpen(false);
+                    setActiveChecklistInstanceId(null);
                   }}
                   disabled={!launchChecklistRunning}
                 >
                   Cancelar verificación
                 </button>
-                <button type="button" onClick={() => setLaunchChecklistOpen(false)}>
+                <button type="button" onClick={() => { setLaunchChecklistOpen(false); setActiveChecklistInstanceId(null); }}>
                   Cerrar (seguir en segundo plano)
                 </button>
               </div>
