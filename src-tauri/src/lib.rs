@@ -1576,6 +1576,108 @@ fn java_bin_name() -> &'static str {
     }
 }
 
+fn fast_volume_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        for letter in b'A'..=b'Z' {
+            let root = PathBuf::from(format!("{}:/", char::from(letter)));
+            if root.is_dir() {
+                roots.push(root);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        roots.push(PathBuf::from("/"));
+        for mount_parent in ["/mnt", "/media", "/Volumes"] {
+            let parent = PathBuf::from(mount_parent);
+            let Ok(entries) = fs::read_dir(&parent) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    roots.push(path);
+                }
+            }
+        }
+    }
+
+    roots
+}
+
+fn discover_java_candidates_from_volumes() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        for volume in fast_volume_roots() {
+            for rel in [
+                ["Program Files", "Java"],
+                ["Program Files", "Eclipse Adoptium"],
+                ["Program Files", "Adoptium"],
+                ["Program Files (x86)", "Java"],
+                ["Program Files", "Microsoft"],
+            ] {
+                let base = volume.join(rel[0]).join(rel[1]);
+                let Ok(entries) = fs::read_dir(&base) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    candidates.push(entry.path().join("bin").join(java_bin_name()));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        for volume in fast_volume_roots() {
+            let java_home = volume
+                .join("Library")
+                .join("Java")
+                .join("JavaVirtualMachines");
+            let Ok(entries) = fs::read_dir(java_home) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                candidates.push(
+                    entry
+                        .path()
+                        .join("Contents")
+                        .join("Home")
+                        .join("bin")
+                        .join(java_bin_name()),
+                );
+            }
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        for volume in fast_volume_roots() {
+            for path in [
+                volume.join("usr").join("bin").join("java"),
+                volume.join("usr").join("local").join("bin").join("java"),
+                volume
+                    .join("opt")
+                    .join("homebrew")
+                    .join("opt")
+                    .join("openjdk")
+                    .join("bin")
+                    .join("java"),
+            ] {
+                candidates.push(path);
+            }
+        }
+    }
+
+    candidates
+}
+
 fn parse_java_version(output: &str) -> Option<(String, u32)> {
     let line = output.lines().next()?.trim().to_string();
     let token = line
@@ -1666,7 +1768,14 @@ impl JavaManager {
             .and_then(|p| p.parse::<u32>().ok())
             .unwrap_or_default();
 
-        if major == 1 && minor <= 16 {
+        let patch = parts
+            .next()
+            .and_then(|p| p.parse::<u32>().ok())
+            .unwrap_or_default();
+
+        if major == 1 && (minor > 20 || (minor == 20 && patch >= 5)) {
+            21
+        } else if major == 1 && minor <= 16 {
             8
         } else if major == 1 && minor >= 17 {
             17
@@ -1739,6 +1848,8 @@ impl JavaManager {
                 system_candidates.push(PathBuf::from(java_home).join("bin").join(java_bin_name()));
             }
         }
+
+        system_candidates.extend(discover_java_candidates_from_volumes());
 
         for candidate in system_candidates {
             if let Some(found) = inspect_java_runtime(&candidate, "sistema") {
@@ -7399,6 +7510,10 @@ mod tests {
         );
         assert_eq!(
             JavaManager::required_major_for_minecraft_version("1.20.5"),
+            21
+        );
+        assert_eq!(
+            JavaManager::required_major_for_minecraft_version("1.20.6"),
             21
         );
         assert_eq!(
