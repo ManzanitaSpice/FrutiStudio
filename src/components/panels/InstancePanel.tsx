@@ -152,6 +152,26 @@ interface StartupProgressState {
   details?: string;
 }
 
+const mapBackendStepDetail = (detail: unknown): string | undefined => {
+  if (typeof detail !== "string") {
+    return undefined;
+  }
+
+  const normalized = detail.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const labels: Record<string, string> = {
+    forge_like: "Instalación Forge/NeoForge",
+    fabric_profile: "Resolviendo perfil de Fabric/Quilt",
+    version_manifest: "Leyendo manifiesto oficial",
+    asset_index: "Resolviendo índice de assets",
+  };
+
+  return labels[normalized] ?? detail;
+};
+
 interface CatalogMod {
   id: string;
   name: string;
@@ -460,10 +480,7 @@ export const InstancePanel = ({
             active: mapped.progress < 100,
             progress: mapped.progress,
             stage: mapped.label,
-            details:
-              typeof snapshot.stateDetails?.step === "string"
-                ? snapshot.stateDetails.step
-                : undefined,
+            details: mapBackendStepDetail(snapshot.stateDetails?.step),
           });
           appendLog(`ℹ Estado backend: ${mapped.label}.`);
         }
@@ -1416,10 +1433,7 @@ export const InstancePanel = ({
               mapped.active && !shouldRespectTransientState
                 ? "Esperando inicio manual"
                 : mapped.label,
-            details:
-              typeof snapshot.stateDetails?.step === "string"
-                ? snapshot.stateDetails.step
-                : undefined,
+            details: mapBackendStepDetail(snapshot.stateDetails?.step),
           });
           setInstanceLaunchStatus(
             selectedInstance.id,
