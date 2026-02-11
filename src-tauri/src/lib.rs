@@ -942,12 +942,12 @@ fn read_last_lines(path: &Path, max_lines: usize) -> Vec<String> {
     lines
 }
 
-fn startup_crash_hint(stderr_lines: &[String]) -> Option<String> {
-    if stderr_lines.is_empty() {
+fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
+    if runtime_lines.is_empty() {
         return None;
     }
 
-    let joined = stderr_lines.join("\n").to_lowercase();
+    let joined = runtime_lines.join("\n").to_lowercase();
 
     let has_tinyremapper_read_failure = joined
         .contains("net.fabricmc.tinyremapper.tinyremapper.readfile")
@@ -988,8 +988,17 @@ fn startup_crash_hint(stderr_lines: &[String]) -> Option<String> {
     None
 }
 
-fn format_startup_crash_message(code: i32, stderr_lines: &[String]) -> String {
-    let stderr_excerpt = stderr_lines
+fn format_startup_crash_message(
+    code: i32,
+    stderr_lines: &[String],
+    stdout_lines: &[String],
+) -> String {
+    let mut excerpt_source = stderr_lines;
+    if excerpt_source.is_empty() {
+        excerpt_source = stdout_lines;
+    }
+
+    let stderr_excerpt = excerpt_source
         .iter()
         .rev()
         .take(8)
@@ -1000,7 +1009,10 @@ fn format_startup_crash_message(code: i32, stderr_lines: &[String]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let hint = startup_crash_hint(stderr_lines);
+    let mut diagnostic_lines = Vec::with_capacity(stderr_lines.len() + stdout_lines.len());
+    diagnostic_lines.extend(stderr_lines.iter().cloned());
+    diagnostic_lines.extend(stdout_lines.iter().cloned());
+    let hint = startup_crash_hint(&diagnostic_lines);
     match (stderr_excerpt.is_empty(), hint) {
         (true, Some(hint)) => format!(
             "Minecraft cerró durante el arranque (código {code}). {hint} Revisa logs/runtime*.stderr.log"
@@ -4984,6 +4996,7 @@ async fn launch_instance(
         {
             let code = status.code().unwrap_or(-1);
             let stderr_lines = read_last_lines(&stderr_path, 40);
+            let stdout_lines = read_last_lines(&stdout_path, 40);
             let stderr_excerpt = stderr_lines
                 .iter()
                 .rev()
@@ -4999,7 +5012,11 @@ async fn launch_instance(
                 "crashed",
                 serde_json::json!({"exitCode": code, "stderr": stderr_excerpt}),
             );
-            return Err(format_startup_crash_message(code, &stderr_lines));
+            return Err(format_startup_crash_message(
+                code,
+                &stderr_lines,
+                &stdout_lines,
+            ));
         }
     }
 
@@ -5877,7 +5894,7 @@ mod tests {
             "at java.base/java.lang.Thread.run(Thread.java:1583)".to_string(),
         ];
 
-        let message = format_startup_crash_message(1, &stderr_lines);
+        let message = format_startup_crash_message(1, &stderr_lines, &[]);
         assert!(message.contains("Diagnóstico Fabric"));
         assert!(message.contains("Últimas líneas"));
     }
@@ -5910,6 +5927,19 @@ mod tests {
 
         let hint = startup_crash_hint(&stderr_lines).expect("hint");
         assert!(hint.contains("Diagnóstico loader"));
+    }
+
+    #[test]
+    fn format_startup_crash_message_uses_stdout_for_loader_hint_when_stderr_is_empty() {
+        let stdout_lines = vec![
+            "at org.objectweb.asm.ClassReader.<init>(ClassReader.java:177)".to_string(),
+            "at net.fabricmc.loader.minecraft.McVersionLookup.fromAnalyzer(McVersionLookup.java:150)"
+                .to_string(),
+        ];
+
+        let message = format_startup_crash_message(1, &[], &stdout_lines);
+        assert!(message.contains("Diagnóstico loader"));
+        assert!(message.contains("Últimas líneas"));
     }
 
     #[test]
