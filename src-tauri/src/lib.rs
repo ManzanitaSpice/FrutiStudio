@@ -839,6 +839,35 @@ fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
     }
 }
 
+fn detect_loader_from_version_json(version_json: &Value) -> Option<&'static str> {
+    let libraries = version_json.get("libraries")?.as_array()?;
+
+    for library in libraries {
+        let Some(name) = library.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let normalized = name.to_ascii_lowercase();
+        if normalized.contains("net.fabricmc:fabric-loader") {
+            return Some("fabric");
+        }
+        if normalized.contains("org.quiltmc:quilt-loader") {
+            return Some("quilt");
+        }
+        if normalized.contains("net.neoforged:neoforge")
+            || normalized.contains("net.neoforged:fml")
+        {
+            return Some("neoforge");
+        }
+        if normalized.contains("net.minecraftforge:forge")
+            || normalized.contains("net.minecraftforge:fmlloader")
+        {
+            return Some("forge");
+        }
+    }
+
+    Some("vanilla")
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct LaunchAuth {
@@ -5074,7 +5103,7 @@ async fn bootstrap_instance_runtime(
     let launch_config = resolve_instance_launch_config(instance_root, instance);
     let minecraft_root = launch_config.game_dir.clone();
     let version = launch_config.minecraft_version.trim();
-    let loader = launch_config.modloader.clone();
+    let mut loader = launch_config.modloader.trim().to_ascii_lowercase();
 
     hydrate_from_detected_launcher(&minecraft_root, version)?;
 
@@ -5349,6 +5378,20 @@ async fn bootstrap_instance_runtime(
     }
 
     let mut effective_version_json = base_version_json.clone();
+    if let Some(detected_loader) = detect_loader_from_version_json(&effective_version_json) {
+        if loader != detected_loader {
+            write_instance_state(
+                instance_root,
+                "loader_detected_from_version_json",
+                serde_json::json!({
+                    "requested": loader,
+                    "detected": detected_loader,
+                    "version": version,
+                }),
+            );
+            loader = detected_loader.to_string();
+        }
+    }
     let mut launch_version_name = version.to_string();
     if loader == "forge" || loader == "neoforge" {
         write_instance_state(
@@ -9028,5 +9071,35 @@ mod tests {
             neoforge_profile.get("mainClass").and_then(Value::as_str),
             Some("net.neoforged.fml.loading.targets.ClientLaunchHandler")
         );
+    }
+
+    #[test]
+    fn detect_loader_from_version_json_prioritizes_runtime_libraries() {
+        let fabric = serde_json::json!({
+            "libraries": [
+                {"name": "net.fabricmc:fabric-loader:0.16.9"},
+                {"name": "org.ow2.asm:asm:9.7"}
+            ]
+        });
+        let forge = serde_json::json!({
+            "libraries": [
+                {"name": "net.minecraftforge:forge:1.20.1-47.3.10"}
+            ]
+        });
+        let neoforge = serde_json::json!({
+            "libraries": [
+                {"name": "net.neoforged:neoforge:21.1.5"}
+            ]
+        });
+        let vanilla = serde_json::json!({
+            "libraries": [
+                {"name": "com.mojang:brigadier:1.0.18"}
+            ]
+        });
+
+        assert_eq!(detect_loader_from_version_json(&fabric), Some("fabric"));
+        assert_eq!(detect_loader_from_version_json(&forge), Some("forge"));
+        assert_eq!(detect_loader_from_version_json(&neoforge), Some("neoforge"));
+        assert_eq!(detect_loader_from_version_json(&vanilla), Some("vanilla"));
     }
 }
