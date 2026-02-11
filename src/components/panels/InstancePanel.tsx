@@ -2624,7 +2624,7 @@ export const InstancePanel = ({
     const resolvedName =
       trimmedName.length > 0 ? trimmedName : `Nueva instancia ${resolvedVersion}`;
     const resolvedLoaderVersion =
-      instanceLoader === "Vanilla" ? "—" : instanceLoaderVersion.trim() || "latest";
+      instanceLoader === "Vanilla" ? "latest" : instanceLoaderVersion.trim() || "latest";
     const newInstance: Instance = {
       id:
         typeof crypto !== "undefined" && "randomUUID" in crypto

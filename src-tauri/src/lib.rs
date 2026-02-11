@@ -4056,19 +4056,33 @@ fn read_instance_record(
 
 #[command]
 async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Result<(), String> {
+    let normalized = InstanceRecord {
+        id: instance.id.clone(),
+        name: instance.name.clone(),
+        version: instance.version.clone(),
+        loader_name: instance.loader_name.clone(),
+        loader_version: Some(normalized_loader_version(&instance)),
+    };
+
     let path = database_path(&app)?;
     let conn = Connection::open(path)
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
     conn.execute(
         "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![instance.id, instance.name, instance.version, instance.loader_name, instance.loader_version],
+        params![
+            normalized.id,
+            normalized.name,
+            normalized.version,
+            normalized.loader_name,
+            normalized.loader_version
+        ],
     )
     .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
 
     let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
     ensure_instance_layout(&instance_root)?;
 
-    write_instance_metadata(&instance_root, &instance)?;
+    write_instance_metadata(&instance_root, &normalized)?;
 
     Ok(())
 }
@@ -4378,7 +4392,7 @@ async fn preflight_instance(
     }
 
     let (instance_root, _) =
-        prepare_instance_runtime(&app, &instance_id, false, false, true).await?;
+        prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
     write_instance_state(
         &instance_root,
         "preflight",
@@ -4419,7 +4433,7 @@ async fn launch_instance(
     }
 
     let (instance_root, instance) =
-        prepare_instance_runtime(&app, &instance_id, false, false, false).await?;
+        prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
 
     let mut launch_plan = read_launch_plan(&instance_root)?;
 
