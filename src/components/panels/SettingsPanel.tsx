@@ -11,6 +11,7 @@ import {
 import { detectJavaProfiles } from "../../services/javaConfig";
 import type { JavaProfile } from "../../types/models";
 import { SelectFolderButton } from "../SelectFolderButton";
+import { launcherFactoryReset } from "../../services/launcherService";
 
 const customDefaults = {
   bg: "#f7f4ff",
@@ -47,9 +48,13 @@ export const SettingsPanel = () => {
   const [iconsPath, setIconsPath] = useState("icons");
   const [javaPath, setJavaPath] = useState("java");
   const [skinsPath, setSkinsPath] = useState("skins");
-  const [fontFamily, setFontFamily] = useState<"inter" | "system" | "poppins" | "jetbrains" | "fira">("inter");
+  const [fontFamily, setFontFamily] = useState<
+    "inter" | "system" | "poppins" | "jetbrains" | "fira"
+  >("inter");
   const [detectedJavaProfiles, setDetectedJavaProfiles] = useState<JavaProfile[]>([]);
   const [isDetectingJava, setIsDetectingJava] = useState(false);
+  const [factoryResetPhrase, setFactoryResetPhrase] = useState("");
+  const [isFactoryResetting, setIsFactoryResetting] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -134,6 +139,36 @@ export const SettingsPanel = () => {
       }
     } finally {
       setIsDetectingJava(false);
+    }
+  };
+
+  const handleFactoryReset = async () => {
+    if (factoryResetPhrase.trim().toUpperCase() !== "REINSTALAR") {
+      window.alert("Escribe REINSTALAR para confirmar la reinstalación completa.");
+      return;
+    }
+
+    const accepted = window.confirm(
+      "Esta acción borrará la carpeta del launcher, instancias, cachés y base de datos local. ¿Deseas continuar?",
+    );
+    if (!accepted) {
+      return;
+    }
+
+    setIsFactoryResetting(true);
+    try {
+      const result = await launcherFactoryReset(factoryResetPhrase);
+      const removed = [...result.clearedRoots, ...result.removedEntries].length;
+      window.alert(
+        `Reinstalación completada. Se limpiaron ${removed} rutas. El launcher se recargará para iniciar desde cero.`,
+      );
+      window.location.reload();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "No se pudo completar la reinstalación.";
+      window.alert(message);
+    } finally {
+      setIsFactoryResetting(false);
     }
   };
 
@@ -283,6 +318,36 @@ export const SettingsPanel = () => {
                 />
                 Telemetría opcional
               </label>
+            </article>
+
+            <article
+              className="settings-card settings-card--glow"
+              onContextMenu={(event) => handleCardContextMenu(event, "reinstall")}
+            >
+              <div className="settings-card__header">
+                <h3>Reinstalación completa (desde 0)</h3>
+                <p>
+                  Limpia carpeta del launcher, instancias y datos locales para recuperar
+                  un estado limpio ante corrupción de archivos o configuraciones dañadas.
+                </p>
+              </div>
+              <label className="settings-card__field">
+                <span>Confirmación</span>
+                <input
+                  value={factoryResetPhrase}
+                  placeholder="Escribe REINSTALAR"
+                  onChange={(event) => setFactoryResetPhrase(event.target.value)}
+                />
+              </label>
+              <div className="settings-card__actions">
+                <button type="button" onClick={() => void handleFactoryReset()}>
+                  {isFactoryResetting ? "Reinstalando..." : "Reinstalar launcher desde 0"}
+                </button>
+              </div>
+              <small>
+                En Windows se solicitará confirmación de administrador antes del borrado
+                total.
+              </small>
             </article>
           </div>
         </section>
