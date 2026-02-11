@@ -511,6 +511,15 @@ struct AssetDownloadTask {
     sha1: String,
     object_name: String,
 }
+
+#[derive(Clone)]
+struct BinaryDownloadTask {
+    urls: Vec<String>,
+    path: PathBuf,
+    sha1: Option<String>,
+    label: String,
+    validate_zip: bool,
+}
 const DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOfficial";
 const BACKUP_PREFIX: &str = "config.json.";
 const BACKUP_SUFFIX: &str = ".bak";
@@ -1534,6 +1543,8 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
         vec!["https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"]
     };
 
+    let neoforge_channel = neoforge_channel_for_minecraft(minecraft_version);
+
     for url in metadata_urls {
         let Ok(resp) = reqwest::get(url).await else {
             continue;
@@ -1549,14 +1560,52 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
                 Some(rest[..end].to_string())
             })
             .collect::<Vec<_>>();
-        matches.retain(|value| value.starts_with(minecraft_version));
-        matches.sort();
+        matches.retain(|value| {
+            if loader == "neoforge" {
+                return value.starts_with(&neoforge_channel);
+            }
+            value.starts_with(minecraft_version)
+        });
+        matches.sort_by(|left, right| compare_numeric_versions(left, right));
         if let Some(last) = matches.last() {
             return Some(last.clone());
         }
     }
 
     None
+}
+
+fn neoforge_channel_for_minecraft(minecraft_version: &str) -> String {
+    let mut parts = minecraft_version.split('.');
+    let _major = parts.next();
+    let minor = parts.next().unwrap_or_default();
+    let patch = parts.next().unwrap_or("0");
+    format!("{minor}.{patch}.")
+}
+
+fn compare_numeric_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    let parse = |value: &str| {
+        value
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| segment.parse::<u64>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
+
+    let left_parts = parse(left);
+    let right_parts = parse(right);
+    let max = left_parts.len().max(right_parts.len());
+
+    for idx in 0..max {
+        let l = *left_parts.get(idx).unwrap_or(&0);
+        let r = *right_parts.get(idx).unwrap_or(&0);
+        match l.cmp(&r) {
+            std::cmp::Ordering::Equal => continue,
+            ordering => return ordering,
+        }
+    }
+
+    left.cmp(right)
 }
 
 async fn resolve_latest_fabric_like_loader_version(
@@ -1607,21 +1656,21 @@ async fn install_forge_like_loader(
         requested
     };
 
-    let (base_url, artifact_name, expected_id) = if loader == "neoforge" {
+    let (base_url, artifact_name, expected_id_candidates) = if loader == "neoforge" {
         (
             "https://maven.neoforged.net/releases/net/neoforged/neoforge",
             "neoforge",
-            if resolved_version.starts_with(minecraft_version) {
-                resolved_version.clone()
-            } else {
-                format!("{minecraft_version}-{resolved_version}")
-            },
+            vec![
+                format!("{minecraft_version}-neoforge-{resolved_version}"),
+                format!("{minecraft_version}-{resolved_version}"),
+                resolved_version.clone(),
+            ],
         )
     } else {
         (
             "https://maven.minecraftforge.net/net/minecraftforge/forge",
             "forge",
-            resolved_version.clone(),
+            vec![resolved_version.clone()],
         )
     };
 
@@ -1633,15 +1682,35 @@ async fn install_forge_like_loader(
             "https://files.minecraftforge.net/maven/net/minecraftforge/forge/{resolved_version}/forge-{resolved_version}-installer.jar"
         ));
     }
-    let installer_target = minecraft_root
-        .join("installers")
-        .join(format!("{artifact_name}-{resolved_version}-installer.jar"));
+    let launcher_cache_dir = launcher_root(app)?
+        .join("cache")
+        .join("loaders")
+        .join(loader)
+        .join(&resolved_version);
+    fs::create_dir_all(&launcher_cache_dir)
+        .map_err(|error| format!("No se pudo crear caché de loader {loader}: {error}"))?;
+
+    let installer_file_name = format!("{artifact_name}-{resolved_version}-installer.jar");
+    let installer_cache_target = launcher_cache_dir.join(&installer_file_name);
     download_from_candidates(
         &installer_urls,
-        &installer_target,
+        &installer_cache_target,
         "instalador Forge/NeoForge",
     )
     .await?;
+
+    let installer_target = minecraft_root.join("installers").join(&installer_file_name);
+    if let Some(parent) = installer_target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("No se pudo crear carpeta de instaladores: {error}"))?;
+    }
+    fs::copy(&installer_cache_target, &installer_target).map_err(|error| {
+        format!(
+            "No se pudo copiar instalador cacheado {} a {}: {error}",
+            installer_cache_target.display(),
+            installer_target.display()
+        )
+    })?;
 
     let manager = JavaManager::new(app)?;
     let required_java_major = manager.required_major_for_minecraft(minecraft_version);
@@ -1710,16 +1779,22 @@ async fn install_forge_like_loader(
         std::thread::sleep(Duration::from_millis(400));
     }
 
-    let version_dir = minecraft_root.join("versions").join(&expected_id);
-    let version_json = version_dir.join(format!("{expected_id}.json"));
-    if !version_json.exists() {
+    let installed_profile_id = expected_id_candidates.iter().find_map(|candidate| {
+        let path = minecraft_root
+            .join("versions")
+            .join(candidate)
+            .join(format!("{candidate}.json"));
+        path.exists().then_some(candidate.to_string())
+    });
+
+    if installed_profile_id.is_none() {
         return Err(format!(
-            "El instalador de {loader} terminó pero no creó {}",
-            version_json.display()
+            "El instalador de {loader} terminó pero no creó un profile esperado ({:?}).",
+            expected_id_candidates
         ));
     }
 
-    Ok(expected_id)
+    Ok(installed_profile_id.unwrap_or_else(|| resolved_version.clone()))
 }
 
 fn ensure_forge_preflight_files(
@@ -1786,6 +1861,36 @@ fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
 async fn download_to(url: &str, path: &Path) -> Result<(), String> {
     let urls = vec![url.to_string()];
     download_with_retries(&urls, path, None, 4, should_validate_zip_from_path(path)).await
+}
+
+fn mirror_candidates_for_url(url: &str) -> Vec<String> {
+    let mut urls = vec![url.to_string()];
+    let mirrors = [
+        (
+            "https://libraries.minecraft.net",
+            [
+                "https://bmclapi2.bangbang93.com/maven",
+                "https://download.mcbbs.net/maven",
+            ],
+        ),
+        (
+            "https://maven.minecraftforge.net",
+            ["https://files.minecraftforge.net/maven", ""],
+        ),
+    ];
+
+    for (origin, replacements) in mirrors {
+        if let Some(rest) = url.strip_prefix(origin) {
+            for replacement in replacements {
+                if replacement.is_empty() {
+                    continue;
+                }
+                urls.push(format!("{replacement}{rest}"));
+            }
+        }
+    }
+
+    urls
 }
 
 fn should_validate_zip_from_path(path: &Path) -> bool {
@@ -1971,6 +2076,47 @@ async fn download_many_with_limit(
                 .map_err(|error| {
                     format!("Asset {} ({}) falló: {error}", task.object_name, task.sha1)
                 })
+        });
+    }
+
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return Err(error),
+            Err(error) => return Err(format!("Error en tarea de descarga: {error}")),
+        }
+    }
+
+    Ok(())
+}
+
+async fn download_binaries_with_limit(
+    items: Vec<BinaryDownloadTask>,
+    concurrency: usize,
+) -> Result<(), String> {
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    let gate = std::sync::Arc::new(Semaphore::new(concurrency.max(1)));
+    let mut tasks = tokio::task::JoinSet::new();
+
+    for task in items {
+        let permit_gate = gate.clone();
+        tasks.spawn(async move {
+            let _permit = permit_gate
+                .acquire_owned()
+                .await
+                .map_err(|error| format!("No se pudo adquirir cupo de descarga: {error}"))?;
+            download_with_retries(
+                &task.urls,
+                &task.path,
+                task.sha1.as_deref(),
+                5,
+                task.validate_zip,
+            )
+            .await
+            .map_err(|error| format!("{} falló: {error}", task.label))
         });
     }
 
@@ -2714,6 +2860,8 @@ async fn bootstrap_instance_runtime(
         serde_json::json!({"step": "libraries", "total": libraries.len()}),
     );
 
+    let mut native_archives = Vec::new();
+    let mut library_downloads = Vec::new();
     for library in libraries {
         if !library_allowed_for_current_os(&library) {
             continue;
@@ -2735,7 +2883,17 @@ async fn bootstrap_instance_runtime(
                     });
                 if let (Some(url), Some(rel)) = (url, path) {
                     let target = minecraft_root.join("libraries").join(rel);
-                    download_to(url, &target).await?;
+                    let urls = mirror_candidates_for_url(url);
+                    library_downloads.push(BinaryDownloadTask {
+                        urls,
+                        path: target.clone(),
+                        sha1: artifact
+                            .get("sha1")
+                            .and_then(|value| value.as_str())
+                            .map(|value| value.to_string()),
+                        label: format!("Librería {}", target.display()),
+                        validate_zip: should_validate_zip_from_path(&target),
+                    });
                     if classpath_seen.insert(target.clone()) {
                         classpath_entries.push(target);
                     }
@@ -2753,8 +2911,17 @@ async fn bootstrap_instance_runtime(
                         native.get("path").and_then(|v| v.as_str()),
                     ) {
                         let native_jar = minecraft_root.join("libraries").join(path);
-                        download_to(url, &native_jar).await?;
-                        extract_native_library(&native_jar, &natives_dir)?;
+                        library_downloads.push(BinaryDownloadTask {
+                            urls: mirror_candidates_for_url(url),
+                            path: native_jar.clone(),
+                            sha1: native
+                                .get("sha1")
+                                .and_then(|value| value.as_str())
+                                .map(|value| value.to_string()),
+                            label: format!("Native {}", native_jar.display()),
+                            validate_zip: should_validate_zip_from_path(&native_jar),
+                        });
+                        native_archives.push(native_jar);
                     }
                 }
             }
@@ -2772,12 +2939,30 @@ async fn bootstrap_instance_runtime(
                 let rel_url = rel.to_string_lossy().replace('\\', "/");
                 let target = minecraft_root.join("libraries").join(&rel);
                 let url = format!("{base_url}/{rel_url}");
-                download_to(&url, &target).await?;
+                library_downloads.push(BinaryDownloadTask {
+                    urls: mirror_candidates_for_url(&url),
+                    path: target.clone(),
+                    sha1: None,
+                    label: format!("Librería {}", target.display()),
+                    validate_zip: should_validate_zip_from_path(&target),
+                });
                 if classpath_seen.insert(target.clone()) {
                     classpath_entries.push(target);
                 }
             }
         }
+    }
+
+    let total_libraries = library_downloads.len();
+    write_instance_state(
+        instance_root,
+        "downloading_libraries",
+        serde_json::json!({"step": "libraries", "total": total_libraries, "concurrency": 8}),
+    );
+    download_binaries_with_limit(library_downloads, 8).await?;
+
+    for native_jar in native_archives {
+        extract_native_library(&native_jar, &natives_dir)?;
     }
 
     if classpath_seen.insert(client_jar.clone()) {
@@ -4823,6 +5008,28 @@ mod tests {
                 .and_then(|value| value.as_array())
                 .map(|value| value.len()),
             Some(2)
+        );
+    }
+
+    #[test]
+    fn neoforge_channel_uses_minor_and_patch() {
+        assert_eq!(neoforge_channel_for_minecraft("1.21.1"), "21.1.");
+        assert_eq!(neoforge_channel_for_minecraft("1.20"), "20.0.");
+    }
+
+    #[test]
+    fn compare_numeric_versions_orders_semver_like_strings() {
+        assert_eq!(
+            compare_numeric_versions("21.1.100", "21.1.200"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_numeric_versions("21.1.200", "21.1.100"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            compare_numeric_versions("21.1.218", "21.1.218"),
+            std::cmp::Ordering::Equal
         );
     }
 }
