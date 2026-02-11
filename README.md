@@ -35,3 +35,8 @@ comandos Tauri.
 ## Integración CurseForge (Prism-style)
 
 Se documentó e implementó una base para fingerprints + resolución de descarga legal con fallback manual: `docs/curseforge-prism-flow.md`.
+
+
+## Diagnóstico de arranque (código 1 / loaders)
+
+Guía operativa y plan de hardening para fallos de arranque de Minecraft (Fabric/Forge/Quilt): `docs/fabric-startup-diagnostics-plan.md`.

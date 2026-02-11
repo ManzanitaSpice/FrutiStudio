@@ -38,3 +38,4 @@ o componentes deben vivir en sus carpetas respectivas).
 - `src/services/profileService.ts`: perfiles multiusuario (no solo cuentas).
 - `src/services/localServerService.ts`: catálogo local equivalente a `servers.dat` lógico.
 - `src/services/remoteServerService.ts`: catálogo remoto/patrocinado y ping de estado.
+- `docs/fabric-startup-diagnostics-plan.md`: checklist y plan de hardening para errores de arranque (código 1) en loaders.
