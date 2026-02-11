@@ -207,7 +207,9 @@ export const InstancePanel = ({
   >("idle");
   const [creatorError, setCreatorError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [launchStatus, setLaunchStatus] = useState<string | null>(null);
+  const [launchStatusByInstance, setLaunchStatusByInstance] = useState<
+    Record<string, string>
+  >({});
   const [launchChecklistOpen, setLaunchChecklistOpen] = useState(false);
   const [launchChecklistLogs, setLaunchChecklistLogs] = useState<string[]>([]);
   const [launchChecklistChecks, setLaunchChecklistChecks] = useState<
@@ -260,6 +262,23 @@ export const InstancePanel = ({
     typeof selectedInstance.id === "string" &&
     selectedInstance.id.trim().length > 0,
   );
+  const selectedLaunchStatus = selectedInstance
+    ? (launchStatusByInstance[selectedInstance.id] ?? null)
+    : null;
+
+  const setInstanceLaunchStatus = (
+    instanceId: string | null | undefined,
+    message: string,
+  ) => {
+    if (!instanceId) {
+      return;
+    }
+    setLaunchStatusByInstance((prev) => ({
+      ...prev,
+      [instanceId]: message,
+    }));
+  };
+
   const statusLabels: Record<Instance["status"], string> = {
     ready: "Listo para jugar",
     "pending-update": "Actualización pendiente",
@@ -428,21 +447,21 @@ export const InstancePanel = ({
     if (!selectedInstance) {
       return { icon: "✔", label: "Instancia correcta" };
     }
-    if (launchStatus?.toLowerCase().includes("no se pudo")) {
+    if (selectedLaunchStatus?.toLowerCase().includes("no se pudo")) {
       return { icon: "❌", label: "Instancia con error" };
     }
     if (selectedInstance.status === "pending-update") {
       return { icon: "⚠", label: "Requiere revisión" };
     }
     return { icon: "✔", label: selectedInstance.isRunning ? "En ejecución" : "Lista" };
-  }, [launchStatus, selectedInstance]);
+  }, [selectedLaunchStatus, selectedInstance]);
 
   const primaryAction = useMemo(() => {
     if (!selectedInstanceHasValidId || !selectedInstance) {
       return { label: "▶ Iniciar", disabled: true, action: () => undefined };
     }
     const hasPid = typeof selectedInstance.processId === "number";
-    if (launchStatus?.toLowerCase().includes("no se pudo")) {
+    if (selectedLaunchStatus?.toLowerCase().includes("no se pudo")) {
       return {
         label: "🔧 Reparar instancia",
         disabled: false,
@@ -451,7 +470,8 @@ export const InstancePanel = ({
             try {
               setLaunchChecklistSummary(null);
               await repairInstance(selectedInstance.id);
-              setLaunchStatus(
+              setInstanceLaunchStatus(
+                selectedInstance?.id,
                 "Reparación completada: reinstalación total ejecutada y verificada.",
               );
               onUpdateInstance(selectedInstance.id, {
@@ -460,7 +480,8 @@ export const InstancePanel = ({
                 processId: undefined,
               });
             } catch (error) {
-              setLaunchStatus(
+              setInstanceLaunchStatus(
+                selectedInstance?.id,
                 error instanceof Error
                   ? `No se pudo reparar la instancia: ${error.message}`
                   : "No se pudo reparar la instancia.",
@@ -489,7 +510,7 @@ export const InstancePanel = ({
         setLaunchChecklistOpen(true);
         setLaunchChecklistSummary(null);
         try {
-          setLaunchStatus("Iniciando Minecraft...");
+          setInstanceLaunchStatus(selectedInstance?.id, "Iniciando Minecraft...");
           await runLaunchChecklist(selectedInstance.id);
           const result = await launchInstance(selectedInstance.id);
           setLaunchChecklistLogs((prev) => [
@@ -505,20 +526,31 @@ export const InstancePanel = ({
             downloadStage: "finalizando",
             lastPlayed: new Date().toISOString(),
           });
-          setLaunchStatus("Instancia iniciada correctamente.");
+          setInstanceLaunchStatus(
+            selectedInstance?.id,
+            "Instancia iniciada correctamente.",
+          );
           window.setTimeout(() => {
             setLaunchChecklistOpen(false);
           }, 900);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "No se pudo iniciar la instancia.";
-          setLaunchStatus(`${message} Usa "Reparar instancia" para corregirlo.`);
+          setInstanceLaunchStatus(
+            selectedInstance?.id,
+            `${message} Usa "Reparar instancia" para corregirlo.`,
+          );
           setLaunchChecklistSummary(`❌ ${message}`);
           setLaunchChecklistLogs((prev) => [...prev, `✖ Inicio cancelado: ${message}`]);
         }
       },
     };
-  }, [launchStatus, onUpdateInstance, selectedInstance, selectedInstanceHasValidId]);
+  }, [
+    selectedLaunchStatus,
+    onUpdateInstance,
+    selectedInstance,
+    selectedInstanceHasValidId,
+  ]);
 
   const versionRows = [
     { name: "Minecraft", version: selectedInstance?.version ?? "—" },
@@ -570,7 +602,6 @@ export const InstancePanel = ({
     setContextMenu(null);
   };
 
-
   const openInstanceSubPath = async (subPath?: string, label?: string) => {
     if (!selectedInstance) {
       return;
@@ -578,10 +609,14 @@ export const InstancePanel = ({
     try {
       await openInstancePath(selectedInstance.id, subPath);
       if (label) {
-        setLaunchStatus(`Abriendo ${label} de ${selectedInstance.name}...`);
+        setInstanceLaunchStatus(
+          selectedInstance?.id,
+          `Abriendo ${label} de ${selectedInstance.name}...`,
+        );
       }
     } catch (error) {
-      setLaunchStatus(
+      setInstanceLaunchStatus(
+        selectedInstance?.id,
         error instanceof Error
           ? `No se pudo abrir ${label ?? "la carpeta"}: ${error.message}`
           : `No se pudo abrir ${label ?? "la carpeta"}.`,
@@ -595,9 +630,13 @@ export const InstancePanel = ({
     }
     try {
       const createdPath = await createInstanceDesktopShortcut(selectedInstance.id);
-      setLaunchStatus(`Atajo creado en el escritorio: ${createdPath}`);
+      setInstanceLaunchStatus(
+        selectedInstance?.id,
+        `Atajo creado en el escritorio: ${createdPath}`,
+      );
     } catch (error) {
-      setLaunchStatus(
+      setInstanceLaunchStatus(
+        selectedInstance?.id,
         error instanceof Error
           ? `No se pudo crear el atajo: ${error.message}`
           : "No se pudo crear el atajo en escritorio.",
@@ -613,14 +652,14 @@ export const InstancePanel = ({
         { id: "edit", label: "Editar", action: openEditor },
         {
           id: "folder",
-          label: "Carpeta",
+          label: "Abrir carpeta",
           action: () => {
             void openInstanceSubPath(undefined, "la carpeta de instancia");
           },
         },
         {
           id: "mods",
-          label: "Mods",
+          label: "Gestionar mods",
           action: () => {
             openEditor();
             setActiveEditorSection("Mods");
@@ -629,17 +668,35 @@ export const InstancePanel = ({
       ],
       management: [
         {
-          id: "copy",
-          label: "Duplicar",
-          action: () =>
-            onCreateInstance({
-              ...selectedInstance,
-              id: `${selectedInstance.id}-copy-${Date.now()}`,
-              name: `${selectedInstance.name} (Copia)`,
-              isRunning: false,
-              processId: undefined,
-              status: "stopped",
-            }),
+          id: "repair",
+          label: "Reparar",
+          action: () => {
+            void (async () => {
+              try {
+                setInstanceLaunchStatus(
+                  selectedInstance?.id,
+                  "Reinstalando instancia desde cero...",
+                );
+                await repairInstance(selectedInstance.id);
+                setInstanceLaunchStatus(
+                  selectedInstance?.id,
+                  "Reparación completada: reinstalación total ejecutada y verificada.",
+                );
+                onUpdateInstance(selectedInstance.id, {
+                  status: "ready",
+                  isRunning: false,
+                  processId: undefined,
+                });
+              } catch (error) {
+                setInstanceLaunchStatus(
+                  selectedInstance?.id,
+                  error instanceof Error
+                    ? `No se pudo reparar la instancia: ${error.message}`
+                    : "No se pudo reparar la instancia.",
+                );
+              }
+            })();
+          },
         },
         {
           id: "export",
@@ -655,9 +712,13 @@ export const InstancePanel = ({
                   return;
                 }
                 await exportInstance(selectedInstance.id, target);
-                setLaunchStatus(`Instancia exportada correctamente a ${target}.`);
+                setInstanceLaunchStatus(
+                  selectedInstance?.id,
+                  `Instancia exportada correctamente a ${target}.`,
+                );
               } catch (error) {
-                setLaunchStatus(
+                setInstanceLaunchStatus(
+                  selectedInstance?.id,
                   error instanceof Error
                     ? `No se pudo exportar la instancia: ${error.message}`
                     : "No se pudo exportar la instancia.",
@@ -667,8 +728,21 @@ export const InstancePanel = ({
           },
         },
         {
+          id: "copy",
+          label: "Duplicar",
+          action: () =>
+            onCreateInstance({
+              ...selectedInstance,
+              id: `${selectedInstance.id}-copy-${Date.now()}`,
+              name: `${selectedInstance.name} (Copia)`,
+              isRunning: false,
+              processId: undefined,
+              status: "stopped",
+            }),
+        },
+        {
           id: "group",
-          label: "Cambiar grupo",
+          label: "Grupo",
           action: () =>
             onUpdateInstance(selectedInstance.id, {
               group:
@@ -676,34 +750,8 @@ export const InstancePanel = ({
             }),
         },
         {
-          id: "repair",
-          label: "Reparar",
-          action: () => {
-            void (async () => {
-              try {
-                setLaunchStatus("Reinstalando instancia desde cero...");
-                await repairInstance(selectedInstance.id);
-                setLaunchStatus(
-                  "Reparación completada: reinstalación total ejecutada y verificada.",
-                );
-                onUpdateInstance(selectedInstance.id, {
-                  status: "ready",
-                  isRunning: false,
-                  processId: undefined,
-                });
-              } catch (error) {
-                setLaunchStatus(
-                  error instanceof Error
-                    ? `No se pudo reparar la instancia: ${error.message}`
-                    : "No se pudo reparar la instancia.",
-                );
-              }
-            })();
-          },
-        },
-        {
           id: "shortcut",
-          label: "Crear atajo",
+          label: "Atajo escritorio",
           action: () => {
             void createDesktopShortcutForSelected();
           },
@@ -988,9 +1036,12 @@ export const InstancePanel = ({
     };
 
     void pollRuntimeLogs();
-    const interval = window.setInterval(() => {
-      void pollRuntimeLogs();
-    }, selectedInstance.isRunning ? 1200 : 3500);
+    const interval = window.setInterval(
+      () => {
+        void pollRuntimeLogs();
+      },
+      selectedInstance.isRunning ? 1200 : 3500,
+    );
 
     return () => {
       isActive = false;
@@ -1080,6 +1131,7 @@ export const InstancePanel = ({
     try {
       const queue = [...selectedCatalogMods];
       const seen = new Set(queue.map((mod) => `${mod.provider}:${mod.id}`));
+      let detectedLoader: Instance["loaderName"] | null = null;
 
       for (let index = 0; index < queue.length; index += 1) {
         const mod = queue[index];
@@ -1106,6 +1158,17 @@ export const InstancePanel = ({
 
         if (!preferred?.downloadUrl) {
           throw new Error(`No hay descarga disponible para ${mod.name}.`);
+        }
+
+        const loaderCandidate = (preferred.loaders ?? []).find((loader) =>
+          ["neoforge", "forge", "fabric", "quilt"].includes(loader.toLowerCase()),
+        );
+        if (loaderCandidate) {
+          const normalized = loaderCandidate.toLowerCase();
+          if (normalized === "neoforge") detectedLoader = "NeoForge";
+          else if (normalized === "forge") detectedLoader = "Forge";
+          else if (normalized === "fabric") detectedLoader = "Fabric";
+          else if (normalized === "quilt") detectedLoader = "Quilt";
         }
 
         await installModFileToInstance(
@@ -1150,11 +1213,17 @@ export const InstancePanel = ({
         ...prev,
         [selectedInstance.id]: nextMods,
       }));
-      onUpdateInstance(selectedInstance.id, { mods: nextMods.length });
+      onUpdateInstance(selectedInstance.id, {
+        mods: nextMods.length,
+        ...(selectedInstance.loaderName === "Vanilla" && detectedLoader
+          ? { loaderName: detectedLoader, loaderVersion: "latest" }
+          : {}),
+      });
       setSelectedCatalogMods([]);
       setModReviewOpen(false);
       setModDownloadOpen(false);
-      setLaunchStatus(
+      setInstanceLaunchStatus(
+        selectedInstance?.id,
         `${queue.length} ${modDownloadTarget.toLowerCase()} instalados correctamente.`,
       );
     } catch (error) {
@@ -1792,10 +1861,14 @@ export const InstancePanel = ({
       onCreateInstance(newInstance);
       onSelectInstance(newInstance.id);
       setImportFileName(selected.split(/[\\/]/).pop() ?? "");
-      setLaunchStatus(`Instancia importada: ${newInstance.name}.`);
+      setInstanceLaunchStatus(
+        newInstance.id,
+        `Instancia importada: ${newInstance.name}.`,
+      );
       setCreatorOpen(false);
     } catch (error) {
-      setLaunchStatus(
+      setInstanceLaunchStatus(
+        selectedInstance?.id,
         error instanceof Error
           ? `No se pudo importar la instancia: ${error.message}`
           : "No se pudo importar la instancia.",
@@ -2150,7 +2223,7 @@ export const InstancePanel = ({
     };
     onCreateInstance(newInstance);
     try {
-      setLaunchStatus("Preparando archivos base de Minecraft...");
+      setInstanceLaunchStatus(newInstance.id, "Preparando archivos base de Minecraft...");
       await createInstance(newInstance);
       onUpdateInstance(newInstance.id, {
         status: "ready",
@@ -2159,7 +2232,10 @@ export const InstancePanel = ({
         downloadStage: "finalizando",
         downloadLabel: "Instancia lista para iniciar",
       });
-      setLaunchStatus("Instancia creada y preparada correctamente.");
+      setInstanceLaunchStatus(
+        newInstance.id,
+        "Instancia creada y preparada correctamente.",
+      );
     } catch (error) {
       console.error("No se pudo crear la instancia", error);
       onUpdateInstance(newInstance.id, {
@@ -2167,7 +2243,8 @@ export const InstancePanel = ({
         isDownloading: false,
         downloadProgress: 0,
       });
-      setLaunchStatus(
+      setInstanceLaunchStatus(
+        newInstance.id,
         error instanceof Error
           ? `No se pudo crear la instancia: ${error.message}`
           : "No se pudo crear la instancia.",
@@ -2308,8 +2385,8 @@ export const InstancePanel = ({
                   <p className="instance-menu__health">
                     {instanceHealth.icon} {instanceHealth.label}
                   </p>
-                  {launchStatus ? (
-                    <p className="instance-menu__launch-status">{launchStatus}</p>
+                  {selectedLaunchStatus ? (
+                    <p className="instance-menu__launch-status">{selectedLaunchStatus}</p>
                   ) : null}
 
                   <button
@@ -2373,7 +2450,11 @@ export const InstancePanel = ({
                   <h3>Editar {selectedInstance.name}</h3>
                   <p>Minecraft {selectedInstance.version}</p>
                 </div>
-                <button type="button" className="instance-button instance-button--ghost" onClick={closeEditor}>
+                <button
+                  type="button"
+                  className="instance-button instance-button--ghost"
+                  onClick={closeEditor}
+                >
                   Volver
                 </button>
               </header>
@@ -2514,7 +2595,10 @@ export const InstancePanel = ({
                             <button
                               type="button"
                               onClick={() => {
-                                void openInstanceSubPath("minecraft/mods", "la carpeta de mods");
+                                void openInstanceSubPath(
+                                  "minecraft/mods",
+                                  "la carpeta de mods",
+                                );
                               }}
                             >
                               Ver carpeta
@@ -2522,7 +2606,10 @@ export const InstancePanel = ({
                             <button
                               type="button"
                               onClick={() => {
-                                void openInstanceSubPath("minecraft/config", "la carpeta de configuración");
+                                void openInstanceSubPath(
+                                  "minecraft/config",
+                                  "la carpeta de configuración",
+                                );
                               }}
                             >
                               Ver configuraciones
@@ -2568,7 +2655,10 @@ ${rows.join("\n")}`;
                             <button
                               type="button"
                               onClick={() => {
-                                void openInstanceSubPath("minecraft/shaderpacks", "la carpeta shaderpacks");
+                                void openInstanceSubPath(
+                                  "minecraft/shaderpacks",
+                                  "la carpeta shaderpacks",
+                                );
                               }}
                             >
                               Ver carpeta
@@ -2592,7 +2682,10 @@ ${rows.join("\n")}`;
                             <button
                               type="button"
                               onClick={() => {
-                                void openInstanceSubPath("minecraft/resourcepacks", "la carpeta resourcepacks");
+                                void openInstanceSubPath(
+                                  "minecraft/resourcepacks",
+                                  "la carpeta resourcepacks",
+                                );
                               }}
                             >
                               Ver carpeta
@@ -2698,9 +2791,13 @@ ${rows.join("\n")}`;
                       try {
                         await removeInstance(deleteConfirmId);
                         onDeleteInstance(deleteConfirmId);
-                        setLaunchStatus("Instancia eliminada correctamente.");
+                        setInstanceLaunchStatus(
+                          selectedInstance?.id,
+                          "Instancia eliminada correctamente.",
+                        );
                       } catch (error) {
-                        setLaunchStatus(
+                        setInstanceLaunchStatus(
+                          selectedInstance?.id,
                           error instanceof Error
                             ? `No se pudo eliminar la instancia: ${error.message}`
                             : "No se pudo eliminar la instancia.",
@@ -2768,7 +2865,7 @@ ${rows.join("\n")}`;
                 >
                   {launchChecklistRunning
                     ? "Validación en curso"
-                    : launchChecklistSummary ?? "Esperando ejecución"}
+                    : (launchChecklistSummary ?? "Esperando ejecución")}
                 </span>
               </div>
 
