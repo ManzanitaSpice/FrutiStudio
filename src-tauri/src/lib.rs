@@ -3070,7 +3070,7 @@ async fn bootstrap_instance_runtime(
             "installing_loader",
             serde_json::json!({"loader": loader, "version": instance.loader_version, "step": "forge_like"}),
         );
-        let _installed_profile_id = install_forge_like_loader(
+        let installed_profile_id = install_forge_like_loader(
             app,
             instance_root,
             &minecraft_root,
@@ -3083,7 +3083,7 @@ async fn bootstrap_instance_runtime(
             &minecraft_root,
             version,
             &loader,
-            instance.loader_version.as_deref(),
+            Some(&installed_profile_id),
             &base_version_json,
         ) {
             effective_version_json = profile_json;
@@ -3397,7 +3397,12 @@ async fn bootstrap_instance_runtime(
     let auth_player_name = user.to_string();
     let auth_uuid = uuid.clone();
     let auth_access_token = "0".to_string();
-    let version_name = version.to_string();
+    let version_name = effective_version_json
+        .get("id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(version)
+        .to_string();
     let game_dir = minecraft_root.to_string_lossy().to_string();
     let assets_root = minecraft_root.join("assets").to_string_lossy().to_string();
     let library_directory = minecraft_root
@@ -3449,7 +3454,7 @@ async fn bootstrap_instance_runtime(
 
     let required_game_args = [
         ("--username", user.to_string()),
-        ("--version", version.to_string()),
+        ("--version", version_name.clone()),
         ("--gameDir", minecraft_root.to_string_lossy().to_string()),
         (
             "--assetsDir",
