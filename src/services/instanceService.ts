@@ -43,13 +43,14 @@ export const fetchLocalInstances = async (): Promise<LocalInstance[]> => {
 };
 
 export const createInstance = async (config: Instance) => {
+  const isVanilla = config.loaderName.toLowerCase() === "vanilla";
   await invokeWithHandling("create_instance", {
     instance: {
       id: config.id,
       name: config.name,
       version: config.version,
       loaderName: config.loaderName,
-      loaderVersion: config.loaderVersion,
+      loaderVersion: isVanilla ? "latest" : config.loaderVersion,
     },
   });
   if (cachedInstances) {
