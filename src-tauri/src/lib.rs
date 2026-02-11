@@ -4125,8 +4125,32 @@ fn inspect_mod_jar(mod_jar: &Path) -> ModInspection {
         };
     };
 
-    let has_fabric = zip.by_name("fabric.mod.json").is_ok();
-    let has_quilt = zip.by_name("quilt.mod.json").is_ok();
+    let fabric_json = {
+        let Ok(mut entry) = zip.by_name("fabric.mod.json") else {
+            None
+        };
+        let mut content = String::new();
+        if entry.read_to_string(&mut content).is_ok() {
+            Some(content)
+        } else {
+            None
+        }
+    };
+
+    let quilt_json = {
+        let Ok(mut entry) = zip.by_name("quilt.mod.json") else {
+            None
+        };
+        let mut content = String::new();
+        if entry.read_to_string(&mut content).is_ok() {
+            Some(content)
+        } else {
+            None
+        }
+    };
+
+    let has_fabric = fabric_json.is_some();
+    let has_quilt = quilt_json.is_some();
     let has_forge = zip.by_name("META-INF/mods.toml").is_ok() || zip.by_name("mcmod.info").is_ok();
     let has_neoforge = zip.by_name("META-INF/neoforge.mods.toml").is_ok();
 
@@ -4146,35 +4170,29 @@ fn inspect_mod_jar(mod_jar: &Path) -> ModInspection {
     let mut dependencies = Vec::new();
     let mut minecraft_constraint = None;
 
-    if let Ok(mut fabric_entry) = zip.by_name("fabric.mod.json") {
-        let mut content = String::new();
-        if fabric_entry.read_to_string(&mut content).is_ok() {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                id = json
-                    .get("id")
+    if let Some(content) = fabric_json {
+        if let Ok(json) = serde_json::from_str::<Value>(&content) {
+            id = json
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            if let Some(depends) = json.get("depends").and_then(Value::as_object) {
+                dependencies.extend(depends.keys().cloned());
+                minecraft_constraint = depends
+                    .get("minecraft")
                     .and_then(Value::as_str)
                     .map(ToString::to_string);
-                if let Some(depends) = json.get("depends").and_then(Value::as_object) {
-                    dependencies.extend(depends.keys().cloned());
-                    minecraft_constraint = depends
-                        .get("minecraft")
-                        .and_then(Value::as_str)
-                        .map(ToString::to_string);
-                }
             }
         }
-    } else if let Ok(mut quilt_entry) = zip.by_name("quilt.mod.json") {
-        let mut content = String::new();
-        if quilt_entry.read_to_string(&mut content).is_ok() {
-            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                id = json
-                    .get("quilt_loader")
-                    .and_then(|v| v.get("id"))
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string);
-                if let Some(depends) = json.get("quilt_loader").and_then(|v| v.get("depends")) {
-                    dependencies.extend(parse_quilt_dependencies(depends));
-                }
+    } else if let Some(content) = quilt_json {
+        if let Ok(json) = serde_json::from_str::<Value>(&content) {
+            id = json
+                .get("quilt_loader")
+                .and_then(|v| v.get("id"))
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            if let Some(depends) = json.get("quilt_loader").and_then(|v| v.get("depends")) {
+                dependencies.extend(parse_quilt_dependencies(depends));
             }
         }
     }
