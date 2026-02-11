@@ -988,6 +988,27 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
     None
 }
 
+fn is_loader_runtime_repair_recommended(runtime_lines: &[String]) -> bool {
+    if runtime_lines.is_empty() {
+        return false;
+    }
+
+    let joined = runtime_lines.join("\n").to_lowercase();
+    joined.contains("net.fabricmc.tinyremapper.tinyremapper.readfile")
+        || (joined.contains("tinyremapper")
+            && (joined.contains("readfile")
+                || joined.contains("zipexception")
+                || joined.contains("invalid loc header")
+                || joined.contains("zip end header not found")))
+        || joined.contains("mcversionlookup")
+        || joined.contains("classreader")
+        || joined.contains("class-file metadata")
+        || joined.contains("failed to read class")
+        || joined.contains("minecraftgameprovider.locategame")
+        || joined.contains("knot.init")
+        || joined.contains("knotclient.main")
+}
+
 fn format_startup_crash_message(
     code: i32,
     stderr_lines: &[String],
@@ -5012,188 +5033,232 @@ async fn launch_instance(
         return Err("No hay una instancia válida seleccionada para iniciar.".to_string());
     }
 
-    let (instance_root, instance) =
+    let mut launch_repair_attempted = false;
+
+    let (mut instance_root, mut instance) =
         prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
 
-    let mut launch_plan = read_launch_plan(&instance_root)?;
+    'launch_attempt: loop {
+        let mut launch_plan = read_launch_plan(&instance_root)?;
 
-    let auth_username = args
-        .username
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(&launch_plan.auth.username)
-        .to_string();
-    let auth_uuid = args
-        .uuid
-        .as_deref()
-        .and_then(normalize_uuid)
-        .unwrap_or_else(|| {
-            normalize_uuid(&launch_plan.auth.uuid)
-                .unwrap_or_else(|| default_offline_uuid(&auth_username))
-        });
-    let auth_access_token = args
-        .access_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(&launch_plan.auth.access_token)
-        .to_string();
-    let auth_user_type = args
-        .user_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(&launch_plan.auth.user_type)
-        .to_string();
+        let auth_username = args
+            .username
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&launch_plan.auth.username)
+            .to_string();
+        let auth_uuid = args
+            .uuid
+            .as_deref()
+            .and_then(normalize_uuid)
+            .unwrap_or_else(|| {
+                normalize_uuid(&launch_plan.auth.uuid)
+                    .unwrap_or_else(|| default_offline_uuid(&auth_username))
+            });
+        let auth_access_token = args
+            .access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&launch_plan.auth.access_token)
+            .to_string();
+        let auth_user_type = args
+            .user_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&launch_plan.auth.user_type)
+            .to_string();
 
-    apply_auth_to_launch_plan(
-        &mut launch_plan,
-        LaunchAuth {
-            username: auth_username,
-            uuid: auth_uuid,
-            access_token: if auth_access_token.is_empty() {
-                "0".to_string()
-            } else {
-                auth_access_token
+        apply_auth_to_launch_plan(
+            &mut launch_plan,
+            LaunchAuth {
+                username: auth_username,
+                uuid: auth_uuid,
+                access_token: if auth_access_token.is_empty() {
+                    "0".to_string()
+                } else {
+                    auth_access_token
+                },
+                user_type: if auth_user_type.is_empty() {
+                    "offline".to_string()
+                } else {
+                    auth_user_type
+                },
             },
-            user_type: if auth_user_type.is_empty() {
-                "offline".to_string()
-            } else {
-                auth_user_type
-            },
-        },
-    );
+        );
 
-    let current_version =
-        extract_or_fallback_arg(&launch_plan.game_args, "--version", &instance.version);
-    normalize_critical_game_args(
-        &mut launch_plan,
-        &current_version,
-        instance.loader_name.as_deref(),
-        instance.loader_version.as_deref(),
-    );
+        let current_version =
+            extract_or_fallback_arg(&launch_plan.game_args, "--version", &instance.version);
+        normalize_critical_game_args(
+            &mut launch_plan,
+            &current_version,
+            instance.loader_name.as_deref(),
+            instance.loader_version.as_deref(),
+        );
 
-    let validation = validate_launch_plan(&instance_root, &launch_plan);
-    if !validation.ok {
-        return Err(format!(
-            "La validación previa falló: {}",
-            validation.errors.join("; ")
-        ));
-    }
+        let validation = validate_launch_plan(&instance_root, &launch_plan);
+        if !validation.ok {
+            if !launch_repair_attempted {
+                launch_repair_attempted = true;
+                write_instance_state(
+                    &instance_root,
+                    "auto_repair_runtime",
+                    serde_json::json!({
+                        "instance": instance.id,
+                        "reason": "preflight_validation_failed",
+                        "errors": validation.errors
+                    }),
+                );
+                (instance_root, instance) =
+                    prepare_instance_runtime(&app, &instance_id, true, true, true).await?;
+                continue 'launch_attempt;
+            }
 
-    write_instance_state(
-        &instance_root,
-        "launching",
-        serde_json::json!({"checks": validation.checks, "warnings": validation.warnings}),
-    );
-
-    let logs_dir = instance_root.join("logs");
-    fs::create_dir_all(&logs_dir)
-        .map_err(|error| format!("No se pudo crear carpeta de logs de instancia: {error}"))?;
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or_default();
-    let stdout_path = logs_dir.join(format!("runtime-{ts}.stdout.log"));
-    let stderr_path = logs_dir.join(format!("runtime-{ts}.stderr.log"));
-    let stdout = fs::File::create(&stdout_path)
-        .map_err(|error| format!("No se pudo crear log stdout: {error}"))?;
-    let stderr = fs::File::create(&stderr_path)
-        .map_err(|error| format!("No se pudo crear log stderr: {error}"))?;
-
-    let mut cmd = Command::new(&launch_plan.java_path);
-    cmd.current_dir(Path::new(&launch_plan.game_dir))
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr));
-
-    for (key, value) in &launch_plan.env {
-        cmd.env(key, value);
-    }
-
-    cmd.args(&launch_plan.java_args)
-        .arg(&launch_plan.main_class)
-        .args(&launch_plan.game_args);
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|error| format!("No se pudo ejecutar Java para la instancia: {error}"))?;
-    let pid = child.id();
-
-    for _ in 0..6 {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| format!("No se pudo comprobar el proceso de Minecraft: {error}"))?
-        {
-            let code = status.code().unwrap_or(-1);
-            let stderr_lines = read_last_lines(&stderr_path, 40);
-            let stdout_lines = read_last_lines(&stdout_path, 40);
-            let stderr_excerpt = stderr_lines
-                .iter()
-                .rev()
-                .take(8)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join("\n");
-            write_instance_state(
-                &instance_root,
-                "crashed",
-                serde_json::json!({"exitCode": code, "stderr": stderr_excerpt}),
-            );
-            return Err(format_startup_crash_message(
-                code,
-                &stderr_lines,
-                &stdout_lines,
+            return Err(format!(
+                "La validación previa falló: {}",
+                validation.errors.join("; ")
             ));
         }
-    }
 
-    write_instance_state(
-        &instance_root,
-        "running",
-        serde_json::json!({
-            "pid": pid,
-            "stdout": stdout_path.to_string_lossy(),
-            "stderr": stderr_path.to_string_lossy()
-        }),
-    );
+        write_instance_state(
+            &instance_root,
+            "launching",
+            serde_json::json!({"checks": validation.checks, "warnings": validation.warnings}),
+        );
 
-    let monitor_root = instance_root.clone();
-    std::thread::spawn(move || match child.wait() {
-        Ok(status) => {
-            let code = status.code().unwrap_or(-1);
-            if status.success() {
+        let logs_dir = instance_root.join("logs");
+        fs::create_dir_all(&logs_dir)
+            .map_err(|error| format!("No se pudo crear carpeta de logs de instancia: {error}"))?;
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+        let stdout_path = logs_dir.join(format!("runtime-{ts}.stdout.log"));
+        let stderr_path = logs_dir.join(format!("runtime-{ts}.stderr.log"));
+        let stdout = fs::File::create(&stdout_path)
+            .map_err(|error| format!("No se pudo crear log stdout: {error}"))?;
+        let stderr = fs::File::create(&stderr_path)
+            .map_err(|error| format!("No se pudo crear log stderr: {error}"))?;
+
+        let mut cmd = Command::new(&launch_plan.java_path);
+        cmd.current_dir(Path::new(&launch_plan.game_dir))
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr));
+
+        for (key, value) in &launch_plan.env {
+            cmd.env(key, value);
+        }
+
+        cmd.args(&launch_plan.java_args)
+            .arg(&launch_plan.main_class)
+            .args(&launch_plan.game_args);
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|error| format!("No se pudo ejecutar Java para la instancia: {error}"))?;
+        let pid = child.id();
+
+        for _ in 0..6 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Some(status) = child
+                .try_wait()
+                .map_err(|error| format!("No se pudo comprobar el proceso de Minecraft: {error}"))?
+            {
+                let code = status.code().unwrap_or(-1);
+                let stderr_lines = read_last_lines(&stderr_path, 40);
+                let stdout_lines = read_last_lines(&stdout_path, 40);
+                let stderr_excerpt = stderr_lines
+                    .iter()
+                    .rev()
+                    .take(8)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 write_instance_state(
-                    &monitor_root,
-                    "stopped",
-                    serde_json::json!({"exitCode": code}),
-                );
-            } else {
-                write_instance_state(
-                    &monitor_root,
+                    &instance_root,
                     "crashed",
-                    serde_json::json!({"exitCode": code}),
+                    serde_json::json!({"exitCode": code, "stderr": stderr_excerpt}),
                 );
-                let _ = fs::write(
-                    monitor_root.join("crash-report.txt"),
-                    format!(
-                        "Minecraft terminó con código {code}. Revisa logs en la carpeta logs/."
-                    ),
-                );
+
+                let mut diagnostic_lines =
+                    Vec::with_capacity(stderr_lines.len() + stdout_lines.len());
+                diagnostic_lines.extend(stderr_lines.iter().cloned());
+                diagnostic_lines.extend(stdout_lines.iter().cloned());
+
+                if !launch_repair_attempted
+                    && is_loader_runtime_repair_recommended(&diagnostic_lines)
+                {
+                    launch_repair_attempted = true;
+                    write_instance_state(
+                        &instance_root,
+                        "auto_repair_runtime",
+                        serde_json::json!({
+                            "instance": instance.id,
+                            "reason": "loader_runtime_crash",
+                            "exitCode": code
+                        }),
+                    );
+                    (instance_root, instance) =
+                        prepare_instance_runtime(&app, &instance_id, true, true, true).await?;
+                    continue 'launch_attempt;
+                }
+
+                return Err(format_startup_crash_message(
+                    code,
+                    &stderr_lines,
+                    &stdout_lines,
+                ));
             }
         }
-        Err(error) => write_instance_state(
-            &monitor_root,
-            "error",
-            serde_json::json!({"reason": format!("No se pudo monitorear proceso: {error}")}),
-        ),
-    });
 
-    Ok(LaunchInstanceResult { pid })
+        write_instance_state(
+            &instance_root,
+            "running",
+            serde_json::json!({
+                "pid": pid,
+                "stdout": stdout_path.to_string_lossy(),
+                "stderr": stderr_path.to_string_lossy()
+            }),
+        );
+
+        let monitor_root = instance_root.clone();
+        std::thread::spawn(move || match child.wait() {
+            Ok(status) => {
+                let code = status.code().unwrap_or(-1);
+                if status.success() {
+                    write_instance_state(
+                        &monitor_root,
+                        "stopped",
+                        serde_json::json!({"exitCode": code}),
+                    );
+                } else {
+                    write_instance_state(
+                        &monitor_root,
+                        "crashed",
+                        serde_json::json!({"exitCode": code}),
+                    );
+                    let _ = fs::write(
+                        monitor_root.join("crash-report.txt"),
+                        format!(
+                            "Minecraft terminó con código {code}. Revisa logs en la carpeta logs/."
+                        ),
+                    );
+                }
+            }
+            Err(error) => write_instance_state(
+                &monitor_root,
+                "error",
+                serde_json::json!({"reason": format!("No se pudo monitorear proceso: {error}")}),
+            ),
+        });
+
+        break Ok(LaunchInstanceResult { pid });
+    }
 }
 
 #[command]
