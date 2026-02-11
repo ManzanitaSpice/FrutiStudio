@@ -70,6 +70,19 @@ struct BaseDirValidationResult {
     warnings: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LauncherFactoryResetArgs {
+    confirmation_phrase: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LauncherFactoryResetResult {
+    cleared_roots: Vec<String>,
+    removed_entries: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InstanceRecord {
@@ -1482,6 +1495,111 @@ async fn validate_base_dir(
     })
 }
 
+fn validate_factory_reset_target(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let components = path.components().count();
+    if components < 3 {
+        return Err(format!(
+            "Ruta insegura para limpieza total: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn request_windows_admin_confirmation() -> Result<(), String> {
+    let status = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Start-Process powershell -WindowStyle Hidden -Verb RunAs -ArgumentList '-NoProfile -Command exit 0'",
+        ])
+        .status()
+        .map_err(|error| format!("No se pudo solicitar confirmación de administrador: {error}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Se canceló la confirmación de administrador.".to_string())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn request_windows_admin_confirmation() -> Result<(), String> {
+    Ok(())
+}
+
+#[command]
+async fn launcher_factory_reset(
+    app: tauri::AppHandle,
+    args: LauncherFactoryResetArgs,
+) -> Result<LauncherFactoryResetResult, String> {
+    if args.confirmation_phrase.trim().to_uppercase() != "REINSTALAR" {
+        return Err("Confirma escribiendo exactamente REINSTALAR.".to_string());
+    }
+
+    request_windows_admin_confirmation()?;
+
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("No se pudo resolver app_data_dir: {error}"))?;
+
+    let mut roots = vec![launcher_root(&app)?];
+    let default_root = app_data_dir.join(DEFAULT_LAUNCHER_DIR_NAME);
+    if !roots.iter().any(|candidate| candidate == &default_root) {
+        roots.push(default_root);
+    }
+
+    let mut cleared_roots = Vec::new();
+    let mut removed_entries = Vec::new();
+
+    for root in roots {
+        validate_factory_reset_target(&root)?;
+        if root.exists() {
+            fs::remove_dir_all(&root).map_err(|error| {
+                format!(
+                    "No se pudo eliminar la carpeta del launcher ({}): {error}",
+                    root.display()
+                )
+            })?;
+            cleared_roots.push(root.display().to_string());
+        }
+    }
+
+    let db_path = database_path(&app)?;
+    if db_path.exists() {
+        fs::remove_file(&db_path)
+            .map_err(|error| format!("No se pudo eliminar base de datos del launcher: {error}"))?;
+        removed_entries.push(db_path.display().to_string());
+    }
+
+    let cfg_path = config_path(&app)?;
+    if cfg_path.exists() {
+        fs::remove_file(&cfg_path)
+            .map_err(|error| format!("No se pudo eliminar config.json: {error}"))?;
+        removed_entries.push(cfg_path.display().to_string());
+    }
+
+    if let Some(parent) = cfg_path.parent() {
+        let backups = parent.join("backups");
+        if backups.exists() {
+            fs::remove_dir_all(&backups).map_err(|error| {
+                format!("No se pudo eliminar backups de configuración: {error}")
+            })?;
+            removed_entries.push(backups.display().to_string());
+        }
+    }
+
+    Ok(LauncherFactoryResetResult {
+        cleared_roots,
+        removed_entries,
+    })
+}
+
 #[command]
 async fn append_log(
     app: tauri::AppHandle,
@@ -1810,12 +1928,16 @@ impl JavaManager {
 
         if major == 1 && minor <= 16 {
             8
-        } else if major == 1 && minor == 17 {
-            16
-        } else if major == 1 && minor >= 18 {
+        } else if major == 1 && minor >= 17 {
             17
         } else if major > 1 {
-            21
+            if major > 20 || (major == 20 && minor >= 5) {
+                21
+            } else if major >= 17 {
+                17
+            } else {
+                8
+            }
         } else {
             17
         }
@@ -6595,6 +6717,7 @@ pub fn run() {
             save_base_dir,
             default_base_dir,
             validate_base_dir,
+            launcher_factory_reset,
             append_log,
             list_instances,
             detect_minecraft_launchers,
@@ -6644,6 +6767,30 @@ mod tests {
         assert_eq!(murmurhash2(b"abc"), murmurhash2(b"abc"));
         assert_ne!(murmurhash2(b"abc"), murmurhash2(b"abd"));
         assert_ne!(murmurhash2(b""), murmurhash2(b"a"));
+    }
+
+    #[test]
+    fn java_major_mapping_matches_supported_ranges() {
+        assert_eq!(
+            JavaManager::required_major_for_minecraft_version("1.16.5"),
+            8
+        );
+        assert_eq!(
+            JavaManager::required_major_for_minecraft_version("1.17.1"),
+            17
+        );
+        assert_eq!(
+            JavaManager::required_major_for_minecraft_version("1.20.4"),
+            17
+        );
+        assert_eq!(
+            JavaManager::required_major_for_minecraft_version("1.20.5"),
+            21
+        );
+        assert_eq!(
+            JavaManager::required_major_for_minecraft_version("1.21.1"),
+            21
+        );
     }
 
     #[test]
