@@ -34,3 +34,5 @@
 - `curseforgeModpackService`: resuelve manifests de modpack y detecta dependencias faltantes por proyecto.
 - `profileService`: sincroniza perfiles multiusuario desde cuentas activas (separando cuenta/autenticación de perfil de juego).
 - `serverService`: ahora combina capa local y remota mediante `localServerService` + `remoteServerService`.
+
+- Blueprint del pipeline de launcher y contratos del core Rust: `docs/launcher-core-blueprint.md`.
