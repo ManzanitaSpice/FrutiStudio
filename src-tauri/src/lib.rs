@@ -345,6 +345,82 @@ struct JavaManager {
     launcher_root: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+struct InstanceLaunchConfig {
+    minecraft_version: String,
+    modloader: String,
+    modloader_version: String,
+    java_version_required: Option<u32>,
+    game_dir: PathBuf,
+}
+
+fn instance_game_dir(instance_root: &Path) -> PathBuf {
+    let metadata_path = instance_root.join("instance.json");
+    let explicit = fs::read_to_string(&metadata_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|value| {
+            value
+                .get("game_dir")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        });
+
+    explicit.unwrap_or_else(|| instance_root.join(".minecraft"))
+}
+
+fn resolve_instance_launch_config(
+    instance_root: &Path,
+    instance: &InstanceRecord,
+) -> InstanceLaunchConfig {
+    let metadata_path = instance_root.join("instance.json");
+    let metadata = fs::read_to_string(&metadata_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .unwrap_or(Value::Null);
+
+    let minecraft_version = metadata
+        .get("minecraft_version")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(instance.version.as_str())
+        .to_string();
+
+    let modloader = metadata
+        .get("modloader")
+        .or_else(|| metadata.get("loader"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| instance.loader_name.as_deref().unwrap_or("vanilla"))
+        .to_lowercase();
+
+    let modloader_version = metadata
+        .get("modloader_version")
+        .or_else(|| metadata.get("loader_version"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| instance.loader_version.as_deref().unwrap_or("latest"))
+        .to_string();
+
+    let java_version_required = metadata
+        .get("java_version_required")
+        .and_then(Value::as_u64)
+        .map(|value| value as u32);
+
+    InstanceLaunchConfig {
+        minecraft_version,
+        modloader,
+        modloader_version,
+        java_version_required,
+        game_dir: instance_game_dir(instance_root),
+    }
+}
+
 fn murmurhash2(data: &[u8]) -> u32 {
     const M: u32 = 0x5bd1e995;
     const R: u32 = 24;
@@ -3240,14 +3316,10 @@ async fn bootstrap_instance_runtime(
     instance_root: &Path,
     instance: &InstanceRecord,
 ) -> Result<(), String> {
-    let minecraft_root = instance_root.join("minecraft");
-    let version = instance.version.trim();
-    let loader = instance
-        .loader_name
-        .as_deref()
-        .unwrap_or("vanilla")
-        .trim()
-        .to_lowercase();
+    let launch_config = resolve_instance_launch_config(instance_root, instance);
+    let minecraft_root = launch_config.game_dir.clone();
+    let version = launch_config.minecraft_version.trim();
+    let loader = launch_config.modloader.clone();
 
     let assets_objects_dir = minecraft_root.join("assets").join("objects");
     let libraries_dir = minecraft_root.join("libraries");
@@ -3472,7 +3544,7 @@ async fn bootstrap_instance_runtime(
             &minecraft_root,
             version,
             &loader,
-            instance.loader_version.as_deref(),
+            Some(launch_config.modloader_version.as_str()),
         )
         .await?;
         if let Some(profile_json) = resolve_loader_profile_json(
@@ -3508,11 +3580,7 @@ async fn bootstrap_instance_runtime(
         .unwrap_or(Value::Array(Vec::new()));
 
     if loader == "fabric" || loader == "quilt" {
-        let requested_loader_version = instance
-            .loader_version
-            .as_deref()
-            .unwrap_or("latest")
-            .trim();
+        let requested_loader_version = launch_config.modloader_version.trim();
         let loader_version = if requested_loader_version.is_empty()
             || requested_loader_version.eq_ignore_ascii_case("latest")
         {
@@ -3601,7 +3669,7 @@ async fn bootstrap_instance_runtime(
 
     let mut classpath_entries = Vec::new();
     let mut classpath_seen = HashSet::new();
-    let natives_dir = minecraft_root.join("natives");
+    let natives_dir = instance_root.join("natives");
     fs::create_dir_all(&natives_dir)
         .map_err(|error| format!("No se pudo crear natives dir: {error}"))?;
     let os_native_key = match current_minecraft_os() {
@@ -3725,11 +3793,13 @@ async fn bootstrap_instance_runtime(
         classpath_entries.push(client_jar.clone());
     }
 
-    let java_major = base_version_json
-        .get("javaVersion")
-        .and_then(|v| v.get("majorVersion"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(17) as u32;
+    let java_major = launch_config.java_version_required.unwrap_or_else(|| {
+        base_version_json
+            .get("javaVersion")
+            .and_then(|v| v.get("majorVersion"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(17) as u32
+    });
     let manager = JavaManager::new(app)?;
     let mut resolution = manager.resolve_for_minecraft(version);
     resolution.required_major = java_major;
@@ -4436,7 +4506,17 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
 }
 
 fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
-    let minecraft_root = instance_root.join("minecraft");
+    let minecraft_root = instance_game_dir(instance_root);
+    let legacy_root = instance_root.join("minecraft");
+    if minecraft_root != legacy_root && legacy_root.exists() && !minecraft_root.exists() {
+        fs::rename(&legacy_root, &minecraft_root).map_err(|error| {
+            format!(
+                "No se pudo migrar estructura legacy {} -> {}: {error}",
+                legacy_root.display(),
+                minecraft_root.display()
+            )
+        })?;
+    }
     fs::create_dir_all(minecraft_root.join("versions"))
         .map_err(|error| format!("No se pudo asegurar minecraft/versions: {error}"))?;
     fs::create_dir_all(minecraft_root.join("libraries"))
@@ -4447,10 +4527,14 @@ fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
         .map_err(|error| format!("No se pudo asegurar minecraft/assets/indexes: {error}"))?;
     fs::create_dir_all(minecraft_root.join("mods"))
         .map_err(|error| format!("No se pudo asegurar minecraft/mods: {error}"))?;
+    fs::create_dir_all(minecraft_root.join("resourcepacks"))
+        .map_err(|error| format!("No se pudo asegurar minecraft/resourcepacks: {error}"))?;
     fs::create_dir_all(minecraft_root.join("config"))
         .map_err(|error| format!("No se pudo asegurar minecraft/config: {error}"))?;
     fs::create_dir_all(minecraft_root.join("saves"))
         .map_err(|error| format!("No se pudo asegurar minecraft/saves: {error}"))?;
+    fs::create_dir_all(instance_root.join("natives"))
+        .map_err(|error| format!("No se pudo asegurar natives: {error}"))?;
     fs::create_dir_all(instance_root.join("logs"))
         .map_err(|error| format!("No se pudo asegurar logs: {error}"))?;
     Ok(())
@@ -4490,18 +4574,31 @@ fn write_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> R
                 .unwrap_or_default()
         });
 
+    let game_dir = instance_game_dir(instance_root);
+    let loader_name = instance
+        .loader_name
+        .clone()
+        .unwrap_or_else(|| "vanilla".to_string())
+        .to_lowercase();
+    let loader_version = normalized_loader_version(instance);
+
     let meta = serde_json::json!({
         "id": instance.id,
         "name": instance.name,
         "minecraft_version": instance.version,
+        "modloader": loader_name,
+        "modloader_version": loader_version,
         "loader": instance
             .loader_name
             .clone()
             .unwrap_or_else(|| "vanilla".to_string())
             .to_lowercase(),
         "loader_version": normalized_loader_version(instance),
+        "java_version_required": JavaManager::required_major_for_minecraft(instance.version.as_str()),
         "java": Value::Null,
+        "memory_alloc": {"min": 2048, "max": 4096},
         "memory": {"min": 2048, "max": 4096},
+        "game_dir": game_dir,
         "createdAt": created_at
     });
 
@@ -4869,7 +4966,7 @@ async fn prepare_instance_runtime(
 
     let instance = read_instance_record(app, instance_id)?;
     ensure_instance_metadata(&instance_root, &instance)?;
-    let minecraft_root = instance_root.join("minecraft");
+    let minecraft_root = instance_game_dir(&instance_root);
 
     let integrity_report = scan_runtime_integrity(&minecraft_root);
     if !integrity_report.ok() {
@@ -5555,7 +5652,7 @@ async fn install_mod_file(
     }
 
     let instance_root = launcher_root(&app)?.join("instances").join(id);
-    let mods_dir = instance_root.join("minecraft").join("mods");
+    let mods_dir = instance_game_dir(&instance_root).join("mods");
     fs::create_dir_all(&mods_dir)
         .map_err(|error| format!("No se pudo crear carpeta mods: {error}"))?;
 
