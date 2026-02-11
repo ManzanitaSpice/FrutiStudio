@@ -2195,7 +2195,10 @@ fn classify_loader_failure(
 
     let joined = lines.join("\n").to_lowercase();
     let expected_main = expected_main_class_for_loader(&launch_plan.loader);
-    if !launch_plan.main_class.eq_ignore_ascii_case(expected_main)
+    let main_class_matches_loader = expected_main
+        .map(|expected| launch_plan.main_class.eq_ignore_ascii_case(expected))
+        .unwrap_or(true);
+    if !main_class_matches_loader
         || (joined.contains("knotclient") && joined.contains("could not find or load main class"))
     {
         return StartupFailureClassification::LoaderProfileMismatch;
@@ -7604,7 +7607,6 @@ async fn launch_instance(
 
         if let Some(mut guard) = safe_mode_guard {
             guard.restore()?;
-            safe_mode_mods_result = Some(true);
             return Err(
                 "Diagnóstico: MOD_EARLY_BOOT_INCOMPATIBILITY. El juego pudo mantenerse en ejecución en modo seguro sin mods."
                     .to_string(),
