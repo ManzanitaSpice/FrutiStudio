@@ -2802,7 +2802,12 @@ fn ensure_single_game_arg(plan: &mut LaunchPlan, flag: &str, value: &str) {
     }
 }
 
-fn normalize_critical_game_args(plan: &mut LaunchPlan, version: &str) {
+fn normalize_critical_game_args(
+    plan: &mut LaunchPlan,
+    version: &str,
+    loader_name: Option<&str>,
+    loader_version: Option<&str>,
+) {
     sanitize_game_args(&mut plan.game_args);
     let username = if plan.auth.username.trim().is_empty() {
         "Player".to_string()
@@ -2820,7 +2825,26 @@ fn normalize_critical_game_args(plan: &mut LaunchPlan, version: &str) {
     } else {
         plan.auth.access_token.clone()
     };
-    let version_type = extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiLauncher");
+    let mut version_type =
+        extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiLauncher");
+    let normalized_loader = loader_name
+        .map(|value| value.trim().to_lowercase())
+        .unwrap_or_else(|| "vanilla".to_string());
+    if normalized_loader != "vanilla" {
+        let pretty_loader = match normalized_loader.as_str() {
+            "forge" => "Forge",
+            "fabric" => "Fabric",
+            "quilt" => "Quilt",
+            "neoforge" => "NeoForge",
+            _ => loader_name.unwrap_or("Loader"),
+        };
+        let loader_suffix = loader_version
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "latest")
+            .map(|value| format!(" {value}"))
+            .unwrap_or_default();
+        version_type = format!("{pretty_loader}{loader_suffix}");
+    }
 
     ensure_single_game_arg(plan, "--username", &username);
     ensure_single_game_arg(plan, "--version", version);
@@ -4567,7 +4591,12 @@ async fn launch_instance(
 
     let current_version =
         extract_or_fallback_arg(&launch_plan.game_args, "--version", &instance.version);
-    normalize_critical_game_args(&mut launch_plan, &current_version);
+    normalize_critical_game_args(
+        &mut launch_plan,
+        &current_version,
+        instance.loader_name.as_deref(),
+        instance.loader_version.as_deref(),
+    );
 
     let validation = validate_launch_plan(&instance_root, &launch_plan);
     if !validation.ok {

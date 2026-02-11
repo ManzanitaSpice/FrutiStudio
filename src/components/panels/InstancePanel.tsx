@@ -30,6 +30,7 @@ import {
 import { fetchATLauncherPacks } from "../../services/atmlService";
 import {
   type ExplorerItem,
+  type ExplorerItemFileVersion,
   fetchExplorerItemDetails,
   fetchUnifiedCatalog,
 } from "../../services/explorerService";
@@ -1634,6 +1635,42 @@ export const InstancePanel = ({
     };
   }, [contextMenu]);
 
+  const normalizeLoader = (value?: string) => {
+    const normalized = (value ?? "").trim().toLowerCase();
+    if (!normalized) {
+      return "";
+    }
+    if (normalized === "neo-forge") {
+      return "neoforge";
+    }
+    return normalized;
+  };
+
+  const findCompatibleVersion = (versions: ExplorerItemFileVersion[]) => {
+    if (!selectedInstance) {
+      return null;
+    }
+    const instanceLoader = normalizeLoader(selectedInstance.loaderName);
+    const isVanilla = instanceLoader === "" || instanceLoader === "vanilla";
+
+    const candidates = versions.filter((version) => {
+      const matchesVersion =
+        version.gameVersions.length === 0 ||
+        version.gameVersions.includes(selectedInstance.version);
+      if (!matchesVersion) {
+        return false;
+      }
+      if (isVanilla || catalogType !== "Mods") {
+        return true;
+      }
+      const normalizedLoaders = version.loaders.map((loader) => normalizeLoader(loader));
+      return normalizedLoaders.length === 0 || normalizedLoaders.includes(instanceLoader);
+    });
+
+    const stable = candidates.find((version) => version.releaseType === "release");
+    return stable ?? candidates[0] ?? null;
+  };
+
   const loadCatalogMods = async () => {
     if (!selectedInstance) {
       return;
@@ -1655,8 +1692,30 @@ export const InstancePanel = ({
         pageSize: 24,
       });
 
-      setCatalogMods(
-        found.items.map((item) => ({
+      const compatibleItems: CatalogMod[] = [];
+      for (const item of found.items) {
+        const detailItem: ExplorerItem = {
+          id: `${item.source}-${item.projectId}`,
+          projectId: item.projectId,
+          name: item.name,
+          author: item.author,
+          downloads: item.downloads,
+          rawDownloads: item.rawDownloads,
+          description: item.description,
+          type: item.type,
+          source: item.source,
+          versions: item.versions,
+          loaders: item.loaders,
+          thumbnail: item.thumbnail,
+        };
+
+        const details = await fetchExplorerItemDetails(detailItem);
+        const preferred = findCompatibleVersion(details.versions);
+        if (!preferred?.downloadUrl) {
+          continue;
+        }
+
+        compatibleItems.push({
           id: item.projectId,
           name: item.name,
           version: selectedInstance.version,
@@ -1664,10 +1723,14 @@ export const InstancePanel = ({
           type: catalogType,
           sourceLabel: item.source,
           thumbnail: item.thumbnail,
-          gameVersions: item.versions,
-          loaders: item.loaders,
-        })),
-      );
+          gameVersions: preferred.gameVersions.length
+            ? preferred.gameVersions
+            : item.versions,
+          loaders: preferred.loaders.length ? preferred.loaders : item.loaders,
+        });
+      }
+
+      setCatalogMods(compatibleItems);
     } catch (error) {
       setCatalogError(
         error instanceof Error ? error.message : "No se pudo buscar contenido.",
@@ -1688,6 +1751,7 @@ export const InstancePanel = ({
     try {
       const queue = [...selectedCatalogMods];
       const seen = new Set(queue.map((mod) => `${mod.provider}:${mod.id}`));
+      const installedEntries: CatalogMod[] = [];
       let detectedLoader: Instance["loaderName"] | null = null;
 
       for (let index = 0; index < queue.length; index += 1) {
@@ -1707,14 +1771,12 @@ export const InstancePanel = ({
           thumbnail: mod.thumbnail,
         };
         const details = await fetchExplorerItemDetails(detailItem);
-
-        const preferred =
-          details.versions.find((version) =>
-            version.gameVersions.includes(selectedInstance.version),
-          ) ?? details.versions[0];
+        const preferred = findCompatibleVersion(details.versions);
 
         if (!preferred?.downloadUrl) {
-          throw new Error(`No hay descarga disponible para ${mod.name}.`);
+          throw new Error(
+            `${mod.name} no tiene una versión compatible con Minecraft ${selectedInstance.version} y loader ${selectedInstance.loaderName}.`,
+          );
         }
 
         const loaderCandidate = (preferred.loaders ?? []).find((loader) =>
@@ -1733,38 +1795,45 @@ export const InstancePanel = ({
           preferred.downloadUrl,
           `${mod.name}-${preferred.id}.jar`,
         );
+        installedEntries.push(mod);
 
-        if (mod.provider === "modrinth") {
-          for (const dependency of details.dependencies) {
-            const key = `modrinth:${dependency}`;
-            if (seen.has(key)) {
-              continue;
-            }
-            seen.add(key);
-            queue.push({
-              id: dependency,
-              name: `Dependencia ${dependency}`,
-              version: selectedInstance.version,
-              provider: "modrinth",
-              type: "Mods",
-              sourceLabel: "Modrinth",
-              gameVersions: [selectedInstance.version],
-              loaders: [selectedInstance.loaderName.toLowerCase()],
-            });
+        const dependencies = preferred.dependencies ?? details.dependencies;
+        for (const dependency of dependencies) {
+          const key = `${mod.provider}:${dependency}`;
+          if (seen.has(key)) {
+            continue;
           }
+          seen.add(key);
+          queue.push({
+            id: dependency,
+            name: `Dependencia ${dependency}`,
+            version: selectedInstance.version,
+            provider: mod.provider,
+            type: "Mods",
+            sourceLabel: mod.provider === "curseforge" ? "CurseForge" : "Modrinth",
+            gameVersions: [selectedInstance.version],
+            loaders: [selectedInstance.loaderName.toLowerCase()],
+          });
         }
       }
 
-      const nextMods = [
-        ...(installedModsByInstance[selectedInstance.id] ?? []),
-        ...queue.map((mod) => ({
-          id: `${selectedInstance.id}-${mod.provider}-${mod.id}`,
+      const deduplicated = new Map(
+        [...(installedModsByInstance[selectedInstance.id] ?? [])].map((entry) => [
+          entry.id,
+          entry,
+        ]),
+      );
+      for (const mod of installedEntries) {
+        const key = `${selectedInstance.id}-${mod.provider}-${mod.id}`;
+        deduplicated.set(key, {
+          id: key,
           name: mod.name,
           version: selectedInstance.version,
           enabled: true,
           source: mod.provider,
-        })),
-      ];
+        });
+      }
+      const nextMods = Array.from(deduplicated.values());
 
       setInstalledModsByInstance((prev) => ({
         ...prev,
@@ -1781,7 +1850,7 @@ export const InstancePanel = ({
       setModDownloadOpen(false);
       setInstanceLaunchStatus(
         selectedInstance?.id,
-        `${queue.length} ${modDownloadTarget.toLowerCase()} instalados correctamente.`,
+        `${installedEntries.length} ${modDownloadTarget.toLowerCase()} instalados correctamente (incluyendo dependencias).`,
       );
     } catch (error) {
       setCatalogError(
@@ -1793,6 +1862,66 @@ export const InstancePanel = ({
       setInstallingMods(false);
     }
   };
+  const addCatalogModWithDependencies = async (mod: CatalogMod) => {
+    if (!selectedInstance) {
+      return;
+    }
+    const seed = [...selectedCatalogMods, mod];
+    const queue = [mod];
+    const seen = new Set(seed.map((entry) => `${entry.provider}:${entry.id}`));
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
+
+      try {
+        const details = await fetchExplorerItemDetails({
+          id: `${current.provider}-${current.id}`,
+          projectId: current.id,
+          name: current.name,
+          author: current.sourceLabel ?? current.provider,
+          downloads: "0",
+          rawDownloads: 0,
+          description: current.name,
+          type: current.type,
+          source: current.provider === "curseforge" ? "CurseForge" : "Modrinth",
+          versions: current.gameVersions,
+          loaders: current.loaders,
+          thumbnail: current.thumbnail,
+        });
+        const preferred = findCompatibleVersion(details.versions);
+        const dependencies = preferred?.dependencies ?? details.dependencies;
+
+        for (const dependency of dependencies) {
+          const key = `${current.provider}:${dependency}`;
+          if (seen.has(key)) {
+            continue;
+          }
+
+          seen.add(key);
+          const dependencyItem: CatalogMod = {
+            id: dependency,
+            name: `Dependencia ${dependency}`,
+            version: selectedInstance.version,
+            provider: current.provider,
+            type: "Mods",
+            sourceLabel: current.provider === "curseforge" ? "CurseForge" : "Modrinth",
+            gameVersions: [selectedInstance.version],
+            loaders: [selectedInstance.loaderName.toLowerCase()],
+          };
+          seed.push(dependencyItem);
+          queue.push(dependencyItem);
+        }
+      } catch {
+        // Si falla el detalle de una dependencia, seguimos con el resto.
+      }
+    }
+
+    setSelectedCatalogMods(seed);
+  };
+
   useEffect(() => {
     if (!modDownloadOpen) {
       return;
@@ -3739,7 +3868,7 @@ ${rows.join("\n")}`;
                       <button
                         type="button"
                         disabled={alreadySelected}
-                        onClick={() => setSelectedCatalogMods((prev) => [...prev, mod])}
+                        onClick={() => void addCatalogModWithDependencies(mod)}
                       >
                         {alreadySelected ? "Seleccionado" : "Agregar"}
                       </button>
