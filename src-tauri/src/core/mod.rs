@@ -11,35 +11,39 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LaunchState {
+    Idle,
     Resolving,
     Downloading,
     Verifying,
-    Ready,
+    Preparing,
+    Launching,
     Running,
+    Crashed,
+    Finished,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchOrchestrationOrder {
-    pub steps: Vec<&'static str>,
+    pub steps: Vec<String>,
 }
 
 impl Default for LaunchOrchestrationOrder {
     fn default() -> Self {
         Self {
             steps: vec![
-                "resolve_version",
-                "download_version_json",
-                "resolve_modloader",
-                "merge_version_json",
-                "download_client_jar",
-                "download_libraries",
-                "download_assets",
-                "resolve_java",
-                "extract_natives",
-                "build_launch_args",
-                "run_instance",
-                "monitor_runtime",
+                "resolve_version".to_string(),
+                "download_version_json".to_string(),
+                "resolve_modloader".to_string(),
+                "merge_version_json".to_string(),
+                "download_client_jar".to_string(),
+                "download_libraries".to_string(),
+                "download_assets".to_string(),
+                "resolve_java".to_string(),
+                "extract_natives".to_string(),
+                "build_launch_args".to_string(),
+                "run_instance".to_string(),
+                "monitor_runtime".to_string(),
             ],
         }
     }

@@ -1279,6 +1279,10 @@ impl JavaManager {
     }
 
     fn required_major_for_minecraft(&self, mc_version: &str) -> u32 {
+        Self::required_major_for_minecraft_version(mc_version)
+    }
+
+    fn required_major_for_minecraft_version(mc_version: &str) -> u32 {
         let clean = mc_version.trim().trim_start_matches('v');
         let mut parts = clean.split('.');
         let major = parts
@@ -4595,7 +4599,7 @@ fn write_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> R
             .unwrap_or_else(|| "vanilla".to_string())
             .to_lowercase(),
         "loader_version": normalized_loader_version(instance),
-        "java_version_required": JavaManager::required_major_for_minecraft(instance.version.as_str()),
+        "java_version_required": JavaManager::required_major_for_minecraft_version(instance.version.as_str()),
         "java": Value::Null,
         "memory_alloc": {"min": 2048, "max": 4096},
         "memory": {"min": 2048, "max": 4096},
