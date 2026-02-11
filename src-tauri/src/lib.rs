@@ -1658,23 +1658,42 @@ async fn install_forge_like_loader(
     } else {
         "--installClient"
     };
-    let output = Command::new(&java_bin)
+    let mut installer = Command::new(&java_bin)
         .current_dir(minecraft_root)
         .arg("-jar")
         .arg(&installer_target)
         .arg(install_flag)
         .arg(minecraft_root)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("No se pudo ejecutar el instalador {loader}: {error}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!(
-            "Falló la instalación de {loader} {resolved_version}. stdout: {} stderr: {}",
-            stdout.trim(),
-            stderr.trim()
-        ));
+    let start = std::time::Instant::now();
+    let install_timeout = Duration::from_secs(600);
+    loop {
+        if let Some(status) = installer
+            .try_wait()
+            .map_err(|error| format!("No se pudo monitorear instalador {loader}: {error}"))?
+        {
+            if !status.success() {
+                let exit_code = status.code().unwrap_or(-1);
+                return Err(format!(
+                    "Falló la instalación de {loader} {resolved_version} (código {exit_code})."
+                ));
+            }
+            break;
+        }
+
+        if start.elapsed() >= install_timeout {
+            let _ = installer.kill();
+            return Err(format!(
+                "El instalador de {loader} {resolved_version} excedió el tiempo límite ({}s).",
+                install_timeout.as_secs()
+            ));
+        }
+
+        std::thread::sleep(Duration::from_millis(400));
     }
 
     let version_dir = minecraft_root.join("versions").join(&expected_id);
@@ -1952,6 +1971,124 @@ fn is_valid_zip_archive(path: &Path) -> bool {
     };
 
     ZipArchive::new(file).is_ok()
+}
+
+fn is_valid_jar_for_runtime(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
+        return true;
+    };
+    if !ext.eq_ignore_ascii_case("jar") {
+        return true;
+    }
+
+    is_valid_zip_archive(path)
+}
+
+fn classpath_entries_complete(plan: &LaunchPlan) -> bool {
+    !plan.classpath_entries.is_empty()
+        && plan.classpath_entries.iter().all(|entry| {
+            let path = Path::new(entry);
+            fs::metadata(path)
+                .map(|meta| meta.is_file() && meta.len() > 0)
+                .unwrap_or(false)
+                && is_valid_jar_for_runtime(path)
+        })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModLoaderKind {
+    Fabric,
+    Quilt,
+    ForgeLike,
+    Unknown,
+}
+
+fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
+    let Ok(file) = fs::File::open(mod_jar) else {
+        return ModLoaderKind::Unknown;
+    };
+    let Ok(mut zip) = ZipArchive::new(file) else {
+        return ModLoaderKind::Unknown;
+    };
+
+    let has_fabric = zip.by_name("fabric.mod.json").is_ok();
+    let has_quilt = zip.by_name("quilt.mod.json").is_ok();
+    let has_forge = zip.by_name("META-INF/mods.toml").is_ok()
+        || zip.by_name("mcmod.info").is_ok()
+        || zip.by_name("META-INF/neoforge.mods.toml").is_ok();
+
+    if has_fabric {
+        ModLoaderKind::Fabric
+    } else if has_quilt {
+        ModLoaderKind::Quilt
+    } else if has_forge {
+        ModLoaderKind::ForgeLike
+    } else {
+        ModLoaderKind::Unknown
+    }
+}
+
+fn evaluate_mod_loader_compatibility(
+    game_dir: &Path,
+    instance_loader: &str,
+) -> (bool, Vec<String>) {
+    let mods_dir = game_dir.join("mods");
+    if !mods_dir.exists() {
+        return (true, Vec::new());
+    }
+
+    let Ok(entries) = fs::read_dir(&mods_dir) else {
+        return (
+            false,
+            vec![format!(
+                "No se pudo leer la carpeta de mods para validar compatibilidad: {}",
+                mods_dir.display()
+            )],
+        );
+    };
+
+    let mut issues = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_jar = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("jar"))
+            .unwrap_or(false);
+        if !is_jar {
+            continue;
+        }
+
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("mod-desconocido.jar");
+
+        let kind = detect_mod_loader_kind(&path);
+        let compatible = match instance_loader {
+            "fabric" => kind == ModLoaderKind::Fabric || kind == ModLoaderKind::Unknown,
+            "quilt" => {
+                kind == ModLoaderKind::Quilt
+                    || kind == ModLoaderKind::Fabric
+                    || kind == ModLoaderKind::Unknown
+            }
+            "forge" | "neoforge" => {
+                kind == ModLoaderKind::ForgeLike || kind == ModLoaderKind::Unknown
+            }
+            _ => kind == ModLoaderKind::Unknown,
+        };
+
+        if !compatible {
+            issues.push(format!(
+                "{file_name} parece no compatible con loader '{instance_loader}'"
+            ));
+        }
+    }
+
+    (issues.is_empty(), issues)
 }
 
 async fn fetch_json_with_fallback(urls: &[String], context: &str) -> Result<Value, String> {
@@ -2860,10 +2997,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         .map(|entry| Path::new(entry))
         .collect();
     let classpath_complete = !plan.classpath_entries.is_empty();
-    let classpath_libraries_ok = classpath_complete
-        && classpath_entries_paths
-            .iter()
-            .all(|entry| is_non_empty_file(entry));
+    let classpath_libraries_ok = classpath_entries_complete(plan);
     let classpath_has_mc_jar = classpath_entries_paths
         .iter()
         .any(|entry| *entry == version_jar_path.as_path());
@@ -2882,6 +3016,9 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let main_class_matches_loader = expected_main_class_for_loader(plan.loader.as_str())
         .map(|expected| plan.main_class == expected)
         .unwrap_or(true);
+
+    let (mods_compatible_with_loader, mod_compatibility_issues) =
+        evaluate_mod_loader_compatibility(Path::new(&plan.game_dir), &plan.loader);
 
     let java_major_compatible = if plan.required_java_major == 0 || plan.resolved_java_major == 0 {
         true
@@ -2957,6 +3094,14 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             },
         ),
         ("runtime_loader_en_classpath", has_loader_runtime_jar),
+        (
+            "mods_compatibles_con_loader",
+            if plan.loader == "vanilla" {
+                true
+            } else {
+                mods_compatible_with_loader
+            },
+        ),
         (
             "configuracion_memoria",
             plan.java_args.iter().any(|arg| arg.starts_with("-Xms"))
@@ -3073,6 +3218,10 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             "Loader '{}' aún no tiene integración completa de perfil en esta versión.",
             plan.loader
         ));
+    }
+
+    for issue in mod_compatibility_issues {
+        errors.push(format!("Mod incompatible detectado: {issue}"));
     }
 
     ValidationReport {
@@ -3587,6 +3736,7 @@ async fn prepare_instance_runtime(
     instance_id: &str,
     reinstall: bool,
     auto_rebuild_plan: bool,
+    allow_bootstrap: bool,
 ) -> Result<(PathBuf, InstanceRecord), String> {
     if instance_id.trim().is_empty() {
         return Err("No hay una instancia válida seleccionada para preparar.".to_string());
@@ -3617,7 +3767,10 @@ async fn prepare_instance_runtime(
         .unwrap_or(false);
 
     let launch_plan_exists = instance_root.join("launch-plan.json").exists();
-    if reinstall || !launch_plan_exists || (auto_rebuild_plan && !cached_is_usable) {
+    let should_bootstrap = reinstall
+        || (allow_bootstrap && (!launch_plan_exists || (auto_rebuild_plan && !cached_is_usable)));
+
+    if should_bootstrap {
         bootstrap_instance_runtime(app, &instance_root, &instance).await?;
         let _ = build_launch_command(app, &instance_root, &instance)?;
     }
@@ -3636,7 +3789,7 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
 
     for attempt in 1..=2 {
         let (instance_root, instance) =
-            prepare_instance_runtime(&app, &instance_id, true, true).await?;
+            prepare_instance_runtime(&app, &instance_id, true, true, true).await?;
         write_instance_state(
             &instance_root,
             "repairing",
@@ -3698,13 +3851,33 @@ async fn preflight_instance(
         return Err("No hay una instancia válida seleccionada para validar.".to_string());
     }
 
-    let (instance_root, _) = prepare_instance_runtime(&app, &instance_id, false, false).await?;
+    let (instance_root, _) =
+        prepare_instance_runtime(&app, &instance_id, false, false, false).await?;
     write_instance_state(
         &instance_root,
         "preflight",
         serde_json::json!({"instance": instance_id}),
     );
-    let launch_plan = read_launch_plan(&instance_root)?;
+
+    let launch_plan = match read_launch_plan(&instance_root) {
+        Ok(plan) => plan,
+        Err(_) => {
+            let mut checks = HashMap::new();
+            checks.insert("runtime_preparado".to_string(), false);
+            return Ok(ValidationReport {
+                ok: false,
+                errors: vec![
+                    "La instancia todavía no está instalada. Iníciala o repárala manualmente para descargar runtime, loader y libraries."
+                        .to_string(),
+                ],
+                warnings: vec![
+                    "Se evitó la instalación automática durante verificación para respetar inicio manual de instancias."
+                        .to_string(),
+                ],
+                checks,
+            });
+        }
+    };
 
     Ok(validate_launch_plan(&instance_root, &launch_plan))
 }
@@ -3720,7 +3893,7 @@ async fn launch_instance(
     }
 
     let (instance_root, instance) =
-        prepare_instance_runtime(&app, &instance_id, false, true).await?;
+        prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
 
     let mut launch_plan = read_launch_plan(&instance_root)?;
 
