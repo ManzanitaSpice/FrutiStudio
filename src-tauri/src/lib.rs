@@ -2282,6 +2282,22 @@ fn ensure_writable_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn content_type_is_suspicious_for_archive(
+    content_type: Option<&reqwest::header::HeaderValue>,
+) -> bool {
+    let Some(raw) = content_type else {
+        return false;
+    };
+    let Ok(value) = raw.to_str() else {
+        return true;
+    };
+    let normalized = value.to_ascii_lowercase();
+    normalized.starts_with("text/")
+        || normalized.contains("html")
+        || normalized.contains("json")
+        || normalized.contains("xml")
+}
+
 async fn download_with_retries(
     urls: &[String],
     path: &Path,
@@ -2290,7 +2306,7 @@ async fn download_with_retries(
     validate_zip: bool,
 ) -> Result<(), String> {
     if let Ok(meta) = fs::metadata(path) {
-        if meta.is_file() && meta.len() > 0 && (!validate_zip || is_valid_zip_archive(path)) {
+        if meta.is_file() && meta.len() > 0 && (!validate_zip || is_valid_zip_stream(path)) {
             if let Some(expected) = expected_sha1 {
                 let existing_hash = file_sha1(path)?;
                 if existing_hash.eq_ignore_ascii_case(expected) {
@@ -2332,19 +2348,54 @@ async fn download_with_retries(
 
             match request.send().await {
                 Ok(response) => {
-                    if !(response.status().is_success()
-                        || response.status() == reqwest::StatusCode::PARTIAL_CONTENT)
-                    {
-                        last_error = Some(format!("{url} respondió {}", response.status()));
+                    let status = response.status();
+                    if !status.is_success() {
+                        last_error = Some(format!("{url} respondió {status}"));
                         continue;
                     }
 
-                    let append_mode = resume_from > 0
-                        && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+                    if status == reqwest::StatusCode::PARTIAL_CONTENT && resume_from == 0 {
+                        last_error = Some(format!(
+                            "{url} respondió 206 sin reanudación previa; se rechaza para evitar archivos truncados"
+                        ));
+                        continue;
+                    }
+
+                    if validate_zip
+                        && content_type_is_suspicious_for_archive(
+                            response.headers().get(reqwest::header::CONTENT_TYPE),
+                        )
+                    {
+                        let content_type = response
+                            .headers()
+                            .get(reqwest::header::CONTENT_TYPE)
+                            .and_then(|value| value.to_str().ok())
+                            .unwrap_or("desconocido");
+                        last_error = Some(format!(
+                            "{url} devolvió Content-Type sospechoso para jar/zip: {content_type}"
+                        ));
+                        continue;
+                    }
+
+                    let append_mode =
+                        resume_from > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
+                    let expected_length = response.content_length();
                     let bytes = response
                         .bytes()
                         .await
                         .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
+
+                    if let Some(content_length) = expected_length {
+                        if content_length != bytes.len() as u64 {
+                            last_error = Some(format!(
+                                "{url} devolvió Content-Length inválido (esperado {content_length} bytes, recibido {} bytes)",
+                                bytes.len()
+                            ));
+                            let _ = fs::remove_file(&partial_path);
+                            continue;
+                        }
+                    }
+
                     let mut options = fs::OpenOptions::new();
                     options.write(true).create(true);
                     if append_mode {
@@ -2365,8 +2416,9 @@ async fn download_with_retries(
                         )
                     })?;
 
-                    if validate_zip && !is_valid_zip_archive(&partial_path) {
+                    if validate_zip && !is_valid_zip_stream(&partial_path) {
                         last_error = Some(format!("{url} devolvió un archivo zip/jar inválido"));
+                        let _ = fs::remove_file(&partial_path);
                         continue;
                     }
 
