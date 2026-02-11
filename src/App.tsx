@@ -342,7 +342,9 @@ const AppShell = () => {
       patch.name !== undefined ||
       patch.version !== undefined ||
       patch.loaderName !== undefined ||
-      patch.loaderVersion !== undefined;
+      patch.loaderVersion !== undefined ||
+      patch.javaMode !== undefined ||
+      patch.javaPath !== undefined;
 
     if (shouldPersist) {
       void persistInstanceUpdate(updatedInstance).catch((error) => {

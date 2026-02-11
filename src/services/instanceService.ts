@@ -28,6 +28,8 @@ export const fetchInstances = async (): Promise<Instance[]> => {
       sourceLauncher: local.sourceLauncher,
       sourcePath: local.sourcePath,
       sourceInstanceName: local.sourceInstanceName,
+      javaMode: local.javaMode,
+      javaPath: local.javaPath,
     }));
   } catch (error) {
     console.error("No se pudieron cargar instancias locales", error);
@@ -54,6 +56,8 @@ export const createInstance = async (config: Instance) => {
       version: config.version,
       loaderName: config.loaderName,
       loaderVersion: isVanilla ? "latest" : config.loaderVersion,
+      javaMode: config.javaMode,
+      javaPath: config.javaPath,
     },
   });
   if (cachedInstances) {
@@ -72,6 +76,8 @@ export const updateInstance = async (config: Instance) => {
         config.loaderName.toLowerCase() === "vanilla"
           ? "latest"
           : config.loaderVersion,
+      javaMode: config.javaMode,
+      javaPath: config.javaPath,
     },
   });
 
@@ -87,6 +93,8 @@ export const updateInstance = async (config: Instance) => {
               config.loaderName.toLowerCase() === "vanilla"
                 ? "latest"
                 : config.loaderVersion,
+            javaMode: config.javaMode,
+            javaPath: config.javaPath,
           }
         : entry,
     );

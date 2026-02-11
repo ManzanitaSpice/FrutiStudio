@@ -27,6 +27,8 @@ pub(crate) struct AppConfig {
     pub(crate) mods_path: Option<String>,
     pub(crate) icons_path: Option<String>,
     pub(crate) java_path: Option<String>,
+    pub(crate) java_mode: Option<String>,
+    pub(crate) minecraft_root: Option<String>,
     pub(crate) skins_path: Option<String>,
     pub(crate) explorer_filters: Option<Value>,
 }

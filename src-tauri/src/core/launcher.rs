@@ -137,4 +137,6 @@ pub(crate) struct InstanceLaunchConfig {
     pub(crate) modloader_version: String,
     pub(crate) java_version_required: Option<u32>,
     pub(crate) game_dir: PathBuf,
+    pub(crate) java_mode: Option<String>,
+    pub(crate) java_path: Option<String>,
 }

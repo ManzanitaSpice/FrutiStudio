@@ -16,6 +16,10 @@ pub(crate) struct InstanceRecord {
     pub(crate) source_path: Option<String>,
     #[serde(default)]
     pub(crate) source_instance_name: Option<String>,
+    #[serde(default)]
+    pub(crate) java_mode: Option<String>,
+    #[serde(default)]
+    pub(crate) java_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -102,6 +106,10 @@ pub(crate) struct InstanceCommandArgs {
     pub(crate) access_token: Option<String>,
     #[serde(alias = "user_type")]
     pub(crate) user_type: Option<String>,
+    #[serde(default)]
+    pub(crate) java_mode: Option<String>,
+    #[serde(default)]
+    pub(crate) java_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

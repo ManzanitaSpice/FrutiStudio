@@ -48,6 +48,8 @@ export interface AppConfig {
   modsPath?: string;
   iconsPath?: string;
   javaPath?: string;
+  javaMode?: "auto" | "embedded" | "manual";
+  minecraftRoot?: string;
   skinsPath?: string;
   fontFamily?: "inter" | "system" | "poppins" | "jetbrains" | "fira";
   explorerFilters?: {

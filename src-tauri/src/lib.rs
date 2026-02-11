@@ -306,6 +306,26 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
     })
     .map_err(|error| format!("No se pudo migrar columna source_instance_name: {error}"))?;
 
+    conn.execute("ALTER TABLE instances ADD COLUMN java_mode TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna java_mode: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN java_path TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna java_path: {error}"))?;
+
     conn.execute("ALTER TABLE instances ADD COLUMN path TEXT", [])
         .or_else(|error| {
             if error.to_string().contains("duplicate column name") {
@@ -549,6 +569,45 @@ const BACKUP_SUFFIX: &str = ".bak";
 const MAX_CONFIG_BACKUPS: usize = 12;
 const MAX_BACKUP_AGE_DAYS: u64 = 14;
 
+fn default_official_minecraft_root() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let trimmed = appdata.trim();
+            if !trimmed.is_empty() {
+                return Some(PathBuf::from(trimmed).join(".minecraft"));
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                return Some(
+                    PathBuf::from(trimmed)
+                        .join("Library")
+                        .join("Application Support")
+                        .join("minecraft"),
+                );
+            }
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                return Some(PathBuf::from(trimmed).join(".minecraft"));
+            }
+        }
+    }
+
+    None
+}
+
 fn launcher_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let config_path = config_path(app)?;
     if config_path.exists() {
@@ -559,9 +618,21 @@ fn launcher_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
                         return Ok(normalize_launcher_root_candidate(Path::new(&base_dir)));
                     }
                 }
+
+                if let Some(minecraft_root) = config.minecraft_root {
+                    let trimmed = minecraft_root.trim();
+                    if !trimmed.is_empty() {
+                        return Ok(PathBuf::from(trimmed));
+                    }
+                }
             }
         }
     }
+
+    if let Some(official_root) = default_official_minecraft_root() {
+        return Ok(official_root);
+    }
+
     let base = app
         .path()
         .app_data_dir()
@@ -4863,35 +4934,101 @@ async fn bootstrap_instance_runtime(
     let mut resolution = manager.resolve_for_minecraft(version);
     resolution.required_major = java_major;
     let runtime_manager = RuntimeManager::new(app)?;
-    let selected = resolution
-        .runtimes
-        .iter()
-        .find(|r| r.major == java_major)
-        .cloned()
-        .or_else(|| {
+
+    let config = load_config(app.clone()).await.unwrap_or_default();
+    let instance_java_mode = launch_config
+        .java_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+    let global_java_mode = config
+        .java_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+
+    let preferred_mode = instance_java_mode
+        .as_deref()
+        .or(global_java_mode.as_deref())
+        .unwrap_or("auto");
+
+    let instance_java_path = launch_config
+        .java_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let global_java_path = config
+        .java_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let pick_compatible = |runtimes: &Vec<JavaRuntime>| {
+        runtimes
+            .iter()
+            .find(|r| r.major == java_major)
+            .cloned()
+            .or_else(|| runtimes.iter().find(|r| r.major > java_major).cloned())
+    };
+
+    let selected_manual = if preferred_mode == "manual" {
+        let candidate = instance_java_path.or(global_java_path);
+        candidate.and_then(|path| {
             resolution
                 .runtimes
                 .iter()
-                .find(|r| r.major > java_major)
+                .find(|runtime| runtime.path == path && runtime.major >= java_major)
                 .cloned()
         })
-        .or_else(|| {
-            runtime_manager
-                .ensure_runtime_for_java_major(java_major)
-                .await
-                .ok()
-                .map(|path| JavaRuntime {
-                    id: format!("managed-java-{java_major}"),
-                    name: format!("Java {java_major} (embebido)"),
-                    path: path.to_string_lossy().to_string(),
-                    version: format!("{java_major}"),
-                    major: java_major,
-                    architecture: std::env::consts::ARCH.to_string(),
-                    source: "embebido".to_string(),
-                    recommended: true,
-                })
-        })
-        .ok_or_else(|| format!("No se encontró Java compatible. Minecraft requiere Java {java_major}. Instala Java {java_major} (Temurin recomendado) o configura una ruta java válida en el launcher."))?;
+    } else {
+        None
+    };
+
+    let mut selected = selected_manual;
+
+    if selected.is_none() && (preferred_mode == "embedded" || preferred_mode == "embebido") {
+        selected = runtime_manager
+            .ensure_runtime_for_java_major(java_major)
+            .await
+            .ok()
+            .map(|path| JavaRuntime {
+                id: format!("managed-java-{java_major}"),
+                name: format!("Java {java_major} (embebido)"),
+                path: path.to_string_lossy().to_string(),
+                version: format!("{java_major}"),
+                major: java_major,
+                architecture: std::env::consts::ARCH.to_string(),
+                source: "embebido".to_string(),
+                recommended: true,
+            });
+    }
+
+    if selected.is_none() {
+        selected = pick_compatible(&resolution.runtimes);
+    }
+
+    if selected.is_none() {
+        selected = runtime_manager
+            .ensure_runtime_for_java_major(java_major)
+            .await
+            .ok()
+            .map(|path| JavaRuntime {
+                id: format!("managed-java-{java_major}"),
+                name: format!("Java {java_major} (embebido)"),
+                path: path.to_string_lossy().to_string(),
+                version: format!("{java_major}"),
+                major: java_major,
+                architecture: std::env::consts::ARCH.to_string(),
+                source: "embebido".to_string(),
+                recommended: true,
+            });
+    }
+
+    let selected = selected.ok_or_else(|| format!("No se encontró Java compatible. Minecraft requiere Java {java_major}. Instala Java {java_major} (Temurin recomendado) o configura una ruta java válida en el launcher."))?;
 
     write_instance_state(
         instance_root,
@@ -5690,6 +5827,8 @@ async fn import_external_instance(
             source_launcher: Some(external.launcher.clone()),
             source_path: Some(external.path.clone()),
             source_instance_name: Some(external.name.clone()),
+            java_mode: None,
+            java_path: None,
         };
 
         let meta = serde_json::json!({
@@ -5725,7 +5864,7 @@ async fn import_external_instance(
         let connection = database_connection(&app)?;
         connection
             .execute(
-                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name, java_mode, java_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     record.id,
                     record.name,
@@ -5734,7 +5873,9 @@ async fn import_external_instance(
                     record.loader_version,
                     record.source_launcher,
                     record.source_path,
-                    record.source_instance_name
+                    record.source_instance_name,
+                    record.java_mode,
+                    record.java_path
                 ],
             )
             .map_err(|error| format!("No se pudo guardar la instancia externa: {error}"))?;
@@ -5822,7 +5963,7 @@ async fn resolve_java_for_minecraft(
 async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, String> {
     let conn = database_connection(&app)?;
     let mut stmt = conn
-        .prepare("SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name FROM instances")
+        .prepare("SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name, java_mode, java_path FROM instances")
         .map_err(|error| format!("No se pudo leer instancias: {error}"))?;
     let rows = stmt
         .query_map([], |row| {
@@ -5835,6 +5976,8 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
                 source_launcher: row.get(5)?,
                 source_path: row.get(6)?,
                 source_instance_name: row.get(7)?,
+                java_mode: row.get(8)?,
+                java_path: row.get(9)?,
             })
         })
         .map_err(|error| format!("No se pudo mapear instancias: {error}"))?;
@@ -5935,6 +6078,19 @@ fn write_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> R
         .to_lowercase();
     let loader_version = normalized_loader_version(instance);
 
+    let java_mode = instance
+        .java_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("auto");
+    let java_path = instance
+        .java_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
     let meta = serde_json::json!({
         "id": instance.id,
         "name": instance.name,
@@ -5948,7 +6104,10 @@ fn write_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> R
             .to_lowercase(),
         "loader_version": normalized_loader_version(instance),
         "java_version_required": JavaManager::required_major_for_minecraft_version(instance.version.as_str()),
-        "java": Value::Null,
+        "java": {
+            "mode": java_mode,
+            "path": java_path,
+        },
         "memory_alloc": {"min": 2048, "max": 4096},
         "memory": {"min": 2048, "max": 4096},
         "game_dir": game_dir,
@@ -6060,7 +6219,7 @@ fn read_instance_record(
     let conn = database_connection(app)?;
 
     conn.query_row(
-        "SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name FROM instances WHERE id = ?1",
+        "SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name, java_mode, java_path FROM instances WHERE id = ?1",
         params![instance_id],
         |row| {
             Ok(InstanceRecord {
@@ -6072,6 +6231,8 @@ fn read_instance_record(
                 source_launcher: row.get(5)?,
                 source_path: row.get(6)?,
                 source_instance_name: row.get(7)?,
+                java_mode: row.get(8)?,
+                java_path: row.get(9)?,
             })
         },
     )
@@ -6089,6 +6250,8 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
         source_launcher: None,
         source_path: None,
         source_instance_name: None,
+        java_mode: instance.java_mode.clone(),
+        java_path: instance.java_path.clone(),
     };
 
     let conn = database_connection(&app)?;
@@ -6102,7 +6265,7 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     let created_at = current_unix_secs() as i64;
 
     conn.execute(
-        "INSERT OR REPLACE INTO instances (id, name, version, path, loader, created_at, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT OR REPLACE INTO instances (id, name, version, path, loader, created_at, loader_name, loader_version, source_launcher, source_path, source_instance_name, java_mode, java_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             normalized.id,
             normalized.name,
@@ -6114,7 +6277,9 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
             normalized.loader_version,
             normalized.source_launcher,
             normalized.source_path,
-            normalized.source_instance_name
+            normalized.source_instance_name,
+            normalized.java_mode,
+            normalized.java_path
         ],
     )
     .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
@@ -6130,13 +6295,15 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
 async fn update_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Result<(), String> {
     let conn = database_connection(&app)?;
     conn.execute(
-        "UPDATE instances SET name = ?2, version = ?3, loader_name = ?4, loader_version = ?5 WHERE id = ?1",
+        "UPDATE instances SET name = ?2, version = ?3, loader_name = ?4, loader_version = ?5, java_mode = ?6, java_path = ?7 WHERE id = ?1",
         params![
             instance.id,
             instance.name,
             instance.version,
             instance.loader_name,
-            Some(normalized_loader_version(&instance))
+            Some(normalized_loader_version(&instance)),
+            instance.java_mode,
+            instance.java_path
         ],
     )
     .map_err(|error| format!("No se pudo actualizar la instancia: {error}"))?;
@@ -6290,12 +6457,22 @@ async fn import_instance(
             source_launcher: None,
             source_path: None,
             source_instance_name: None,
+            java_mode: metadata
+                .get("java")
+                .and_then(|value| value.get("mode"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            java_path: metadata
+                .get("java")
+                .and_then(|value| value.get("path"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
         };
 
         let connection = database_connection(&app)?;
         connection
             .execute(
-                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name, java_mode, java_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     record.id,
                     record.name,
@@ -6304,7 +6481,9 @@ async fn import_instance(
                     record.loader_version,
                     record.source_launcher,
                     record.source_path,
-                    record.source_instance_name
+                    record.source_instance_name,
+                    record.java_mode,
+                    record.java_path
                 ],
             )
             .map_err(|error| format!("No se pudo guardar la instancia importada: {error}"))?;
