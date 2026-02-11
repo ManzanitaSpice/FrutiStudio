@@ -3250,19 +3250,41 @@ async fn bootstrap_instance_runtime(
     )
     .map_err(|error| format!("No se pudo guardar version.json: {error}"))?;
 
-    let client_url = base_version_json
+    let client_download = base_version_json
         .get("downloads")
         .and_then(|v| v.get("client"))
-        .and_then(|v| v.get("url"))
+        .ok_or_else(|| "La metadata de Minecraft no trae metadata de client.jar".to_string())?;
+    let client_url = client_download
+        .get("url")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "La metadata de Minecraft no trae URL de client.jar".to_string())?;
+    let client_sha1 = client_download
+        .get("sha1")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "La metadata de Minecraft no trae SHA1 de client.jar; no se puede validar integridad."
+                .to_string()
+        })?;
     let client_jar = version_dir.join(format!("{version}.jar"));
     write_instance_state(
         instance_root,
         "downloading_client",
-        serde_json::json!({"version": version, "target": client_jar.to_string_lossy()}),
+        serde_json::json!({
+            "version": version,
+            "target": client_jar.to_string_lossy(),
+            "sha1": client_sha1
+        }),
     );
-    download_to(client_url, &client_jar).await?;
+    download_with_retries(
+        &[client_url.to_string()],
+        &client_jar,
+        Some(client_sha1),
+        4,
+        should_validate_zip_from_path(&client_jar),
+    )
+    .await?;
 
     let asset_index_url = base_version_json
         .get("assetIndex")
