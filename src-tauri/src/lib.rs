@@ -153,6 +153,45 @@ struct ExternalDetectedInstance {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+struct ExternalDiscoveryRoot {
+    launcher: String,
+    root: String,
+    source: String,
+    last_seen_unix: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ManualExternalRoot {
+    path: String,
+    launcher_hint: Option<String>,
+    label: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ExternalDiscoveryCache {
+    schema_version: u32,
+    manual_roots: Vec<ManualExternalRoot>,
+    discovered_roots: Vec<ExternalDiscoveryRoot>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisterExternalRootArgs {
+    path: String,
+    launcher_hint: Option<String>,
+    label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveExternalRootArgs {
+    path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct LaunchPlan {
     java_path: String,
     java_args: Vec<String>,
@@ -331,6 +370,179 @@ fn detect_minecraft_launcher_installations() -> Vec<LauncherInstallation> {
         .collect()
 }
 
+fn external_discovery_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(launcher_root(app)?
+        .join("cache")
+        .join("external-instance-index.json"))
+}
+
+fn read_external_discovery_cache(app: &tauri::AppHandle) -> ExternalDiscoveryCache {
+    let Ok(path) = external_discovery_cache_path(app) else {
+        return ExternalDiscoveryCache {
+            schema_version: 1,
+            ..ExternalDiscoveryCache::default()
+        };
+    };
+    let Ok(raw) = fs::read_to_string(path) else {
+        return ExternalDiscoveryCache {
+            schema_version: 1,
+            ..ExternalDiscoveryCache::default()
+        };
+    };
+    serde_json::from_str(&raw).unwrap_or(ExternalDiscoveryCache {
+        schema_version: 1,
+        ..ExternalDiscoveryCache::default()
+    })
+}
+
+fn write_external_discovery_cache(
+    app: &tauri::AppHandle,
+    cache: &ExternalDiscoveryCache,
+) -> Result<(), String> {
+    let cache_path = external_discovery_cache_path(app)?;
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("No se pudo crear carpeta de cache de instancias externas: {error}")
+        })?;
+    }
+    fs::write(
+        &cache_path,
+        serde_json::to_string_pretty(cache).map_err(|error| {
+            format!("No se pudo serializar cache de instancias externas: {error}")
+        })?,
+    )
+    .map_err(|error| format!("No se pudo escribir cache de instancias externas: {error}"))
+}
+
+fn launcher_from_hint(value: Option<&str>) -> Option<String> {
+    let normalized = value?.trim().to_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+    match normalized.as_str() {
+        "prism" | "prismlauncher" => Some("prism".to_string()),
+        "curseforge" | "cf" => Some("curseforge".to_string()),
+        "modrinth" | "modrinthapp" => Some("modrinth".to_string()),
+        "minecraft" | "mojang" | "vanilla" => Some("minecraft".to_string()),
+        "atlauncher" | "at" => Some("atlauncher".to_string()),
+        other => Some(other.to_string()),
+    }
+}
+
+fn detect_launcher_signature(root: &Path) -> Option<String> {
+    let checks = [
+        ("prism", root.join("instance.cfg")),
+        ("prism", root.join("instances").join("instance.cfg")),
+        ("curseforge", root.join("minecraftinstance.json")),
+        ("modrinth", root.join("profile.json")),
+        ("minecraft", root.join("launcher_profiles.json")),
+        ("minecraft", root.join("versions")),
+        ("atlauncher", root.join("instances")),
+    ];
+    for (launcher, path) in checks {
+        if path.exists() {
+            if launcher == "minecraft" && path.file_name() == Some(OsStr::new("versions")) {
+                if path.is_dir() {
+                    return Some(launcher.to_string());
+                }
+                continue;
+            }
+            return Some(launcher.to_string());
+        }
+    }
+    None
+}
+
+fn normalize_external_root(launcher: &str, root: &Path) -> PathBuf {
+    if launcher == "prism" {
+        if root.ends_with("instances") {
+            return root
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| root.to_path_buf());
+        }
+        return root.to_path_buf();
+    }
+    if launcher == "modrinth" && root.ends_with("profiles") {
+        return root
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| root.to_path_buf());
+    }
+    root.to_path_buf()
+}
+
+fn discover_known_launcher_roots() -> Vec<(String, PathBuf, String)> {
+    let mut roots: Vec<(String, PathBuf, String)> = Vec::new();
+
+    for installation in detect_minecraft_launcher_installations() {
+        let launcher = installation.launcher;
+        let source = format!("known:{}", installation.kind);
+        roots.push((launcher, PathBuf::from(installation.root), source));
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
+        roots.push((
+            "prism".to_string(),
+            home.join(".local").join("share").join("PrismLauncher"),
+            "known:linux".to_string(),
+        ));
+        roots.push((
+            "modrinth".to_string(),
+            home.join(".local")
+                .join("share")
+                .join("ModrinthApp")
+                .join("meta"),
+            "known:linux".to_string(),
+        ));
+    }
+
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        roots.push((
+            "modrinth".to_string(),
+            PathBuf::from(appdata).join("ModrinthApp").join("meta"),
+            "known:windows".to_string(),
+        ));
+    }
+
+    let mut dedup = HashSet::new();
+    roots
+        .into_iter()
+        .filter(|(launcher, root, _)| {
+            dedup.insert((launcher.clone(), root.to_string_lossy().to_string()))
+        })
+        .collect()
+}
+
+fn collect_external_scan_roots(app: &tauri::AppHandle) -> Vec<(String, PathBuf, String)> {
+    let mut roots = discover_known_launcher_roots();
+    let cache = read_external_discovery_cache(app);
+
+    for manual in cache.manual_roots {
+        let path = PathBuf::from(manual.path);
+        let launcher = launcher_from_hint(manual.launcher_hint.as_deref())
+            .or_else(|| detect_launcher_signature(&path))
+            .unwrap_or_else(|| "minecraft".to_string());
+        roots.push((launcher, path, "manual".to_string()));
+    }
+
+    for cached in cache.discovered_roots {
+        roots.push((
+            cached.launcher,
+            PathBuf::from(cached.root),
+            format!("cache:{}", cached.source),
+        ));
+    }
+
+    let mut dedup = HashSet::new();
+    roots
+        .into_iter()
+        .filter(|(launcher, root, _)| {
+            dedup.insert((launcher.clone(), root.to_string_lossy().to_string()))
+        })
+        .collect()
+}
 fn normalize_loader_name(value: Option<&str>) -> String {
     match value.unwrap_or("vanilla").trim().to_lowercase().as_str() {
         "forge" => "Forge".to_string(),
@@ -480,62 +692,40 @@ fn detect_external_instances_from_root(
     entries
 }
 
-fn detect_external_instances() -> Vec<ExternalDetectedInstance> {
+fn detect_external_instances(app: &tauri::AppHandle) -> Vec<ExternalDetectedInstance> {
+    let scan_roots = collect_external_scan_roots(app);
     let mut all = Vec::new();
-    for installation in detect_minecraft_launcher_installations() {
-        if !installation.usable {
+    let mut discovered_roots = Vec::new();
+
+    for (launcher, root, source) in scan_roots {
+        let normalized_root = normalize_external_root(&launcher, &root);
+        if !normalized_root.exists() {
             continue;
         }
-        let root = PathBuf::from(&installation.root);
-        all.extend(detect_external_instances_from_root(
-            &installation.launcher,
-            &root,
-        ));
-
-        if installation.launcher == "modrinth" {
-            all.extend(detect_external_instances_from_root("modrinth", &root));
+        let instances = detect_external_instances_from_root(&launcher, &normalized_root);
+        if !instances.is_empty() {
+            discovered_roots.push(ExternalDiscoveryRoot {
+                launcher: launcher.clone(),
+                root: normalized_root.to_string_lossy().to_string(),
+                source,
+                last_seen_unix: current_unix_secs(),
+            });
+            all.extend(instances);
         }
     }
 
-    if let Ok(home) = std::env::var("HOME") {
-        let linux_modrinth = PathBuf::from(&home)
-            .join(".local")
-            .join("share")
-            .join("ModrinthApp")
-            .join("meta");
-        if linux_modrinth.exists() {
-            all.extend(detect_external_instances_from_root(
-                "modrinth",
-                &linux_modrinth,
-            ));
-        }
+    let mut dedup_discovered = HashSet::new();
+    discovered_roots
+        .retain(|entry| dedup_discovered.insert((entry.launcher.clone(), entry.root.clone())));
 
-        let mac_modrinth = PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-            .join("ModrinthApp")
-            .join("meta");
-        if mac_modrinth.exists() {
-            all.extend(detect_external_instances_from_root(
-                "modrinth",
-                &mac_modrinth,
-            ));
-        }
-    }
+    let mut cache = read_external_discovery_cache(app);
+    cache.schema_version = 1;
+    cache.discovered_roots = discovered_roots;
+    let _ = write_external_discovery_cache(app, &cache);
 
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let windows_modrinth = PathBuf::from(appdata).join("ModrinthApp").join("meta");
-        if windows_modrinth.exists() {
-            all.extend(detect_external_instances_from_root(
-                "modrinth",
-                &windows_modrinth,
-            ));
-        }
-    }
-
-    let mut dedup = HashSet::new();
+    let mut dedup_instances = HashSet::new();
     all.into_iter()
-        .filter(|entry| dedup.insert(entry.id.clone()))
+        .filter(|entry| dedup_instances.insert(entry.id.clone()))
         .collect()
 }
 
@@ -5136,8 +5326,77 @@ async fn detect_minecraft_launchers() -> Result<Vec<LauncherInstallation>, Strin
 }
 
 #[command]
-async fn list_external_instances() -> Result<Vec<ExternalDetectedInstance>, String> {
-    Ok(detect_external_instances())
+async fn list_external_instances(
+    app: tauri::AppHandle,
+) -> Result<Vec<ExternalDetectedInstance>, String> {
+    Ok(detect_external_instances(&app))
+}
+
+#[command]
+async fn list_external_roots(app: tauri::AppHandle) -> Result<Vec<ManualExternalRoot>, String> {
+    let cache = read_external_discovery_cache(&app);
+    Ok(cache.manual_roots)
+}
+
+#[command]
+async fn register_external_root(
+    app: tauri::AppHandle,
+    args: RegisterExternalRootArgs,
+) -> Result<Vec<ManualExternalRoot>, String> {
+    ensure_launcher_layout(&app)?;
+    let raw = args.path.trim();
+    if raw.is_empty() {
+        return Err("path es requerido".to_string());
+    }
+    let normalized = PathBuf::from(raw);
+    if !normalized.exists() || !normalized.is_dir() {
+        return Err("La ruta indicada no existe o no es una carpeta".to_string());
+    }
+
+    let mut cache = read_external_discovery_cache(&app);
+    let normalized_str = normalized.to_string_lossy().to_string();
+    if let Some(existing) = cache
+        .manual_roots
+        .iter_mut()
+        .find(|entry| entry.path.eq_ignore_ascii_case(&normalized_str))
+    {
+        existing.launcher_hint = args
+            .launcher_hint
+            .as_deref()
+            .and_then(|value| launcher_from_hint(Some(value)));
+        existing.label = args.label;
+    } else {
+        cache.manual_roots.push(ManualExternalRoot {
+            path: normalized_str,
+            launcher_hint: args
+                .launcher_hint
+                .as_deref()
+                .and_then(|value| launcher_from_hint(Some(value))),
+            label: args.label,
+        });
+    }
+    cache.schema_version = 1;
+    write_external_discovery_cache(&app, &cache)?;
+    Ok(cache.manual_roots)
+}
+
+#[command]
+async fn remove_external_root(
+    app: tauri::AppHandle,
+    args: RemoveExternalRootArgs,
+) -> Result<Vec<ManualExternalRoot>, String> {
+    let target = args.path.trim();
+    if target.is_empty() {
+        return Err("path es requerido".to_string());
+    }
+
+    let mut cache = read_external_discovery_cache(&app);
+    cache
+        .manual_roots
+        .retain(|entry| !entry.path.eq_ignore_ascii_case(target));
+    cache.schema_version = 1;
+    write_external_discovery_cache(&app, &cache)?;
+    Ok(cache.manual_roots)
 }
 
 #[command]
@@ -5151,7 +5410,7 @@ async fn import_external_instance(
         return Err("external_id es requerido".to_string());
     }
 
-    let external = detect_external_instances()
+    let external = detect_external_instances(&app)
         .into_iter()
         .find(|entry| entry.id == external_id)
         .ok_or_else(|| "No se encontró la instancia externa seleccionada".to_string())?;
@@ -6722,6 +6981,9 @@ pub fn run() {
             list_instances,
             detect_minecraft_launchers,
             list_external_instances,
+            list_external_roots,
+            register_external_root,
+            remove_external_root,
             import_external_instance,
             detect_installed_mods,
             list_java_runtimes,
