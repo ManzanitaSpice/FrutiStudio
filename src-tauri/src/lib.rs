@@ -1658,8 +1658,17 @@ fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
 }
 
 async fn download_to(url: &str, path: &Path) -> Result<(), String> {
+    let should_validate_as_zip = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"))
+        .unwrap_or(false);
+
     if let Ok(meta) = fs::metadata(path) {
-        if meta.is_file() && meta.len() > 0 {
+        if meta.is_file()
+            && meta.len() > 0
+            && (!should_validate_as_zip || is_valid_zip_archive(path))
+        {
             return Ok(());
         }
     }
@@ -1688,7 +1697,10 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
                         .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
                     let tmp_path = path.with_extension("part");
                     fs::write(&tmp_path, bytes).map_err(|error| {
-                        format!("No se pudo guardar temporal {}: {error}", tmp_path.display())
+                        format!(
+                            "No se pudo guardar temporal {}: {error}",
+                            tmp_path.display()
+                        )
                     })?;
                     fs::rename(&tmp_path, path).map_err(|error| {
                         format!(
@@ -1697,6 +1709,15 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
                             path.display()
                         )
                     })?;
+
+                    if should_validate_as_zip && !is_valid_zip_archive(path) {
+                        let _ = fs::remove_file(path);
+                        last_error = Some(format!(
+                            "{url} descargó un archivo inválido (zip/jar corrupto)"
+                        ));
+                        continue;
+                    }
+
                     return Ok(());
                 }
             }
@@ -1714,6 +1735,14 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
         "No se pudo descargar {url}. Último error: {}",
         last_error.unwrap_or_else(|| "desconocido".to_string())
     ))
+}
+
+fn is_valid_zip_archive(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+
+    ZipArchive::new(file).is_ok()
 }
 
 async fn fetch_json_with_fallback(urls: &[String], context: &str) -> Result<Value, String> {
@@ -2649,6 +2678,28 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     }
 }
 
+fn read_launch_plan(instance_root: &Path) -> Result<LaunchPlan, String> {
+    let launch_plan_path = instance_root.join("launch-plan.json");
+    fs::read_to_string(&launch_plan_path)
+        .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
+        .and_then(|raw| {
+            serde_json::from_str::<LaunchPlan>(&raw)
+                .map_err(|error| format!("launch-plan.json inválido: {error}"))
+        })
+}
+
+fn launch_plan_matches_instance(plan: &LaunchPlan, instance: &InstanceRecord) -> bool {
+    let requested_loader = instance
+        .loader_name
+        .as_deref()
+        .unwrap_or("vanilla")
+        .trim()
+        .to_lowercase();
+    let plan_version = extract_or_fallback_arg(&plan.game_args, "--version", &instance.version);
+
+    plan_version == instance.version && plan.loader == requested_loader
+}
+
 fn build_launch_command(
     _app: &tauri::AppHandle,
     instance_root: &Path,
@@ -3089,8 +3140,20 @@ async fn prepare_instance_runtime(
 
     let instance = read_instance_record(app, instance_id)?;
     ensure_instance_metadata(&instance_root, &instance)?;
-    bootstrap_instance_runtime(app, &instance_root, &instance).await?;
-    let _ = build_launch_command(app, &instance_root, &instance)?;
+
+    let cached_plan = read_launch_plan(&instance_root).ok();
+    let cached_is_usable = cached_plan
+        .as_ref()
+        .map(|plan| {
+            launch_plan_matches_instance(plan, &instance)
+                && validate_launch_plan(&instance_root, plan).ok
+        })
+        .unwrap_or(false);
+
+    if reinstall || !cached_is_usable {
+        bootstrap_instance_runtime(app, &instance_root, &instance).await?;
+        let _ = build_launch_command(app, &instance_root, &instance)?;
+    }
 
     Ok((instance_root, instance))
 }
@@ -3108,13 +3171,7 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
         "repairing",
         serde_json::json!({"instance": instance.id}),
     );
-    let launch_plan_path = instance_root.join("launch-plan.json");
-    let launch_plan = fs::read_to_string(&launch_plan_path)
-        .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
-        .and_then(|raw| {
-            serde_json::from_str::<LaunchPlan>(&raw)
-                .map_err(|error| format!("launch-plan.json inválido: {error}"))
-        })?;
+    let launch_plan = read_launch_plan(&instance_root)?;
 
     let validation = validate_launch_plan(&instance_root, &launch_plan);
     if !validation.ok {
@@ -3153,13 +3210,7 @@ async fn preflight_instance(
         "preflight",
         serde_json::json!({"instance": instance_id}),
     );
-    let launch_plan_path = instance_root.join("launch-plan.json");
-    let launch_plan = fs::read_to_string(&launch_plan_path)
-        .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
-        .and_then(|raw| {
-            serde_json::from_str::<LaunchPlan>(&raw)
-                .map_err(|error| format!("launch-plan.json inválido: {error}"))
-        })?;
+    let launch_plan = read_launch_plan(&instance_root)?;
 
     Ok(validate_launch_plan(&instance_root, &launch_plan))
 }
@@ -3176,32 +3227,7 @@ async fn launch_instance(
 
     let (instance_root, instance) = prepare_instance_runtime(&app, &instance_id, false).await?;
 
-    let validation = preflight_instance(
-        app.clone(),
-        InstanceCommandArgs {
-            instance_id: Some(instance_id.clone()),
-            username: None,
-            uuid: None,
-            access_token: None,
-            user_type: None,
-        },
-    )
-    .await?;
-
-    if !validation.ok {
-        return Err(format!(
-            "La validación previa falló: {}",
-            validation.errors.join("; ")
-        ));
-    }
-
-    let launch_plan_path = instance_root.join("launch-plan.json");
-    let mut launch_plan = fs::read_to_string(&launch_plan_path)
-        .map_err(|error| format!("No se pudo leer launch-plan.json: {error}"))
-        .and_then(|raw| {
-            serde_json::from_str::<LaunchPlan>(&raw)
-                .map_err(|error| format!("launch-plan.json inválido: {error}"))
-        })?;
+    let mut launch_plan = read_launch_plan(&instance_root)?;
 
     let auth_username = args
         .username
