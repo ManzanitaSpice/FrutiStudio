@@ -139,6 +139,14 @@ struct InstalledModEntry {
     size_bytes: u64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeRepairResult {
+    removed_paths: Vec<String>,
+    removed_partial_files: u64,
+    killed_processes: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ExternalDetectedInstance {
@@ -811,6 +819,20 @@ struct ValidationReport {
     errors: Vec<String>,
     warnings: Vec<String>,
     checks: HashMap<String, bool>,
+}
+
+#[derive(Debug)]
+struct MinecraftJarValidation {
+    ok: bool,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ModInspection {
+    id: Option<String>,
+    loader: ModLoaderKind,
+    dependencies: Vec<String>,
+    minecraft_constraint: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2800,6 +2822,48 @@ fn persist_fabric_like_profile_json(
     Ok(profile_id)
 }
 
+fn validate_loader_profile_json(
+    minecraft_root: &Path,
+    profile_id: &str,
+    vanilla_version: &str,
+) -> Result<(), String> {
+    let profile_path = minecraft_root
+        .join("versions")
+        .join(profile_id)
+        .join(format!("{profile_id}.json"));
+    let raw = fs::read_to_string(&profile_path).map_err(|error| {
+        format!(
+            "No se pudo leer perfil del loader {} en {}: {error}",
+            profile_id,
+            profile_path.display()
+        )
+    })?;
+    let json: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Perfil de loader inválido {}: {error}", profile_id))?;
+
+    let inherits_from = json
+        .get("inheritsFrom")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if inherits_from != vanilla_version {
+        return Err(format!(
+            "Perfil {profile_id} inválido: inheritsFrom debe ser '{vanilla_version}' y se encontró '{inherits_from}'"
+        ));
+    }
+
+    if let Some(jar) = json.get("jar").and_then(Value::as_str) {
+        let jar = jar.trim();
+        if !jar.is_empty() && jar != vanilla_version {
+            return Err(format!(
+                "Perfil {profile_id} intenta usar jar '{jar}' en lugar de '{vanilla_version}'"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) -> Option<String> {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -3785,29 +3849,74 @@ fn has_minecraft_client_marker(path: &Path) -> bool {
 
 const MIN_CLIENT_JAR_SIZE_BYTES: u64 = 15 * 1024 * 1024;
 
-fn is_clean_minecraft_client_jar(path: &Path, expected_sha1: Option<&str>) -> bool {
+fn validate_minecraft_client_jar(
+    path: &Path,
+    expected_sha1: Option<&str>,
+) -> MinecraftJarValidation {
     let Ok(metadata) = fs::metadata(path) else {
-        return false;
+        return MinecraftJarValidation {
+            ok: false,
+            reason: Some("minecraft.jar no existe".to_string()),
+        };
     };
 
-    if !metadata.is_file() || metadata.len() < MIN_CLIENT_JAR_SIZE_BYTES {
-        return false;
+    if !metadata.is_file() {
+        return MinecraftJarValidation {
+            ok: false,
+            reason: Some("minecraft.jar no es un archivo válido".to_string()),
+        };
     }
 
-    if !is_valid_zip_stream(path) || !has_minecraft_client_marker(path) {
-        return false;
+    if metadata.len() < MIN_CLIENT_JAR_SIZE_BYTES {
+        return MinecraftJarValidation {
+            ok: false,
+            reason: Some(format!(
+                "minecraft.jar demasiado pequeño ({} bytes, mínimo {})",
+                metadata.len(),
+                MIN_CLIENT_JAR_SIZE_BYTES
+            )),
+        };
+    }
+
+    if !is_valid_zip_stream(path) {
+        return MinecraftJarValidation {
+            ok: false,
+            reason: Some("minecraft.jar no es un ZIP/JAR válido".to_string()),
+        };
+    }
+
+    if !has_minecraft_client_marker(path) {
+        return MinecraftJarValidation {
+            ok: false,
+            reason: Some("minecraft.jar no contiene clases cliente esperadas".to_string()),
+        };
     }
 
     if let Some(expected_sha1) = expected_sha1 {
         let Ok(actual_sha1) = file_sha1(path) else {
-            return false;
+            return MinecraftJarValidation {
+                ok: false,
+                reason: Some("No se pudo calcular SHA1 de minecraft.jar".to_string()),
+            };
         };
         if !actual_sha1.eq_ignore_ascii_case(expected_sha1) {
-            return false;
+            return MinecraftJarValidation {
+                ok: false,
+                reason: Some(format!(
+                    "SHA1 inválido: esperado {expected_sha1}, obtenido {actual_sha1}"
+                )),
+            };
         }
     }
 
-    true
+    MinecraftJarValidation {
+        ok: true,
+        reason: None,
+    }
+}
+
+fn is_clean_minecraft_client_jar(path: &Path, expected_sha1: Option<&str>) -> bool {
+    validate_minecraft_client_jar(path, expected_sha1).ok
 }
 
 fn looks_like_minecraft_version_jar(path: &Path) -> bool {
@@ -3979,11 +4088,41 @@ enum ModLoaderKind {
 }
 
 fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
+    inspect_mod_jar(mod_jar).loader
+}
+
+fn parse_quilt_dependencies(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|entry| {
+            entry
+                .get("id")
+                .and_then(Value::as_str)
+                .map(|dep| dep.trim().to_string())
+        })
+        .filter(|dep| !dep.is_empty())
+        .collect()
+}
+
+fn inspect_mod_jar(mod_jar: &Path) -> ModInspection {
     let Ok(file) = fs::File::open(mod_jar) else {
-        return ModLoaderKind::Unknown;
+        return ModInspection {
+            id: None,
+            loader: ModLoaderKind::Unknown,
+            dependencies: Vec::new(),
+            minecraft_constraint: None,
+        };
     };
     let Ok(mut zip) = ZipArchive::new(file) else {
-        return ModLoaderKind::Unknown;
+        return ModInspection {
+            id: None,
+            loader: ModLoaderKind::Unknown,
+            dependencies: Vec::new(),
+            minecraft_constraint: None,
+        };
     };
 
     let has_fabric = zip.by_name("fabric.mod.json").is_ok();
@@ -3991,7 +4130,7 @@ fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
     let has_forge = zip.by_name("META-INF/mods.toml").is_ok() || zip.by_name("mcmod.info").is_ok();
     let has_neoforge = zip.by_name("META-INF/neoforge.mods.toml").is_ok();
 
-    if has_fabric {
+    let loader = if has_fabric {
         ModLoaderKind::Fabric
     } else if has_quilt {
         ModLoaderKind::Quilt
@@ -4001,12 +4140,57 @@ fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
         ModLoaderKind::Forge
     } else {
         ModLoaderKind::Unknown
+    };
+
+    let mut id = None;
+    let mut dependencies = Vec::new();
+    let mut minecraft_constraint = None;
+
+    if let Ok(mut fabric_entry) = zip.by_name("fabric.mod.json") {
+        let mut content = String::new();
+        if fabric_entry.read_to_string(&mut content).is_ok() {
+            if let Ok(json) = serde_json::from_str::<Value>(&content) {
+                id = json
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+                if let Some(depends) = json.get("depends").and_then(Value::as_object) {
+                    dependencies.extend(depends.keys().cloned());
+                    minecraft_constraint = depends
+                        .get("minecraft")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string);
+                }
+            }
+        }
+    } else if let Ok(mut quilt_entry) = zip.by_name("quilt.mod.json") {
+        let mut content = String::new();
+        if quilt_entry.read_to_string(&mut content).is_ok() {
+            if let Ok(json) = serde_json::from_str::<Value>(&content) {
+                id = json
+                    .get("quilt_loader")
+                    .and_then(|v| v.get("id"))
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+                if let Some(depends) = json.get("quilt_loader").and_then(|v| v.get("depends")) {
+                    dependencies.extend(parse_quilt_dependencies(depends));
+                }
+            }
+        }
+    }
+
+    ModInspection {
+        id,
+        loader,
+        dependencies,
+        minecraft_constraint,
     }
 }
 
 fn evaluate_mod_loader_compatibility(
     game_dir: &Path,
     instance_loader: &str,
+    minecraft_version: Option<&str>,
 ) -> (bool, Vec<String>) {
     let mods_dir = game_dir.join("mods");
     if !mods_dir.exists() {
@@ -4024,6 +4208,9 @@ fn evaluate_mod_loader_compatibility(
     };
 
     let mut issues = Vec::new();
+    let mut installed_ids = HashSet::new();
+    let mut inspected = Vec::new();
+
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -4038,32 +4225,70 @@ fn evaluate_mod_loader_compatibility(
             continue;
         }
 
+        let inspection = inspect_mod_jar(&path);
+        if let Some(id) = inspection.id.clone() {
+            installed_ids.insert(id);
+        }
+        inspected.push((path, inspection));
+    }
+
+    let normalized_loader = instance_loader.trim().to_lowercase();
+
+    for (path, inspection) in inspected {
         let file_name = path
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("mod-desconocido.jar");
 
-        let kind = detect_mod_loader_kind(&path);
-        let compatible = match instance_loader {
-            "fabric" => kind == ModLoaderKind::Fabric || kind == ModLoaderKind::Unknown,
+        let compatible = match normalized_loader.as_str() {
+            "fabric" => {
+                inspection.loader == ModLoaderKind::Fabric
+                    || inspection.loader == ModLoaderKind::Unknown
+            }
             "quilt" => {
-                kind == ModLoaderKind::Quilt
-                    || kind == ModLoaderKind::Fabric
-                    || kind == ModLoaderKind::Unknown
+                inspection.loader == ModLoaderKind::Quilt
+                    || inspection.loader == ModLoaderKind::Fabric
+                    || inspection.loader == ModLoaderKind::Unknown
             }
             "forge" | "neoforge" => {
                 matches!(
-                    kind,
+                    inspection.loader,
                     ModLoaderKind::Forge | ModLoaderKind::NeoForge | ModLoaderKind::Unknown
                 )
             }
-            _ => kind == ModLoaderKind::Unknown,
+            _ => inspection.loader == ModLoaderKind::Unknown,
         };
 
         if !compatible {
             issues.push(format!(
-                "{file_name} parece no compatible con loader '{instance_loader}'"
+                "{file_name} parece no compatible con loader '{normalized_loader}'"
             ));
+        }
+
+        if let Some(required_mc) = inspection.minecraft_constraint.as_deref() {
+            if let Some(current_mc) = minecraft_version {
+                if !required_mc.contains(current_mc) {
+                    issues.push(format!(
+                        "{file_name} declara minecraft={required_mc}, posible incompatibilidad con {current_mc}"
+                    ));
+                }
+            }
+        }
+
+        for dependency in inspection.dependencies {
+            if dependency == "minecraft"
+                || dependency == "java"
+                || dependency == "fabricloader"
+                || dependency == "fabric-loader"
+                || dependency == "quilt_loader"
+            {
+                continue;
+            }
+            if !installed_ids.contains(&dependency) {
+                issues.push(format!(
+                    "{file_name} depende de '{dependency}' y no se detectó en la carpeta mods"
+                ));
+            }
         }
     }
 
@@ -4319,6 +4544,37 @@ fn extract_or_fallback_arg(args: &[String], flag: &str, fallback: &str) -> Strin
         .unwrap_or_else(|| fallback.to_string())
 }
 
+fn loader_profile_chain_is_valid(plan: &LaunchPlan) -> bool {
+    if plan.loader == "vanilla" {
+        return true;
+    }
+
+    let launch_version = extract_or_fallback_arg(&plan.game_args, "--version", "");
+    if launch_version.trim().is_empty() {
+        return false;
+    }
+
+    let launch_json = Path::new(&plan.game_dir)
+        .join("versions")
+        .join(&launch_version)
+        .join(format!("{launch_version}.json"));
+    if !launch_json.is_file() {
+        return false;
+    }
+
+    let vanilla_version = Path::new(&plan.version_json)
+        .file_stem()
+        .and_then(|v| v.to_str())
+        .unwrap_or_default()
+        .to_string();
+    if vanilla_version.is_empty() {
+        return false;
+    }
+
+    validate_loader_profile_json(Path::new(&plan.game_dir), &launch_version, &vanilla_version)
+        .is_ok()
+}
+
 async fn bootstrap_instance_runtime(
     app: &tauri::AppHandle,
     instance_root: &Path,
@@ -4435,16 +4691,29 @@ async fn bootstrap_instance_runtime(
     )
     .await?;
 
-    if !is_clean_minecraft_client_jar(&client_jar, Some(client_sha1)) {
-        let _ = fs::remove_file(&client_jar);
+    let initial_jar_validation = validate_minecraft_client_jar(&client_jar, Some(client_sha1));
+    if !initial_jar_validation.ok {
+        let _ = fs::remove_dir_all(&version_dir);
+        fs::create_dir_all(&version_dir).map_err(|error| {
+            format!("No se pudo recrear carpeta de versión tras corrupción: {error}")
+        })?;
+        fs::write(
+            version_dir.join(format!("{version}.json")),
+            serde_json::to_string_pretty(&base_version_json)
+                .map_err(|error| format!("No se pudo serializar version.json: {error}"))?,
+        )
+        .map_err(|error| format!("No se pudo restaurar version.json: {error}"))?;
+
         write_instance_state(
             instance_root,
             "repairing_client",
             serde_json::json!({
                 "version": version,
                 "reason": "client_jar_invalid_after_download",
+                "details": initial_jar_validation.reason,
                 "target": client_jar.to_string_lossy(),
-                "sha1": client_sha1
+                "sha1": client_sha1,
+                "deletedVersionDir": version_dir.to_string_lossy()
             }),
         );
         download_with_retries(
@@ -4456,9 +4725,12 @@ async fn bootstrap_instance_runtime(
         )
         .await?;
 
-        if !is_clean_minecraft_client_jar(&client_jar, Some(client_sha1)) {
+        let second_validation = validate_minecraft_client_jar(&client_jar, Some(client_sha1));
+        if !second_validation.ok {
+            let _ = fs::remove_dir_all(&version_dir);
             return Err(format!(
-                "El minecraft.jar descargado para {version} quedó inválido/corrupto tras 2 intentos. Borra versions/{version} y vuelve a intentar (SHA1 esperado: {client_sha1})."
+                "El minecraft.jar descargado para {version} quedó inválido/corrupto tras 2 intentos ({:?}). Se eliminó versions/{version} para evitar bucles de descarga.",
+                second_validation.reason
             ));
         }
     }
@@ -4602,6 +4874,7 @@ async fn bootstrap_instance_runtime(
             Some(launch_config.modloader_version.as_str()),
         )
         .await?;
+        validate_loader_profile_json(&minecraft_root, &installed_profile_id, version)?;
         if let Some(profile_json) = resolve_loader_profile_json(
             &minecraft_root,
             version,
@@ -4681,6 +4954,7 @@ async fn bootstrap_instance_runtime(
             &loader_version,
             &profile,
         )?;
+        validate_loader_profile_json(&minecraft_root, &persisted_profile_id, version)?;
         launch_version_name = persisted_profile_id;
         effective_version_json = merge_version_json(&effective_version_json, &profile);
         libraries = effective_version_json
@@ -5206,8 +5480,12 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         .map(|expected| plan.main_class == expected)
         .unwrap_or(true);
 
-    let (mods_compatible_with_loader, mod_compatibility_issues) =
-        evaluate_mod_loader_compatibility(Path::new(&plan.game_dir), &plan.loader);
+    let launch_mc_version = extract_or_fallback_arg(&plan.game_args, "--version", "");
+    let (mods_compatible_with_loader, mod_compatibility_issues) = evaluate_mod_loader_compatibility(
+        Path::new(&plan.game_dir),
+        &plan.loader,
+        Some(&launch_mc_version),
+    );
     let runtime_integrity = scan_runtime_integrity(Path::new(&plan.game_dir));
 
     let java_major_compatible = if plan.required_java_major == 0 || plan.resolved_java_major == 0 {
@@ -5288,6 +5566,14 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
                 true
             } else {
                 plan.loader_profile_resolved
+            },
+        ),
+        (
+            "perfil_loader_valido",
+            if plan.loader == "vanilla" {
+                true
+            } else {
+                loader_profile_chain_is_valid(plan)
             },
         ),
         ("runtime_loader_en_classpath", has_loader_runtime_jar),
@@ -6298,6 +6584,103 @@ async fn import_instance(
     })
 }
 
+fn remove_dir_if_exists(path: &Path, removed: &mut Vec<String>) -> Result<(), String> {
+    if path.exists() {
+        fs::remove_dir_all(path)
+            .map_err(|error| format!("No se pudo eliminar {}: {error}", path.display()))?;
+        removed.push(path.to_string_lossy().to_string());
+    }
+    Ok(())
+}
+
+fn kill_running_minecraft_processes() -> Vec<String> {
+    let mut killed = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        let candidates = ["javaw.exe", "java.exe", "Minecraft.exe"];
+        for process in candidates {
+            let output = Command::new("taskkill")
+                .arg("/F")
+                .arg("/IM")
+                .arg(process)
+                .output();
+            if output.as_ref().map(|o| o.status.success()).unwrap_or(false) {
+                killed.push(process.to_string());
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("pkill")
+            .arg("-f")
+            .arg(r"net\.minecraft|minecraft|fabric-loader|forge")
+            .output();
+        if output.as_ref().map(|o| o.status.success()).unwrap_or(false) {
+            killed.push("pkill:-f minecraft".to_string());
+        }
+    }
+
+    killed
+}
+
+fn reset_instance_runtime(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<RuntimeRepairResult, String> {
+    let instance_root = launcher_root(app)?.join("instances").join(instance_id);
+    let minecraft_root = instance_game_dir(&instance_root);
+
+    let mut removed_paths = Vec::new();
+    remove_dir_if_exists(&minecraft_root.join("versions"), &mut removed_paths)?;
+    remove_dir_if_exists(&minecraft_root.join("libraries"), &mut removed_paths)?;
+    remove_dir_if_exists(&minecraft_root.join("assets"), &mut removed_paths)?;
+    remove_dir_if_exists(&minecraft_root.join("runtime"), &mut removed_paths)?;
+    remove_dir_if_exists(&minecraft_root.join("natives"), &mut removed_paths)?;
+    remove_dir_if_exists(&minecraft_root.join("http_cache"), &mut removed_paths)?;
+    remove_dir_if_exists(&minecraft_root.join("download_cache"), &mut removed_paths)?;
+    remove_dir_if_exists(&minecraft_root.join("installers"), &mut removed_paths)?;
+    remove_dir_if_exists(&instance_root.join("natives"), &mut removed_paths)?;
+
+    // Preserve mods, saves, resourcepacks, config and any external roots.
+    ensure_instance_layout(&instance_root)?;
+
+    let partials = remove_partial_files(&minecraft_root)? + remove_partial_files(&instance_root)?;
+    let killed_processes = kill_running_minecraft_processes();
+
+    write_instance_state(
+        &instance_root,
+        "runtime_reset",
+        serde_json::json!({
+            "removedPaths": removed_paths,
+            "removedPartials": partials,
+            "killedProcesses": killed_processes
+        }),
+    );
+
+    Ok(RuntimeRepairResult {
+        removed_paths,
+        removed_partial_files: partials,
+        killed_processes,
+    })
+}
+
+#[command]
+async fn repair_everything_runtime(
+    app: tauri::AppHandle,
+    args: InstanceCommandArgs,
+) -> Result<RuntimeRepairResult, String> {
+    let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
+    if instance_id.is_empty() {
+        return Err("No hay una instancia válida seleccionada para reparar todo.".to_string());
+    }
+
+    let result = reset_instance_runtime(&app, &instance_id)?;
+    let _ = prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
+    Ok(result)
+}
+
 async fn prepare_instance_runtime(
     app: &tauri::AppHandle,
     instance_id: &str,
@@ -6310,13 +6693,8 @@ async fn prepare_instance_runtime(
     }
 
     let instance_root = launcher_root(app)?.join("instances").join(instance_id);
-    if reinstall && instance_root.exists() {
-        fs::remove_dir_all(&instance_root).map_err(|error| {
-            format!(
-                "No se pudo limpiar la instancia para reinstalar ({}) : {error}",
-                instance_root.display()
-            )
-        })?;
+    if reinstall {
+        let _ = reset_instance_runtime(app, instance_id)?;
     }
 
     ensure_instance_layout(&instance_root)?;
@@ -7228,6 +7606,7 @@ pub fn run() {
             import_instance,
             delete_instance,
             repair_instance,
+            repair_everything_runtime,
             preflight_instance,
             launch_instance,
             read_instance_runtime_logs,
