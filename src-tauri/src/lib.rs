@@ -2255,16 +2255,17 @@ async fn bootstrap_instance_runtime(
             let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
             downloads.push((url, target));
         }
+        let total_downloads = downloads.len();
         write_instance_state(
             instance_root,
             "downloading_assets",
-            serde_json::json!({"assetIndex": asset_index_id, "total": downloads.len()}),
+            serde_json::json!({"assetIndex": asset_index_id, "total": total_downloads}),
         );
         download_many_with_limit(downloads, 24).await?;
         write_instance_state(
             instance_root,
             "assets_ready",
-            serde_json::json!({"assetIndex": asset_index_id, "total": downloads.len()}),
+            serde_json::json!({"assetIndex": asset_index_id, "total": total_downloads}),
         );
     }
 
@@ -3352,13 +3353,19 @@ async fn update_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     let _ = fs::remove_file(instance_root.join("launch-plan.json"));
     let _ = fs::remove_file(instance_root.join("launch-command.txt"));
 
+    let loader = instance
+        .loader_name
+        .as_deref()
+        .unwrap_or("vanilla")
+        .to_lowercase();
+
     write_instance_state(
         &instance_root,
         "instance_updated",
         serde_json::json!({
             "instance": instance.id,
             "version": instance.version,
-            "loader": instance.loader_name.unwrap_or_else(|| "vanilla".to_string()).to_lowercase(),
+            "loader": loader,
             "loaderVersion": normalized_loader_version(&instance)
         }),
     );
