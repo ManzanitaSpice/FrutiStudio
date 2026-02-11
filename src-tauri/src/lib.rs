@@ -2052,12 +2052,32 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
         || joined.contains("knot.init")
         || joined.contains("knotclient.main");
 
-    if has_loader_metadata_failure {
+    let has_corrupt_or_incomplete_jar_signal = joined.contains("minecraft.jar")
+        && (joined.contains("zip end header not found")
+            || joined.contains("invalid loc header")
+            || joined.contains("invalid or corrupt jarfile")
+            || joined.contains("failed to read class-file metadata")
+            || joined.contains("sha1")
+            || joined.contains("hash mismatch")
+            || joined.contains("checksum"));
+
+    let has_main_class_mismatch_signal = joined.contains("knotclient")
+        && (joined.contains("could not find or load main class")
+            || joined.contains("classnotfoundexception")
+            || joined.contains("main class"));
+
+    if has_loader_metadata_failure
+        || has_corrupt_or_incomplete_jar_signal
+        || has_main_class_mismatch_signal
+    {
         return Some(
-            "Diagnóstico loader: falló la lectura de metadata del minecraft.jar. Ejecuta \
-            \"Reparar runtime\" para re-descargar versión, libraries y natives, y confirma \
-            compatibilidad entre versión de Minecraft, loader y mods instalados. Si continúa, \
-            elimina la carpeta versions/<mc_version> de esa instancia y reinstala Fabric/Quilt."
+            "Diagnóstico loader (Fabric/Quilt): no se pudo validar minecraft.jar o el arranque \
+            temprano del loader. Pasos sugeridos: 1) ejecuta \"Reparar runtime\" (jar + libraries + \
+            natives + loader), 2) si persiste, borra versions/<mc_version> en esa instancia, 3) \
+            reinstala Fabric/Quilt con la versión exacta de Minecraft, 4) prueba arranque sin mods \
+            para aislar incompatibilidades. Verifica además que la main class sea \
+            net.fabricmc.loader.launch.knot.KnotClient y revisa señales de jar inválido (tamaño/hash \
+            SHA1 o ausencia de clases cliente válidas)."
                 .to_string(),
         );
     }
@@ -2084,6 +2104,18 @@ fn is_loader_runtime_repair_recommended(runtime_lines: &[String]) -> bool {
         || joined.contains("minecraftgameprovider.locategame")
         || joined.contains("knot.init")
         || joined.contains("knotclient.main")
+        || (joined.contains("minecraft.jar")
+            && (joined.contains("zip end header not found")
+                || joined.contains("invalid loc header")
+                || joined.contains("invalid or corrupt jarfile")
+                || joined.contains("failed to read class-file metadata")
+                || joined.contains("sha1")
+                || joined.contains("hash mismatch")
+                || joined.contains("checksum")))
+        || (joined.contains("knotclient")
+            && (joined.contains("could not find or load main class")
+                || joined.contains("classnotfoundexception")
+                || joined.contains("main class")))
 }
 
 fn format_startup_crash_message(
