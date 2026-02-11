@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod config;
 pub mod downloader;
+pub mod external_discovery;
 pub mod instance;
 pub mod instance_config;
 pub mod instance_runner;
