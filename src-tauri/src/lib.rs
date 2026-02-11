@@ -1740,7 +1740,7 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
                     );
                     let tmp_path = path
                         .parent()
-                        .map(|parent| parent.join(temp_name))
+                        .map(|parent| parent.join(&temp_name))
                         .unwrap_or_else(|| PathBuf::from(temp_name));
                     if let Some(parent) = tmp_path.parent() {
                         fs::create_dir_all(parent)
@@ -1754,7 +1754,7 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
                     })?;
                     match fs::rename(&tmp_path, path) {
                         Ok(_) => {}
-                        Err(error) if path.exists() => {
+                        Err(_error) if path.exists() => {
                             let _ = fs::remove_file(&tmp_path);
                         }
                         Err(error) => {
