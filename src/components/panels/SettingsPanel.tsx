@@ -149,7 +149,7 @@ export const SettingsPanel = () => {
     }
 
     const accepted = window.confirm(
-      "Esta acción borrará la carpeta del launcher, instancias, cachés y base de datos local. ¿Deseas continuar?",
+      "Esta acción reinstalará Fruti Launcher desde cero y limpiará runtime, versiones, librerías, assets, cachés y base de datos local sin tocar instancias externas. ¿Deseas continuar?",
     );
     if (!accepted) {
       return;

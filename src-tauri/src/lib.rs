@@ -74,6 +74,8 @@ struct BaseDirValidationResult {
 #[serde(rename_all = "camelCase")]
 struct LauncherFactoryResetArgs {
     confirmation_phrase: String,
+    #[serde(default)]
+    preserve_external_instances: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1699,6 +1701,49 @@ fn validate_factory_reset_target(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn delete_reset_target(path: &Path, removed_entries: &mut Vec<String>) -> Result<(), String> {
+    println!("Resetting launcher...");
+    println!("Deleting: {}", path.display());
+
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|error| {
+            format!(
+                "No se pudo eliminar la carpeta del launcher ({}): {error}",
+                path.display()
+            )
+        })?;
+    } else if path.is_file() {
+        fs::remove_file(path)
+            .map_err(|error| format!("No se pudo eliminar archivo {}: {error}", path.display()))?;
+    }
+
+    println!("Exists after delete? {}", path.exists());
+    removed_entries.push(path.display().to_string());
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn kill_reset_processes() {
+    for process_name in ["java.exe", "javaw.exe", "minecraft.exe"] {
+        let _ = Command::new("taskkill")
+            .args(["/IM", process_name, "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_reset_processes() {
+    for process_name in ["java", "javaw", "minecraft"] {
+        let _ = Command::new("pkill")
+            .args(["-f", process_name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn request_windows_admin_confirmation() -> Result<(), String> {
     let status = Command::new("powershell")
@@ -1732,57 +1777,103 @@ async fn launcher_factory_reset(
     }
 
     request_windows_admin_confirmation()?;
+    kill_reset_processes();
 
     let app_data_dir = app
         .path()
         .app_data_dir()
         .map_err(|error| format!("No se pudo resolver app_data_dir: {error}"))?;
+    let local_data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("No se pudo resolver app_local_data_dir: {error}"))?;
+    let temp_dir = std::env::temp_dir();
 
     let mut roots = vec![launcher_root(&app)?];
     let default_root = app_data_dir.join(DEFAULT_LAUNCHER_DIR_NAME);
     if !roots.iter().any(|candidate| candidate == &default_root) {
         roots.push(default_root);
     }
+    let local_root = local_data_dir.join(DEFAULT_LAUNCHER_DIR_NAME);
+    if !roots.iter().any(|candidate| candidate == &local_root) {
+        roots.push(local_root);
+    }
+    let temp_root = temp_dir.join(DEFAULT_LAUNCHER_DIR_NAME);
+    if !roots.iter().any(|candidate| candidate == &temp_root) {
+        roots.push(temp_root);
+    }
 
     let mut cleared_roots = Vec::new();
     let mut removed_entries = Vec::new();
+    let mut reset_relative_targets = vec![
+        PathBuf::from("cache"),
+        PathBuf::from("temp"),
+        PathBuf::from("http_cache"),
+        PathBuf::from("runtime"),
+        PathBuf::from("versions"),
+        PathBuf::from("libraries"),
+        PathBuf::from("assets"),
+        PathBuf::from("assets_cache"),
+        PathBuf::from("downloads"),
+        PathBuf::from("logs"),
+        PathBuf::from(".cache"),
+        PathBuf::from("minecraft"),
+    ];
+
+    if !args.preserve_external_instances.unwrap_or(true) {
+        reset_relative_targets.push(PathBuf::from("instances"));
+    }
 
     for root in roots {
         validate_factory_reset_target(&root)?;
         if root.exists() {
-            fs::remove_dir_all(&root).map_err(|error| {
-                format!(
-                    "No se pudo eliminar la carpeta del launcher ({}): {error}",
-                    root.display()
-                )
-            })?;
-            cleared_roots.push(root.display().to_string());
+            let mut touched_root = false;
+            for relative in &reset_relative_targets {
+                let target = root.join(relative);
+                if target.exists() {
+                    delete_reset_target(&target, &mut removed_entries)?;
+                    touched_root = true;
+                }
+            }
+
+            if root.exists()
+                && root
+                    .read_dir()
+                    .map(|mut entries| entries.next().is_none())
+                    .unwrap_or(false)
+            {
+                delete_reset_target(&root, &mut removed_entries)?;
+                touched_root = true;
+            }
+
+            if touched_root {
+                cleared_roots.push(root.display().to_string());
+            }
         }
     }
 
     let db_path = database_path(&app)?;
     if db_path.exists() {
-        fs::remove_file(&db_path)
+        delete_reset_target(&db_path, &mut removed_entries)
             .map_err(|error| format!("No se pudo eliminar base de datos del launcher: {error}"))?;
-        removed_entries.push(db_path.display().to_string());
     }
 
     let cfg_path = config_path(&app)?;
     if cfg_path.exists() {
-        fs::remove_file(&cfg_path)
+        delete_reset_target(&cfg_path, &mut removed_entries)
             .map_err(|error| format!("No se pudo eliminar config.json: {error}"))?;
-        removed_entries.push(cfg_path.display().to_string());
     }
 
     if let Some(parent) = cfg_path.parent() {
         let backups = parent.join("backups");
         if backups.exists() {
-            fs::remove_dir_all(&backups).map_err(|error| {
+            delete_reset_target(&backups, &mut removed_entries).map_err(|error| {
                 format!("No se pudo eliminar backups de configuración: {error}")
             })?;
-            removed_entries.push(backups.display().to_string());
         }
     }
+
+    std::thread::sleep(Duration::from_millis(500));
 
     Ok(LauncherFactoryResetResult {
         cleared_roots,
