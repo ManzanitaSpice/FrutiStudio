@@ -967,11 +967,18 @@ fn startup_crash_hint(stderr_lines: &[String]) -> Option<String> {
         );
     }
 
-    if joined.contains("mcversionlookup") || joined.contains("classreader") {
+    let has_loader_metadata_failure = joined.contains("mcversionlookup")
+        || joined.contains("classreader")
+        || joined.contains("minecraftgameprovider.locategame")
+        || joined.contains("knot.init")
+        || joined.contains("knotclient.main");
+
+    if has_loader_metadata_failure {
         return Some(
             "Diagnóstico loader: falló la lectura de metadata del minecraft.jar. Ejecuta \
             \"Reparar runtime\" para re-descargar versión, libraries y natives, y confirma \
-            compatibilidad entre versión de Minecraft, loader y mods instalados."
+            compatibilidad entre versión de Minecraft, loader y mods instalados. Si continúa, \
+            elimina la carpeta versions/<mc_version> de esa instancia y reinstala Fabric/Quilt."
                 .to_string(),
         );
     }
@@ -5871,6 +5878,23 @@ mod tests {
         let message = format_startup_crash_message(1, &stderr_lines);
         assert!(message.contains("Diagnóstico Fabric"));
         assert!(message.contains("Últimas líneas"));
+    }
+
+    #[test]
+    fn startup_crash_hint_detects_mcversionlookup_stacktrace() {
+        let stderr_lines = vec![
+            "at org.objectweb.asm.ClassReader.<init>(ClassReader.java:177)".to_string(),
+            "at net.fabricmc.loader.minecraft.McVersionLookup.fromAnalyzer(McVersionLookup.java:150)"
+                .to_string(),
+            "at net.fabricmc.loader.game.MinecraftGameProvider.locateGame(MinecraftGameProvider.java:148)"
+                .to_string(),
+            "at net.fabricmc.loader.launch.knot.Knot.init(Knot.java:82)".to_string(),
+            "at net.fabricmc.loader.launch.knot.KnotClient.main(KnotClient.java:26)".to_string(),
+        ];
+
+        let hint = startup_crash_hint(&stderr_lines).expect("hint");
+        assert!(hint.contains("Diagnóstico loader"));
+        assert!(hint.contains("versions/<mc_version>"));
     }
 
     #[test]
