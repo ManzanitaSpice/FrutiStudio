@@ -57,7 +57,37 @@ export const createInstance = async (config: Instance) => {
   }
 };
 
-export const updateInstance = async (_config: Instance) => Promise.resolve();
+export const updateInstance = async (config: Instance) => {
+  await invokeWithHandling("update_instance", {
+    instance: {
+      id: config.id,
+      name: config.name,
+      version: config.version,
+      loaderName: config.loaderName,
+      loaderVersion:
+        config.loaderName.toLowerCase() === "vanilla"
+          ? "latest"
+          : config.loaderVersion,
+    },
+  });
+
+  if (cachedInstances) {
+    cachedInstances = cachedInstances.map((entry) =>
+      entry.id === config.id
+        ? {
+            ...entry,
+            name: config.name,
+            version: config.version,
+            loaderName: config.loaderName,
+            loaderVersion:
+              config.loaderName.toLowerCase() === "vanilla"
+                ? "latest"
+                : config.loaderVersion,
+          }
+        : entry,
+    );
+  }
+};
 
 export const removeInstance = async (instanceId: string) => {
   const validInstanceId = assertValidInstanceId(instanceId);

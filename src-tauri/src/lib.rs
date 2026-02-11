@@ -2210,6 +2210,11 @@ async fn bootstrap_instance_runtime(
         .and_then(|v| v.get("id"))
         .and_then(|v| v.as_str())
         .unwrap_or("legacy");
+    write_instance_state(
+        instance_root,
+        "downloading_asset_index",
+        serde_json::json!({"step": "asset_index", "url": asset_index_url}),
+    );
     let asset_index_json = reqwest::get(asset_index_url)
         .await
         .map_err(|error| format!("No se pudo descargar asset index: {error}"))?
@@ -2250,11 +2255,26 @@ async fn bootstrap_instance_runtime(
             let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
             downloads.push((url, target));
         }
+        write_instance_state(
+            instance_root,
+            "downloading_assets",
+            serde_json::json!({"assetIndex": asset_index_id, "total": downloads.len()}),
+        );
         download_many_with_limit(downloads, 24).await?;
+        write_instance_state(
+            instance_root,
+            "assets_ready",
+            serde_json::json!({"assetIndex": asset_index_id, "total": downloads.len()}),
+        );
     }
 
     let mut effective_version_json = base_version_json.clone();
     if loader == "forge" || loader == "neoforge" {
+        write_instance_state(
+            instance_root,
+            "installing_loader",
+            serde_json::json!({"loader": loader, "version": instance.loader_version, "step": "forge_like"}),
+        );
         let _installed_profile_id = install_forge_like_loader(
             app,
             &minecraft_root,
@@ -2333,6 +2353,11 @@ async fn bootstrap_instance_runtime(
                 ),
             ]
         };
+        write_instance_state(
+            instance_root,
+            "installing_loader",
+            serde_json::json!({"loader": loader, "version": loader_version, "step": "fabric_profile"}),
+        );
         let profile = fetch_json_with_fallback(&profile_urls, "perfil del loader").await?;
         effective_version_json = merge_version_json(&effective_version_json, &profile);
         libraries = effective_version_json
@@ -2392,6 +2417,12 @@ async fn bootstrap_instance_runtime(
         "osx" => "natives-osx",
         _ => "natives-linux",
     };
+
+    write_instance_state(
+        instance_root,
+        "downloading_libraries",
+        serde_json::json!({"step": "libraries", "total": libraries.len()}),
+    );
 
     for library in libraries {
         if !library_allowed_for_current_os(&library) {
@@ -2501,6 +2532,12 @@ async fn bootstrap_instance_runtime(
         })
         .ok_or_else(|| format!("No se encontró Java compatible. Requerido Java {java_major}."))?;
 
+    write_instance_state(
+        instance_root,
+        "libraries_ready",
+        serde_json::json!({"step": "libraries"}),
+    );
+
     let memory = resolve_memory_config(instance_root);
     let cp_separator = if cfg!(target_os = "windows") {
         ';'
@@ -2599,6 +2636,12 @@ async fn bootstrap_instance_runtime(
 
     java_args = normalize_java_launch_args(java_args, classpath_value, &natives_dir);
 
+    write_instance_state(
+        instance_root,
+        "building_launch_plan",
+        serde_json::json!({"step": "launch_plan"}),
+    );
+
     let launch_plan = LaunchPlan {
         java_path: selected.path.clone(),
         java_args: java_args.clone(),
@@ -2659,19 +2702,60 @@ async fn bootstrap_instance_runtime(
     Ok(())
 }
 
+fn summarize_state_details(details: &Value) -> String {
+    let mut chunks = Vec::new();
+    if let Some(step) = details.get("step").and_then(Value::as_str) {
+        chunks.push(step.to_string());
+    }
+    if let Some(url) = details.get("url").and_then(Value::as_str) {
+        chunks.push(url.to_string());
+    }
+    if let Some(target) = details.get("target").and_then(Value::as_str) {
+        chunks.push(target.to_string());
+    }
+    if let Some(name) = details.get("name").and_then(Value::as_str) {
+        chunks.push(name.to_string());
+    }
+    if let (Some(done), Some(total)) = (
+        details.get("completed").and_then(Value::as_u64),
+        details.get("total").and_then(Value::as_u64),
+    ) {
+        chunks.push(format!("{done}/{total}"));
+    }
+
+    if chunks.is_empty() {
+        details.to_string()
+    } else {
+        chunks.join(" | ")
+    }
+}
+
 fn write_instance_state(instance_root: &Path, status: &str, details: Value) {
+    let updated_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
     let state = serde_json::json!({
         "status": status,
-        "updatedAt": SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or_default(),
+        "updatedAt": updated_at,
         "details": details
     });
     let _ = fs::write(
         instance_root.join("instance-state.json"),
         serde_json::to_string_pretty(&state).unwrap_or_else(|_| "{}".to_string()),
     );
+
+    let event_path = instance_root.join("instance-events.log");
+    let summary = summarize_state_details(&state["details"]);
+    let line = format!(
+        "[{updated_at}] {status}: {summary}
+"
+    );
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(event_path)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
 }
 
 fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationReport {
@@ -3054,11 +3138,39 @@ fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> Result<(), String> {
-    let metadata_path = instance_root.join("instance.json");
-    if metadata_path.exists() {
-        return Ok(());
+fn normalized_loader_version(instance: &InstanceRecord) -> String {
+    let loader = instance
+        .loader_name
+        .as_deref()
+        .unwrap_or("vanilla")
+        .trim()
+        .to_lowercase();
+
+    if loader == "vanilla" {
+        return "latest".to_string();
     }
+
+    instance
+        .loader_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "—")
+        .unwrap_or("latest")
+        .to_string()
+}
+
+fn write_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> Result<(), String> {
+    let metadata_path = instance_root.join("instance.json");
+    let created_at = fs::read_to_string(&metadata_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|value| value.get("createdAt").and_then(Value::as_u64))
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or_default()
+        });
 
     let meta = serde_json::json!({
         "id": instance.id,
@@ -3069,16 +3181,10 @@ fn ensure_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> 
             .clone()
             .unwrap_or_else(|| "vanilla".to_string())
             .to_lowercase(),
-        "loader_version": instance
-            .loader_version
-            .clone()
-            .unwrap_or_else(|| "latest".to_string()),
+        "loader_version": normalized_loader_version(instance),
         "java": Value::Null,
         "memory": {"min": 2048, "max": 4096},
-        "createdAt": SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or_default()
+        "createdAt": created_at
     });
 
     fs::write(
@@ -3089,6 +3195,15 @@ fn ensure_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> 
     .map_err(|error| format!("No se pudo escribir metadata de instancia: {error}"))?;
 
     Ok(())
+}
+
+fn ensure_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> Result<(), String> {
+    let metadata_path = instance_root.join("instance.json");
+    if metadata_path.exists() {
+        return Ok(());
+    }
+
+    write_instance_metadata(instance_root, instance)
 }
 
 fn add_directory_to_zip(
@@ -3208,22 +3323,45 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
     ensure_instance_layout(&instance_root)?;
 
-    let meta = serde_json::json!({
-        "id": instance.id,
-        "name": instance.name,
-        "minecraft_version": instance.version,
-        "loader": instance.loader_name.unwrap_or_else(|| "vanilla".to_string()).to_lowercase(),
-        "loader_version": instance.loader_version.unwrap_or_else(|| "latest".to_string()),
-        "java": Value::Null,
-        "memory": {"min": 2048, "max": 4096},
-        "createdAt": SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
-    });
-    fs::write(
-        instance_root.join("instance.json"),
-        serde_json::to_string_pretty(&meta)
-            .map_err(|error| format!("No se pudo serializar metadata: {error}"))?,
+    write_instance_metadata(&instance_root, &instance)?;
+
+    Ok(())
+}
+
+#[command]
+async fn update_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Result<(), String> {
+    let path = database_path(&app)?;
+    let conn = Connection::open(path)
+        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+    conn.execute(
+        "UPDATE instances SET name = ?2, version = ?3, loader_name = ?4, loader_version = ?5 WHERE id = ?1",
+        params![
+            instance.id,
+            instance.name,
+            instance.version,
+            instance.loader_name,
+            Some(normalized_loader_version(&instance))
+        ],
     )
-    .map_err(|error| format!("No se pudo escribir metadata de instancia: {error}"))?;
+    .map_err(|error| format!("No se pudo actualizar la instancia: {error}"))?;
+
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
+    ensure_instance_layout(&instance_root)?;
+    write_instance_metadata(&instance_root, &instance)?;
+
+    let _ = fs::remove_file(instance_root.join("launch-plan.json"));
+    let _ = fs::remove_file(instance_root.join("launch-command.txt"));
+
+    write_instance_state(
+        &instance_root,
+        "instance_updated",
+        serde_json::json!({
+            "instance": instance.id,
+            "version": instance.version,
+            "loader": instance.loader_name.unwrap_or_else(|| "vanilla".to_string()).to_lowercase(),
+            "loaderVersion": normalized_loader_version(&instance)
+        }),
+    );
 
     Ok(())
 }
@@ -3418,34 +3556,60 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
         return Err("No hay una instancia válida seleccionada para reparar.".to_string());
     }
 
-    let (instance_root, instance) =
-        prepare_instance_runtime(&app, &instance_id, true, true).await?;
-    write_instance_state(
-        &instance_root,
-        "repairing",
-        serde_json::json!({"instance": instance.id}),
-    );
-    let launch_plan = read_launch_plan(&instance_root)?;
+    let mut last_error = None;
 
-    let validation = validate_launch_plan(&instance_root, &launch_plan);
-    if !validation.ok {
-        return Err(format!(
-            "La reinstalación terminó con validaciones fallidas: {}",
-            validation.errors.join("; ")
-        ));
+    for attempt in 1..=2 {
+        let (instance_root, instance) =
+            prepare_instance_runtime(&app, &instance_id, true, true).await?;
+        write_instance_state(
+            &instance_root,
+            "repairing",
+            serde_json::json!({"instance": instance.id, "attempt": attempt}),
+        );
+
+        match read_launch_plan(&instance_root) {
+            Ok(launch_plan) => {
+                let validation = validate_launch_plan(&instance_root, &launch_plan);
+                if validation.ok {
+                    write_instance_state(
+                        &instance_root,
+                        "repaired",
+                        serde_json::json!({
+                            "instance": instance.id,
+                            "attempt": attempt,
+                            "checks": validation.checks,
+                            "warnings": validation.warnings
+                        }),
+                    );
+                    return Ok(());
+                }
+
+                last_error = Some(format!(
+                    "La reinstalación terminó con validaciones fallidas: {}",
+                    validation.errors.join("; ")
+                ));
+            }
+            Err(error) => {
+                last_error = Some(error);
+            }
+        }
+
+        if attempt == 1 {
+            write_instance_state(
+                &instance_root,
+                "repair_fallback_reinstall",
+                serde_json::json!({
+                    "instance": instance.id,
+                    "message": "La reparación no pasó validación; se eliminará y recreará completamente la instancia."
+                }),
+            );
+            let _ = fs::remove_dir_all(&instance_root);
+        }
     }
 
-    write_instance_state(
-        &instance_root,
-        "repaired",
-        serde_json::json!({
-            "instance": instance.id,
-            "checks": validation.checks,
-            "warnings": validation.warnings
-        }),
-    );
-
-    Ok(())
+    Err(last_error.unwrap_or_else(|| {
+        "La reparación falló después de reintentar la reinstalación completa.".to_string()
+    }))
 }
 
 #[command]
@@ -3705,6 +3869,9 @@ async fn read_instance_runtime_logs(
     let mut lines = vec![format!("[Launcher] Instancia: {instance_id}")];
     if let Some(command) = &launch_command {
         lines.push(format!("[Launcher] Comando de arranque: {command}"));
+    }
+    for line in read_last_lines(&instance_root.join("instance-events.log"), 220) {
+        lines.push(format!("[EVENT] {line}"));
     }
     if let Some(path) = &stdout_path {
         for line in read_last_lines(path, 180) {
@@ -4146,6 +4313,7 @@ pub fn run() {
             list_java_runtimes,
             resolve_java_for_minecraft,
             create_instance,
+            update_instance,
             export_instance,
             import_instance,
             delete_instance,
