@@ -13,6 +13,18 @@ export interface ExternalInstance {
   details?: string;
 }
 
+export interface ManualExternalRoot {
+  path: string;
+  launcherHint?: string;
+  label?: string;
+}
+
+export interface RegisterExternalRootArgs {
+  path: string;
+  launcherHint?: string;
+  label?: string;
+}
+
 export interface ImportExternalInstanceArgs {
   externalId: string;
   customName?: string;
@@ -20,6 +32,26 @@ export interface ImportExternalInstanceArgs {
 
 export const fetchExternalInstances = async (): Promise<ExternalInstance[]> => {
   return invokeWithHandling<ExternalInstance[]>("list_external_instances");
+};
+
+export const fetchExternalRoots = async (): Promise<ManualExternalRoot[]> => {
+  return invokeWithHandling<ManualExternalRoot[]>("list_external_roots");
+};
+
+export const registerExternalRoot = async (
+  args: RegisterExternalRootArgs,
+): Promise<ManualExternalRoot[]> => {
+  return invokeWithHandling<ManualExternalRoot[]>("register_external_root", {
+    args,
+  });
+};
+
+export const removeExternalRoot = async (
+  path: string,
+): Promise<ManualExternalRoot[]> => {
+  return invokeWithHandling<ManualExternalRoot[]>("remove_external_root", {
+    args: { path },
+  });
 };
 
 export const importExternalInstance = async (
