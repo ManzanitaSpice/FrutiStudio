@@ -17,6 +17,7 @@ use once_cell::sync::Lazy;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha1::{Digest, Sha1};
 use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -497,6 +498,19 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 const REQUIRED_LAUNCHER_DIRS: [&str; 3] = ["instances", "downloads", "logs"];
+const ASSET_MIRROR_BASES: [&str; 3] = [
+    "https://resources.download.minecraft.net",
+    "https://bmclapi2.bangbang93.com/assets",
+    "https://download.mcbbs.net/assets",
+];
+
+#[derive(Clone)]
+struct AssetDownloadTask {
+    urls: Vec<String>,
+    path: PathBuf,
+    sha1: String,
+    object_name: String,
+}
 const DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOfficial";
 const BACKUP_PREFIX: &str = "config.json.";
 const BACKUP_SUFFIX: &str = ".bak";
@@ -1750,18 +1764,9 @@ fn ensure_forge_preflight_files(
 }
 
 async fn download_from_candidates(urls: &[String], path: &Path, label: &str) -> Result<(), String> {
-    let mut last_error = None;
-    for url in urls {
-        match download_to(url, path).await {
-            Ok(_) => return Ok(()),
-            Err(error) => last_error = Some(format!("{url}: {error}")),
-        }
-    }
-
-    Err(format!(
-        "No se pudo descargar {label}. Último error: {}",
-        last_error.unwrap_or_else(|| "desconocido".to_string())
-    ))
+    download_with_retries(urls, path, None, 4, should_validate_zip_from_path(path))
+        .await
+        .map_err(|error| format!("No se pudo descargar {label}. Último error: {error}"))
 }
 
 fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
@@ -1779,20 +1784,71 @@ fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
 }
 
 async fn download_to(url: &str, path: &Path) -> Result<(), String> {
-    let should_validate_as_zip = path
-        .extension()
+    let urls = vec![url.to_string()];
+    download_with_retries(&urls, path, None, 4, should_validate_zip_from_path(path)).await
+}
+
+fn should_validate_zip_from_path(path: &Path) -> bool {
+    path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"))
-        .unwrap_or(false);
+        .unwrap_or(false)
+}
 
+fn file_sha1(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| {
+        format!(
+            "No se pudo abrir archivo para SHA1 {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut hasher = Sha1::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| {
+            format!(
+                "No se pudo leer archivo para SHA1 {}: {error}",
+                path.display()
+            )
+        })?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn download_partial_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("download");
+    path.parent()
+        .map(|parent| parent.join(format!("{file_name}.part")))
+        .unwrap_or_else(|| PathBuf::from(format!("{file_name}.part")))
+}
+
+async fn download_with_retries(
+    urls: &[String],
+    path: &Path,
+    expected_sha1: Option<&str>,
+    attempts: u8,
+    validate_zip: bool,
+) -> Result<(), String> {
     if let Ok(meta) = fs::metadata(path) {
-        if meta.is_file()
-            && meta.len() > 0
-            && (!should_validate_as_zip || is_valid_zip_archive(path))
-        {
-            return Ok(());
+        if meta.is_file() && meta.len() > 0 && (!validate_zip || is_valid_zip_archive(path)) {
+            if let Some(expected) = expected_sha1 {
+                let existing_hash = file_sha1(path)?;
+                if existing_hash.eq_ignore_ascii_case(expected) {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
         }
     }
+
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("No se pudo crear carpeta para descarga: {error}"))?;
@@ -1800,89 +1856,100 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
 
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(12))
-        .timeout(std::time::Duration::from_secs(90))
+        .timeout(std::time::Duration::from_secs(120))
         .user_agent("FrutiLauncher/1.0")
         .build()
         .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
 
+    let partial_path = download_partial_path(path);
+    let max_attempts = attempts.max(1);
     let mut last_error = None;
-    for attempt in 1..=3 {
-        match client.get(url).send().await {
-            Ok(response) => {
-                if !response.status().is_success() {
-                    last_error = Some(format!("{url} respondió {}", response.status()));
-                } else {
+
+    for attempt in 1..=max_attempts {
+        for url in urls {
+            let resume_from = fs::metadata(&partial_path)
+                .map(|meta| meta.len())
+                .unwrap_or(0);
+            let mut request = client.get(url);
+            if resume_from > 0 {
+                request = request.header(reqwest::header::RANGE, format!("bytes={resume_from}-"));
+            }
+
+            match request.send().await {
+                Ok(response) => {
+                    if !(response.status().is_success()
+                        || response.status() == reqwest::StatusCode::PARTIAL_CONTENT)
+                    {
+                        last_error = Some(format!("{url} respondió {}", response.status()));
+                        continue;
+                    }
+
+                    let append_mode = resume_from > 0
+                        && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
                     let bytes = response
                         .bytes()
                         .await
                         .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
-                    let unique_suffix = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|value| value.as_nanos())
-                        .unwrap_or_default();
-                    let temp_name = format!(
-                        "{}.part.{unique_suffix}",
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or("download")
-                    );
-                    let tmp_path = path
-                        .parent()
-                        .map(|parent| parent.join(&temp_name))
-                        .unwrap_or_else(|| PathBuf::from(temp_name));
-                    if let Some(parent) = tmp_path.parent() {
-                        fs::create_dir_all(parent)
-                            .map_err(|error| format!("No se pudo preparar temporal: {error}"))?;
+                    let mut options = fs::OpenOptions::new();
+                    options.write(true).create(true);
+                    if append_mode {
+                        options.append(true);
+                    } else {
+                        options.truncate(true);
                     }
-                    fs::write(&tmp_path, bytes).map_err(|error| {
+                    let mut output = options.open(&partial_path).map_err(|error| {
                         format!(
-                            "No se pudo guardar temporal {}: {error}",
-                            tmp_path.display()
+                            "No se pudo abrir temporal de descarga {}: {error}",
+                            partial_path.display()
                         )
                     })?;
-                    match fs::rename(&tmp_path, path) {
-                        Ok(_) => {}
-                        Err(_error) if path.exists() => {
-                            let _ = fs::remove_file(&tmp_path);
-                        }
-                        Err(error) => {
-                            return Err(format!(
-                                "No se pudo mover temporal {} a {}: {error}",
-                                tmp_path.display(),
-                                path.display()
-                            ));
-                        }
-                    }
+                    output.write_all(&bytes).map_err(|error| {
+                        format!(
+                            "No se pudo escribir temporal de descarga {}: {error}",
+                            partial_path.display()
+                        )
+                    })?;
 
-                    if should_validate_as_zip && !is_valid_zip_archive(path) {
-                        let _ = fs::remove_file(path);
-                        last_error = Some(format!(
-                            "{url} descargó un archivo inválido (zip/jar corrupto)"
-                        ));
+                    if validate_zip && !is_valid_zip_archive(&partial_path) {
+                        last_error = Some(format!("{url} devolvió un archivo zip/jar inválido"));
                         continue;
                     }
 
+                    if let Some(expected) = expected_sha1 {
+                        let downloaded_hash = file_sha1(&partial_path)?;
+                        if !downloaded_hash.eq_ignore_ascii_case(expected) {
+                            last_error = Some(format!(
+                                "{url} devolvió hash SHA1 inválido (esperado {expected}, obtenido {downloaded_hash})"
+                            ));
+                            continue;
+                        }
+                    }
+
+                    fs::rename(&partial_path, path).map_err(|error| {
+                        format!(
+                            "No se pudo mover temporal {} a {}: {error}",
+                            partial_path.display(),
+                            path.display()
+                        )
+                    })?;
                     return Ok(());
                 }
-            }
-            Err(error) => {
-                last_error = Some(format!("No se pudo descargar {url}: {error}"));
+                Err(error) => {
+                    last_error = Some(format!("No se pudo descargar {url}: {error}"));
+                }
             }
         }
 
-        if attempt < 3 {
-            tokio::time::sleep(std::time::Duration::from_millis(250 * attempt as u64)).await;
+        if attempt < max_attempts {
+            tokio::time::sleep(std::time::Duration::from_millis(1000 * attempt as u64)).await;
         }
     }
 
-    Err(format!(
-        "No se pudo descargar {url}. Último error: {}",
-        last_error.unwrap_or_else(|| "desconocido".to_string())
-    ))
+    Err(last_error.unwrap_or_else(|| "desconocido".to_string()))
 }
 
 async fn download_many_with_limit(
-    items: Vec<(String, PathBuf)>,
+    items: Vec<AssetDownloadTask>,
     concurrency: usize,
 ) -> Result<(), String> {
     if items.is_empty() {
@@ -1892,14 +1959,18 @@ async fn download_many_with_limit(
     let gate = std::sync::Arc::new(Semaphore::new(concurrency.max(1)));
     let mut tasks = tokio::task::JoinSet::new();
 
-    for (url, path) in items {
+    for task in items {
         let permit_gate = gate.clone();
         tasks.spawn(async move {
             let _permit = permit_gate
                 .acquire_owned()
                 .await
                 .map_err(|error| format!("No se pudo adquirir cupo de descarga: {error}"))?;
-            download_to(&url, &path).await
+            download_with_retries(&task.urls, &task.path, Some(&task.sha1), 5, false)
+                .await
+                .map_err(|error| {
+                    format!("Asset {} ({}) falló: {error}", task.object_name, task.sha1)
+                })
         });
     }
 
@@ -1950,7 +2021,7 @@ fn remove_partial_files(root: &Path) -> Result<u64, String> {
             }
 
             let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or_default();
-            if file_name.contains(".part") {
+            if file_name.contains(".part.") {
                 fs::remove_file(&path).map_err(|error| {
                     format!(
                         "No se pudo limpiar temporal incompleto {}: {error}",
@@ -2421,12 +2492,12 @@ async fn bootstrap_instance_runtime(
         "downloading_asset_index",
         serde_json::json!({"step": "asset_index", "url": asset_index_url}),
     );
-    let asset_index_json = reqwest::get(asset_index_url)
-        .await
-        .map_err(|error| format!("No se pudo descargar asset index: {error}"))?
-        .json::<Value>()
-        .await
-        .map_err(|error| format!("No se pudo parsear asset index: {error}"))?;
+    let asset_index_urls = vec![
+        asset_index_url.to_string(),
+        asset_index_url.replace("piston-meta.mojang.com", "launchermeta.mojang.com"),
+        asset_index_url.replace("launchermeta.mojang.com", "piston-meta.mojang.com"),
+    ];
+    let asset_index_json = fetch_json_with_fallback(&asset_index_urls, "asset index").await?;
     let indexes_dir = minecraft_root.join("assets").join("indexes");
     fs::create_dir_all(&indexes_dir)
         .map_err(|error| format!("No se pudo crear indexes dir: {error}"))?;
@@ -2458,8 +2529,20 @@ async fn bootstrap_instance_runtime(
                 .join("objects")
                 .join(sub)
                 .join(hash);
-            let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
-            downloads.push((url, target));
+            let urls = ASSET_MIRROR_BASES
+                .iter()
+                .map(|base| format!("{base}/{sub}/{hash}"))
+                .collect::<Vec<_>>();
+            downloads.push(AssetDownloadTask {
+                urls,
+                path: target,
+                sha1: hash.to_string(),
+                object_name: value
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("asset")
+                    .to_string(),
+            });
         }
         let total_downloads = downloads.len();
         write_instance_state(
