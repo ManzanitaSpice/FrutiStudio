@@ -342,7 +342,7 @@ const AppShell = () => {
           <div className="boot-screen" role="status" aria-live="polite">
             <div className="boot-screen__window">
               <div className="boot-screen__logo" aria-label="FrutiLauncher cargando">
-                <p className="boot-screen__eyebrow">Fruti Studio</p>
+                <p className="boot-screen__eyebrow">FrutiLauncher</p>
                 <span>FrutiLauncher</span>
                 <p className="boot-screen__subtitle">
                   Preparando entorno de juego
