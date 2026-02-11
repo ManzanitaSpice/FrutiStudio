@@ -1263,14 +1263,61 @@ fn maven_path(name: &str) -> Option<PathBuf> {
     let group = parts.next()?;
     let artifact = parts.next()?;
     let version = parts.next()?;
-    let ext = parts.next().unwrap_or("jar");
+    let fourth = parts.next();
+    let fifth = parts.next();
+
+    let (classifier, ext) = match (fourth, fifth) {
+        (None, _) => (None, "jar".to_string()),
+        (Some(raw), None) => {
+            if let Some((raw_classifier, raw_ext)) = raw.split_once('@') {
+                let normalized_ext = if raw_ext.trim().is_empty() {
+                    "jar"
+                } else {
+                    raw_ext.trim()
+                };
+                let normalized_classifier = raw_classifier.trim();
+                (
+                    (!normalized_classifier.is_empty())
+                        .then_some(normalized_classifier.to_string()),
+                    normalized_ext.to_string(),
+                )
+            } else {
+                match raw {
+                    "jar" | "zip" | "pom" => (None, raw.to_string()),
+                    _ => (Some(raw.to_string()), "jar".to_string()),
+                }
+            }
+        }
+        (Some(raw_classifier), Some(raw_ext)) => {
+            let normalized_ext = if raw_ext.trim().is_empty() {
+                "jar"
+            } else {
+                raw_ext.trim()
+            };
+            let normalized_classifier = raw_classifier.trim();
+            (
+                (!normalized_classifier.is_empty()).then_some(normalized_classifier.to_string()),
+                normalized_ext.to_string(),
+            )
+        }
+    };
+
+    if parts.next().is_some() {
+        return None;
+    }
+
     let mut path = PathBuf::new();
     for piece in group.split('.') {
         path.push(piece);
     }
     path.push(artifact);
     path.push(version);
-    path.push(format!("{artifact}-{version}.{ext}"));
+    let file_name = if let Some(classifier) = classifier {
+        format!("{artifact}-{version}-{classifier}.{ext}")
+    } else {
+        format!("{artifact}-{version}.{ext}")
+    };
+    path.push(file_name);
     Some(path)
 }
 
@@ -5336,6 +5383,32 @@ mod tests {
         assert!(candidates.contains(&"21.1.128".to_string()));
         assert!(candidates.contains(&"1.21.1-neoforge-21.1.128".to_string()));
     }
+
+    #[test]
+    fn maven_path_resolves_classifier_coordinates() {
+        let path = maven_path("net.neoforged:neoforge:21.1.128:client")
+            .expect("maven coordinates with classifier");
+        assert_eq!(
+            path,
+            PathBuf::from("net/neoforged/neoforge/21.1.128/neoforge-21.1.128-client.jar")
+        );
+    }
+
+    #[test]
+    fn maven_path_resolves_at_extension_coordinates() {
+        let path = maven_path("com.example:demo:1.0.0:api@zip")
+            .expect("maven coordinates with @extension");
+        assert_eq!(
+            path,
+            PathBuf::from("com/example/demo/1.0.0/demo-1.0.0-api.zip")
+        );
+    }
+
+    #[test]
+    fn maven_path_rejects_invalid_coordinate_arity() {
+        assert!(maven_path("too:many:segments:for:one:artifact").is_none());
+    }
+
     #[test]
     fn normalize_resolution_args_applies_defaults_for_invalid_values() {
         let mut args = vec![
