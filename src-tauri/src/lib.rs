@@ -969,6 +969,8 @@ fn startup_crash_hint(stderr_lines: &[String]) -> Option<String> {
 
     let has_loader_metadata_failure = joined.contains("mcversionlookup")
         || joined.contains("classreader")
+        || joined.contains("class-file metadata")
+        || joined.contains("failed to read class")
         || joined.contains("minecraftgameprovider.locategame")
         || joined.contains("knot.init")
         || joined.contains("knotclient.main");
@@ -5895,6 +5897,19 @@ mod tests {
         let hint = startup_crash_hint(&stderr_lines).expect("hint");
         assert!(hint.contains("Diagnóstico loader"));
         assert!(hint.contains("versions/<mc_version>"));
+    }
+
+    #[test]
+    fn startup_crash_hint_detects_loader_class_metadata_read_failure() {
+        let stderr_lines = vec![
+            "java.lang.RuntimeException: Failed to read class-file metadata from minecraft.jar"
+                .to_string(),
+            "at net.fabricmc.loader.minecraft.McVersionLookup.getVersion(McVersionLookup.java:93)"
+                .to_string(),
+        ];
+
+        let hint = startup_crash_hint(&stderr_lines).expect("hint");
+        assert!(hint.contains("Diagnóstico loader"));
     }
 
     #[test]
