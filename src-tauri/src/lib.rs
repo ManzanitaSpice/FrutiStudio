@@ -4124,8 +4124,6 @@ fn classpath_entries_complete(plan: &LaunchPlan) -> bool {
         })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-
 fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
     inspect_mod_jar(mod_jar).loader
 }
