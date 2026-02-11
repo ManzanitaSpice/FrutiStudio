@@ -5,8 +5,10 @@ export const openInstancePath = async (
   subPath?: string,
 ): Promise<void> => {
   await invokeWithHandling<void>("open_instance_path", {
-    instanceId,
-    subPath,
+    args: {
+      instanceId,
+      subPath,
+    },
   });
 };
 

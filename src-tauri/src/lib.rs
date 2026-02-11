@@ -20,7 +20,7 @@ use serde_json::Value;
 use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Semaphore};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
@@ -90,6 +90,7 @@ struct LaunchInstanceResult {
 #[serde(rename_all = "camelCase")]
 struct RuntimeLogSnapshot {
     status: Option<String>,
+    state_details: Option<Value>,
     state_updated_at: Option<u64>,
     stdout_path: Option<String>,
     stderr_path: Option<String>,
@@ -1731,7 +1732,20 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
                         .duration_since(UNIX_EPOCH)
                         .map(|value| value.as_nanos())
                         .unwrap_or_default();
-                    let tmp_path = path.with_extension(format!("part.{unique_suffix}"));
+                    let temp_name = format!(
+                        "{}.part.{unique_suffix}",
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("download")
+                    );
+                    let tmp_path = path
+                        .parent()
+                        .map(|parent| parent.join(temp_name))
+                        .unwrap_or_else(|| PathBuf::from(temp_name));
+                    if let Some(parent) = tmp_path.parent() {
+                        fs::create_dir_all(parent)
+                            .map_err(|error| format!("No se pudo preparar temporal: {error}"))?;
+                    }
                     fs::write(&tmp_path, bytes).map_err(|error| {
                         format!(
                             "No se pudo guardar temporal {}: {error}",
@@ -1777,6 +1791,39 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
         "No se pudo descargar {url}. Último error: {}",
         last_error.unwrap_or_else(|| "desconocido".to_string())
     ))
+}
+
+async fn download_many_with_limit(
+    items: Vec<(String, PathBuf)>,
+    concurrency: usize,
+) -> Result<(), String> {
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    let gate = std::sync::Arc::new(Semaphore::new(concurrency.max(1)));
+    let mut tasks = tokio::task::JoinSet::new();
+
+    for (url, path) in items {
+        let permit_gate = gate.clone();
+        tasks.spawn(async move {
+            let _permit = permit_gate
+                .acquire_owned()
+                .await
+                .map_err(|error| format!("No se pudo adquirir cupo de descarga: {error}"))?;
+            download_to(&url, &path).await
+        });
+    }
+
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return Err(error),
+            Err(error) => return Err(format!("Error en tarea de descarga: {error}")),
+        }
+    }
+
+    Ok(())
 }
 
 fn remove_partial_files(root: &Path) -> Result<u64, String> {
@@ -2096,6 +2143,11 @@ async fn bootstrap_instance_runtime(
         "https://launchermeta.mojang.com/mc/game/version_manifest.json".to_string(),
         "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json".to_string(),
     ];
+    write_instance_state(
+        instance_root,
+        "downloading_manifest",
+        serde_json::json!({"step": "version_manifest"}),
+    );
     let manifest_json = fetch_json_with_fallback(&manifest_urls, "manifiesto de versiones").await?;
     let manifest = serde_json::from_value::<MojangVersionManifest>(manifest_json)
         .map_err(|error| format!("No se pudo parsear el manifiesto de versiones: {error}"))?;
@@ -2116,6 +2168,11 @@ async fn bootstrap_instance_runtime(
             .url
             .replace("piston-meta.mojang.com", "launchermeta.mojang.com"),
     ];
+    write_instance_state(
+        instance_root,
+        "downloading_version_metadata",
+        serde_json::json!({"version": version}),
+    );
     let base_version_json =
         fetch_json_with_fallback(&version_json_urls, "metadata de versión").await?;
 
@@ -2136,6 +2193,11 @@ async fn bootstrap_instance_runtime(
         .and_then(|v| v.as_str())
         .ok_or_else(|| "La metadata de Minecraft no trae URL de client.jar".to_string())?;
     let client_jar = version_dir.join(format!("{version}.jar"));
+    write_instance_state(
+        instance_root,
+        "downloading_client",
+        serde_json::json!({"version": version, "target": client_jar.to_string_lossy()}),
+    );
     download_to(client_url, &client_jar).await?;
 
     let asset_index_url = base_version_json
@@ -2164,7 +2226,14 @@ async fn bootstrap_instance_runtime(
     )
     .map_err(|error| format!("No se pudo guardar asset index: {error}"))?;
 
+    write_instance_state(
+        instance_root,
+        "downloading_assets",
+        serde_json::json!({"assetIndex": asset_index_id}),
+    );
+
     if let Some(objects) = asset_index_json.get("objects").and_then(|v| v.as_object()) {
+        let mut downloads = Vec::new();
         for value in objects.values() {
             let Some(hash) = value.get("hash").and_then(|v| v.as_str()) else {
                 continue;
@@ -2179,8 +2248,9 @@ async fn bootstrap_instance_runtime(
                 .join(sub)
                 .join(hash);
             let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
-            download_to(&url, &target).await?;
+            downloads.push((url, target));
         }
+        download_many_with_limit(downloads, 24).await?;
     }
 
     let mut effective_version_json = base_version_json.clone();
@@ -3619,6 +3689,10 @@ async fn read_instance_runtime_logs(
         .as_ref()
         .and_then(|value| value.get("updatedAt"))
         .and_then(Value::as_u64);
+    let state_details = state_value
+        .as_ref()
+        .and_then(|value| value.get("details"))
+        .cloned();
 
     let logs_dir = instance_root.join("logs");
     let stdout_path = latest_runtime_log(&logs_dir, ".stdout.log");
@@ -3645,6 +3719,7 @@ async fn read_instance_runtime_logs(
 
     Ok(RuntimeLogSnapshot {
         status,
+        state_details,
         state_updated_at,
         stdout_path: stdout_path.map(|p| p.to_string_lossy().to_string()),
         stderr_path: stderr_path.map(|p| p.to_string_lossy().to_string()),

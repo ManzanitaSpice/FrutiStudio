@@ -145,6 +145,13 @@ const defaultInstanceConfig = (): InstanceConfigState => ({
   envVariables: "JAVA_HOME=\nMC_PROFILE=instance",
 });
 
+interface StartupProgressState {
+  active: boolean;
+  progress: number;
+  stage: string;
+  details?: string;
+}
+
 interface CatalogMod {
   id: string;
   name: string;
@@ -219,6 +226,12 @@ export const InstancePanel = ({
   const [launchChecklistSummary, setLaunchChecklistSummary] = useState<string | null>(
     null,
   );
+  const [activeChecklistInstanceId, setActiveChecklistInstanceId] = useState<string | null>(
+    null,
+  );
+  const [startupProgressByInstance, setStartupProgressByInstance] = useState<
+    Record<string, StartupProgressState>
+  >({});
   const launchChecklistRunRef = useRef(0);
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
@@ -276,6 +289,24 @@ export const InstancePanel = ({
     setLaunchStatusByInstance((prev) => ({
       ...prev,
       [instanceId]: message,
+    }));
+  };
+
+
+  const updateStartupProgress = (
+    instanceId: string,
+    patch: Partial<StartupProgressState>,
+  ) => {
+    setStartupProgressByInstance((prev) => ({
+      ...prev,
+      [instanceId]: {
+        ...(prev[instanceId] ?? {
+          active: false,
+          progress: 0,
+          stage: "Preparando...",
+        }),
+        ...patch,
+      },
     }));
   };
 
@@ -344,11 +375,18 @@ export const InstancePanel = ({
     const runId = Date.now();
     launchChecklistRunRef.current = runId;
 
+    setActiveChecklistInstanceId(instanceId);
     setLaunchChecklistOpen(true);
     setLaunchChecklistRunning(true);
     setLaunchChecklistSummary(null);
     setLaunchChecklistChecks([]);
     setLaunchChecklistLogs(["Abriendo verificación previa de instancia..."]);
+    updateStartupProgress(instanceId, {
+      active: true,
+      progress: 8,
+      stage: "Iniciando validación",
+      details: "Preparando diagnóstico y entorno.",
+    });
 
     const isCurrentRun = () => launchChecklistRunRef.current === runId;
 
@@ -364,8 +402,54 @@ export const InstancePanel = ({
         window.setTimeout(resolve, ms);
       });
 
-    const runTimedPreflight = async (phaseLabel: string) => {
+    const logBackendState = async () => {
+      const statusMap: Record<string, { progress: number; label: string }> = {
+        cleaning_partials: { progress: 15, label: "Limpiando descargas temporales" },
+        downloading_manifest: { progress: 21, label: "Descargando manifiesto oficial" },
+        downloading_version_metadata: {
+          progress: 28,
+          label: "Descargando metadata de versión",
+        },
+        downloading_client: { progress: 38, label: "Descargando cliente base" },
+        downloading_assets: { progress: 52, label: "Descargando assets" },
+        preflight: { progress: 66, label: "Verificando estructura" },
+        repairing: { progress: 72, label: "Reparando instancia" },
+        repaired: { progress: 82, label: "Reparación completada" },
+        launching: { progress: 88, label: "Inicializando runtime Java" },
+        running: { progress: 100, label: "Instancia ejecutándose" },
+      };
+      try {
+        const snapshot = await readInstanceRuntimeLogs(instanceId);
+        const status = snapshot.status ?? "";
+        if (!isCurrentRun()) {
+          return;
+        }
+        if (status && statusMap[status]) {
+          const mapped = statusMap[status];
+          updateStartupProgress(instanceId, {
+            active: mapped.progress < 100,
+            progress: mapped.progress,
+            stage: mapped.label,
+            details:
+              typeof snapshot.stateDetails?.step === "string"
+                ? snapshot.stateDetails.step
+                : undefined,
+          });
+          appendLog(`ℹ Estado backend: ${mapped.label}.`);
+        }
+      } catch {
+        // Ignorar errores de lectura de estado durante polling.
+      }
+    };
+
+    const runTimedPreflight = async (phaseLabel: string, progress: number) => {
       appendLog(phaseLabel);
+      updateStartupProgress(instanceId, {
+        active: true,
+        progress,
+        stage: "Validando estructura y runtime",
+      });
+      await logBackendState();
       let latestReport = await preflightInstance(instanceId);
 
       for (
@@ -397,8 +481,14 @@ export const InstancePanel = ({
     try {
       let report = await runTimedPreflight(
         "1/4: Revisando estructura, runtime y archivos críticos de la instancia (si falta runtime se descargará y puede tardar)...",
+        45,
       );
       appendLog("2/4: Validando checklist técnico de arranque...");
+      updateStartupProgress(instanceId, {
+        active: true,
+        progress: 62,
+        stage: "Validación técnica",
+      });
       printChecklist(report.checks);
 
       if (!report.ok) {
@@ -408,11 +498,17 @@ export const InstancePanel = ({
         appendLog(
           "3/4: Reinstalando componentes base y regenerando plan de lanzamiento...",
         );
+        updateStartupProgress(instanceId, {
+          active: true,
+          progress: 72,
+          stage: "Reparando estructura",
+        });
         await repairInstance(instanceId);
         appendLog("Reparación completada. Ejecutando validación final...");
 
         report = await runTimedPreflight(
           "4/4: Revalidando estructura tras la reparación...",
+          84,
         );
         printChecklist(report.checks);
       }
@@ -434,6 +530,11 @@ export const InstancePanel = ({
       }
 
       appendLog("Checklist completo, iniciando Java...");
+      updateStartupProgress(instanceId, {
+        active: true,
+        progress: 92,
+        stage: "Lanzando Java",
+      });
       setLaunchChecklistSummary("✅ Verificación finalizada correctamente.");
       return report;
     } finally {
@@ -442,6 +543,7 @@ export const InstancePanel = ({
       }
     }
   };
+
 
   const instanceHealth = useMemo(() => {
     if (!selectedInstance) {
@@ -461,6 +563,7 @@ export const InstancePanel = ({
       return { label: "▶ Iniciar", disabled: true, action: () => undefined };
     }
     const hasPid = typeof selectedInstance.processId === "number";
+    const startupState = startupProgressByInstance[selectedInstance.id];
     if (selectedLaunchStatus?.toLowerCase().includes("no se pudo")) {
       return {
         label: "🔧 Reparar instancia",
@@ -503,12 +606,33 @@ export const InstancePanel = ({
           }),
       };
     }
+    if (startupState?.active) {
+      return {
+        label: "⏳ Iniciando...",
+        disabled: false,
+        action: async () => {
+          const confirmRestart = window.confirm(
+            `La instancia "${selectedInstance.name}" ya se está inicializando. ¿Deseas intentar iniciar una ejecución individual nueva?`,
+          );
+          if (!confirmRestart) {
+            return;
+          }
+          setLaunchChecklistOpen(true);
+        },
+      };
+    }
     return {
       label: "▶ Iniciar",
       disabled: false,
       action: async () => {
         setLaunchChecklistOpen(true);
         setLaunchChecklistSummary(null);
+        setActiveChecklistInstanceId(selectedInstance.id);
+        updateStartupProgress(selectedInstance.id, {
+          active: true,
+          progress: 6,
+          stage: "Preparando inicio",
+        });
         try {
           setInstanceLaunchStatus(selectedInstance?.id, "Iniciando Minecraft...");
           await runLaunchChecklist(selectedInstance.id);
@@ -517,6 +641,11 @@ export const InstancePanel = ({
             ...prev,
             "4/4: Proceso de Minecraft lanzado correctamente.",
           ]);
+          updateStartupProgress(selectedInstance.id, {
+            active: false,
+            progress: 100,
+            stage: "Instancia iniciada",
+          });
           onUpdateInstance(selectedInstance.id, {
             isRunning: true,
             processId: result.pid,
@@ -542,6 +671,10 @@ export const InstancePanel = ({
           );
           setLaunchChecklistSummary(`❌ ${message}`);
           setLaunchChecklistLogs((prev) => [...prev, `✖ Inicio cancelado: ${message}`]);
+          updateStartupProgress(selectedInstance.id, {
+            active: false,
+            stage: "Error durante inicio",
+          });
         }
       },
     };
@@ -550,6 +683,7 @@ export const InstancePanel = ({
     onUpdateInstance,
     selectedInstance,
     selectedInstanceHasValidId,
+    startupProgressByInstance,
   ]);
 
   const versionRows = [
@@ -1021,6 +1155,71 @@ export const InstancePanel = ({
           ...prev,
           [selectedInstance.id]: snapshot.lines.slice(-240),
         }));
+        const backendStatusMap: Record<
+          string,
+          { progress: number; label: string; active: boolean }
+        > = {
+          cleaning_partials: {
+            progress: 12,
+            label: "Limpiando temporales de descarga",
+            active: true,
+          },
+          downloading_manifest: {
+            progress: 22,
+            label: "Descargando manifiesto",
+            active: true,
+          },
+          downloading_version_metadata: {
+            progress: 30,
+            label: "Descargando metadata de versión",
+            active: true,
+          },
+          downloading_client: {
+            progress: 40,
+            label: "Descargando cliente base",
+            active: true,
+          },
+          downloading_assets: {
+            progress: 58,
+            label: "Descargando assets de Minecraft",
+            active: true,
+          },
+          preflight: {
+            progress: 68,
+            label: "Verificando estructura de instancia",
+            active: true,
+          },
+          repairing: { progress: 75, label: "Reparando instancia", active: true },
+          repaired: {
+            progress: 84,
+            label: "Reparación terminada",
+            active: true,
+          },
+          launching: {
+            progress: 92,
+            label: "Inicializando runtime Java",
+            active: true,
+          },
+          running: { progress: 100, label: "Instancia ejecutándose", active: false },
+          stopped: { progress: 100, label: "Instancia detenida", active: false },
+          crashed: { progress: 100, label: "Instancia cerrada con error", active: false },
+          error: { progress: 100, label: "Fallo durante inicialización", active: false },
+        };
+
+        const backendStatus = snapshot.status ?? "";
+        if (backendStatus && backendStatusMap[backendStatus]) {
+          const mapped = backendStatusMap[backendStatus];
+          updateStartupProgress(selectedInstance.id, {
+            active: mapped.active,
+            progress: mapped.progress,
+            stage: mapped.label,
+            details:
+              typeof snapshot.stateDetails?.step === "string"
+                ? snapshot.stateDetails.step
+                : undefined,
+          });
+          setInstanceLaunchStatus(selectedInstance.id, mapped.label);
+        }
       } catch {
         if (!isActive) {
           return;
@@ -1040,14 +1239,14 @@ export const InstancePanel = ({
       () => {
         void pollRuntimeLogs();
       },
-      selectedInstance.isRunning ? 1200 : 3500,
+      selectedInstance.isRunning || startupProgressByInstance[selectedInstance.id]?.active ? 1200 : 3500,
     );
 
     return () => {
       isActive = false;
       window.clearInterval(interval);
     };
-  }, [selectedInstance?.id, selectedInstance?.isRunning]);
+  }, [selectedInstance?.id, selectedInstance?.isRunning, startupProgressByInstance]);
 
   useEffect(() => {
     if (!selectedInstance && editorOpen) {
@@ -2352,8 +2551,26 @@ export const InstancePanel = ({
                         </p>
                       </div>
                       <span className="instance-card__status">
-                        {statusLabels[instance.status] ?? "Estado desconocido"}
+                        {startupProgressByInstance[instance.id]?.active
+                          ? "Inicializando"
+                          : (statusLabels[instance.status] ?? "Estado desconocido")}
                       </span>
+                      {startupProgressByInstance[instance.id] ? (
+                        <div className="instance-card__startup">
+                          <div className="instance-card__startup-head">
+                            <strong>{startupProgressByInstance[instance.id].stage}</strong>
+                            <span>{Math.max(0, Math.min(100, Math.round(startupProgressByInstance[instance.id].progress)))}%</span>
+                          </div>
+                          <div className="instance-card__startup-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(startupProgressByInstance[instance.id].progress)}>
+                            <div
+                              className="instance-card__startup-fill"
+                              style={{
+                                width: `${Math.max(0, Math.min(100, startupProgressByInstance[instance.id].progress))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="instance-card__meta">
                         <span>{instance.mods} mods</span>
                         <span>{formatRelativeTime(instance.lastPlayed)}</span>
@@ -2838,13 +3055,20 @@ ${rows.join("\n")}`;
                       ...prev,
                       "⚠ Verificación cancelada manualmente.",
                     ]);
+                    if (activeChecklistInstanceId) {
+                      updateStartupProgress(activeChecklistInstanceId, {
+                        active: false,
+                        stage: "Verificación cancelada",
+                      });
+                    }
+                    setLaunchChecklistOpen(false);
                   }}
                   disabled={!launchChecklistRunning}
                 >
                   Cancelar verificación
                 </button>
                 <button type="button" onClick={() => setLaunchChecklistOpen(false)}>
-                  Cerrar
+                  Cerrar (seguir en segundo plano)
                 </button>
               </div>
             </header>
@@ -2868,6 +3092,49 @@ ${rows.join("\n")}`;
                     : (launchChecklistSummary ?? "Esperando ejecución")}
                 </span>
               </div>
+
+              {activeChecklistInstanceId && startupProgressByInstance[activeChecklistInstanceId] ? (
+                <div className="product-dialog__checklist-progress">
+                  <div className="product-dialog__checklist-progress-head">
+                    <strong>{startupProgressByInstance[activeChecklistInstanceId].stage}</strong>
+                    <span>
+                      {Math.max(
+                        0,
+                        Math.min(
+                          100,
+                          Math.round(startupProgressByInstance[activeChecklistInstanceId].progress),
+                        ),
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <div
+                    className="product-dialog__checklist-progress-track"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(
+                      startupProgressByInstance[activeChecklistInstanceId].progress,
+                    )}
+                  >
+                    <div
+                      className="product-dialog__checklist-progress-fill"
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            startupProgressByInstance[activeChecklistInstanceId].progress,
+                          ),
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  {startupProgressByInstance[activeChecklistInstanceId].details ? (
+                    <small>{startupProgressByInstance[activeChecklistInstanceId].details}</small>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="product-dialog__checklist-panels">
                 <section className="product-dialog__checklist-panel">

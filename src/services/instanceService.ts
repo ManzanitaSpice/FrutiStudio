@@ -137,6 +137,7 @@ export interface InstancePreflightReport {
 
 export interface InstanceRuntimeLogSnapshot {
   status?: string;
+  stateDetails?: Record<string, unknown>;
   stateUpdatedAt?: number;
   stdoutPath?: string;
   stderrPath?: string;
