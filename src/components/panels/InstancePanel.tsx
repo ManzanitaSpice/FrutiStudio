@@ -164,6 +164,7 @@ const mapBackendStepDetail = (detail: unknown): string | undefined => {
 
   const labels: Record<string, string> = {
     forge_like: "Instalación Forge/NeoForge",
+    forge_like_wait: "Instalador de loader ejecutándose",
     fabric_profile: "Resolviendo perfil de Fabric/Quilt",
     version_manifest: "Leyendo manifiesto oficial",
     asset_index: "Resolviendo índice de assets",
@@ -254,13 +255,15 @@ export const InstancePanel = ({
     stdoutPath?: string;
     stderrPath?: string;
   } | null>(null);
-  const [activeChecklistInstanceId, setActiveChecklistInstanceId] = useState<string | null>(
-    null,
-  );
+  const [activeChecklistInstanceId, setActiveChecklistInstanceId] = useState<
+    string | null
+  >(null);
   const [startupProgressByInstance, setStartupProgressByInstance] = useState<
     Record<string, StartupProgressState>
   >({});
   const launchChecklistRunRef = useRef(0);
+  const launchChecklistSeenLinesRef = useRef<Set<string>>(new Set());
+  const checklistLogContainerRef = useRef<HTMLDivElement | null>(null);
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
   const [editorMemory, setEditorMemory] = useState("4 GB");
@@ -320,6 +323,12 @@ export const InstancePanel = ({
     }));
   };
 
+  useEffect(() => {
+    checklistLogContainerRef.current?.scrollTo({
+      top: checklistLogContainerRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [launchChecklistLogs]);
 
   const updateStartupProgress = (
     instanceId: string,
@@ -402,6 +411,7 @@ export const InstancePanel = ({
     const checklistRetryDelayMs = 400;
     const runId = Date.now();
     launchChecklistRunRef.current = runId;
+    launchChecklistSeenLinesRef.current = new Set();
 
     setActiveChecklistInstanceId(instanceId);
     setLaunchChecklistOpen(true);
@@ -444,12 +454,19 @@ export const InstancePanel = ({
         downloading_assets: { progress: 52, label: "Descargando assets" },
         assets_ready: { progress: 58, label: "Assets descargados" },
         installing_loader: { progress: 64, label: "Instalando loader" },
+        installing_loader_waiting: {
+          progress: 66,
+          label: "Instalador del loader ejecutándose",
+        },
         downloading_libraries: { progress: 70, label: "Descargando librerías" },
         libraries_ready: { progress: 76, label: "Librerías listas" },
         building_launch_plan: { progress: 82, label: "Generando plan de arranque" },
         preflight: { progress: 86, label: "Verificando estructura" },
         repairing: { progress: 90, label: "Reparando instancia" },
-        repair_fallback_reinstall: { progress: 92, label: "Recreando instancia desde cero" },
+        repair_fallback_reinstall: {
+          progress: 92,
+          label: "Recreando instancia desde cero",
+        },
         repaired: { progress: 95, label: "Reparación completada" },
         launching: { progress: 88, label: "Inicializando runtime Java" },
         running: { progress: 100, label: "Instancia ejecutándose" },
@@ -469,23 +486,56 @@ export const InstancePanel = ({
           stderrPath: snapshot.stderrPath,
         });
 
-        const backendErrors = snapshot.lines
+        const step =
+          typeof snapshot.stateDetails?.step === "string"
+            ? snapshot.stateDetails.step.toLowerCase()
+            : "";
+        const mappedStatus =
+          status === "installing_loader" && step === "forge_like_wait"
+            ? statusMap.installing_loader_waiting
+            : statusMap[status];
+
+        const unseenLines = snapshot.lines.filter((line) => {
+          const lineKey = `${snapshot.status ?? "no-status"}:${line}`;
+          if (launchChecklistSeenLinesRef.current.has(lineKey)) {
+            return false;
+          }
+          launchChecklistSeenLinesRef.current.add(lineKey);
+          return true;
+        });
+
+        unseenLines.slice(-12).forEach((line) => {
+          if (/\[stderr\]|error|falló|exception/i.test(line)) {
+            appendLog(`🔎 Backend: ${line}`);
+          } else if (/\[event\]/i.test(line)) {
+            appendLog(`🧩 ${line}`);
+          }
+        });
+
+        const backendErrors = unseenLines
           .filter((line) => /falló|error|\[stderr\]/i.test(line))
           .slice(-2);
         backendErrors.forEach((line) => appendLog(`🔎 Backend: ${line}`));
 
-        if (status && statusMap[status]) {
-          const mapped = statusMap[status];
+        if (mappedStatus) {
           updateStartupProgress(instanceId, {
-            active: mapped.progress < 100,
-            progress: mapped.progress,
-            stage: mapped.label,
+            active: mappedStatus.progress < 100,
+            progress: mappedStatus.progress,
+            stage: mappedStatus.label,
             details: mapBackendStepDetail(snapshot.stateDetails?.step),
           });
-          appendLog(`ℹ Estado backend: ${mapped.label}.`);
+          appendLog(`ℹ Estado backend: ${mappedStatus.label}.`);
         }
       } catch {
         // Ignorar errores de lectura de estado durante polling.
+      }
+    };
+
+    let keepPolling = true;
+    const pollBackendContinuously = async () => {
+      while (isCurrentRun() && keepPolling) {
+        await logBackendState();
+        await wait(900);
       }
     };
 
@@ -526,6 +576,7 @@ export const InstancePanel = ({
     };
 
     try {
+      const pollerPromise = pollBackendContinuously();
       let report = await runTimedPreflight(
         "1/4: Revisando estructura, runtime y archivos críticos de la instancia (si falta runtime se descargará y puede tardar)...",
         45,
@@ -583,8 +634,11 @@ export const InstancePanel = ({
         stage: "Lanzando Java",
       });
       setLaunchChecklistSummary("✅ Verificación finalizada correctamente.");
+      keepPolling = false;
+      await pollerPromise;
       return report;
     } finally {
+      keepPolling = false;
       if (isCurrentRun()) {
         setLaunchChecklistRunning(false);
       }
@@ -604,11 +658,10 @@ export const InstancePanel = ({
       prev.length > 0
         ? prev
         : [
-            "Esperando una ejecución manual del checklist. Pulsa \"Iniciar\" para correr la validación completa.",
+            'Esperando una ejecución manual del checklist. Pulsa "Iniciar" para correr la validación completa.',
           ],
     );
   };
-
 
   const instanceHealth = useMemo(() => {
     if (!selectedInstance) {
@@ -703,11 +756,31 @@ export const InstancePanel = ({
         try {
           setInstanceLaunchStatus(selectedInstance?.id, "Iniciando Minecraft...");
           await runLaunchChecklist(selectedInstance.id);
+          setLaunchChecklistLogs((prev) => [
+            ...prev,
+            "3/4: Lanzando proceso Java de Minecraft...",
+          ]);
           const result = await launchInstance(selectedInstance.id);
           setLaunchChecklistLogs((prev) => [
             ...prev,
             "4/4: Proceso de Minecraft lanzado correctamente.",
           ]);
+          await (async () => {
+            const maxPolls = 8;
+            for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+              const snapshot = await readInstanceRuntimeLogs(selectedInstance.id);
+              if (snapshot.status === "running") {
+                setLaunchChecklistLogs((prev) => [
+                  ...prev,
+                  "✅ Backend confirmó estado running.",
+                ]);
+                break;
+              }
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, 250);
+              });
+            }
+          })();
           updateStartupProgress(selectedInstance.id, {
             active: false,
             progress: 100,
@@ -882,7 +955,11 @@ export const InstancePanel = ({
   };
 
   const openJavaDownloader = () => {
-    window.open("https://adoptium.net/temurin/releases/", "_blank", "noopener,noreferrer");
+    window.open(
+      "https://adoptium.net/temurin/releases/",
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   const openInstanceSubPath = async (subPath?: string, label?: string) => {
@@ -1424,7 +1501,8 @@ export const InstancePanel = ({
           const shouldRespectTransientState =
             transientStatuses.has(backendStatus) &&
             stateAgeSeconds <= 90 &&
-            (launchChecklistRunning || startupProgressByInstance[selectedInstance.id]?.active);
+            (launchChecklistRunning ||
+              startupProgressByInstance[selectedInstance.id]?.active);
 
           updateStartupProgress(selectedInstance.id, {
             active: mapped.active && shouldRespectTransientState,
@@ -1461,14 +1539,21 @@ export const InstancePanel = ({
       () => {
         void pollRuntimeLogs();
       },
-      selectedInstance.isRunning || startupProgressByInstance[selectedInstance.id]?.active ? 1200 : 3500,
+      selectedInstance.isRunning || startupProgressByInstance[selectedInstance.id]?.active
+        ? 1200
+        : 3500,
     );
 
     return () => {
       isActive = false;
       window.clearInterval(interval);
     };
-  }, [selectedInstance?.id, selectedInstance?.isRunning, startupProgressByInstance, launchChecklistRunning]);
+  }, [
+    selectedInstance?.id,
+    selectedInstance?.isRunning,
+    startupProgressByInstance,
+    launchChecklistRunning,
+  ]);
 
   useEffect(() => {
     if (!selectedInstance && editorOpen) {
@@ -2802,10 +2887,31 @@ export const InstancePanel = ({
                       {startupProgressByInstance[instance.id] ? (
                         <div className="instance-card__startup">
                           <div className="instance-card__startup-head">
-                            <strong>{startupProgressByInstance[instance.id].stage}</strong>
-                            <span>{Math.max(0, Math.min(100, Math.round(startupProgressByInstance[instance.id].progress)))}%</span>
+                            <strong>
+                              {startupProgressByInstance[instance.id].stage}
+                            </strong>
+                            <span>
+                              {Math.max(
+                                0,
+                                Math.min(
+                                  100,
+                                  Math.round(
+                                    startupProgressByInstance[instance.id].progress,
+                                  ),
+                                ),
+                              )}
+                              %
+                            </span>
                           </div>
-                          <div className="instance-card__startup-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(startupProgressByInstance[instance.id].progress)}>
+                          <div
+                            className="instance-card__startup-track"
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={Math.round(
+                              startupProgressByInstance[instance.id].progress,
+                            )}
+                          >
                             <div
                               className="instance-card__startup-fill"
                               style={{
@@ -3312,7 +3418,13 @@ ${rows.join("\n")}`;
                 >
                   Cancelar verificación
                 </button>
-                <button type="button" onClick={() => { setLaunchChecklistOpen(false); setActiveChecklistInstanceId(null); }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLaunchChecklistOpen(false);
+                    setActiveChecklistInstanceId(null);
+                  }}
+                >
                   Cerrar (seguir en segundo plano)
                 </button>
               </div>
@@ -3338,16 +3450,21 @@ ${rows.join("\n")}`;
                 </span>
               </div>
 
-              {activeChecklistInstanceId && startupProgressByInstance[activeChecklistInstanceId] ? (
+              {activeChecklistInstanceId &&
+              startupProgressByInstance[activeChecklistInstanceId] ? (
                 <div className="product-dialog__checklist-progress">
                   <div className="product-dialog__checklist-progress-head">
-                    <strong>{startupProgressByInstance[activeChecklistInstanceId].stage}</strong>
+                    <strong>
+                      {startupProgressByInstance[activeChecklistInstanceId].stage}
+                    </strong>
                     <span>
                       {Math.max(
                         0,
                         Math.min(
                           100,
-                          Math.round(startupProgressByInstance[activeChecklistInstanceId].progress),
+                          Math.round(
+                            startupProgressByInstance[activeChecklistInstanceId].progress,
+                          ),
                         ),
                       )}
                       %
@@ -3376,7 +3493,9 @@ ${rows.join("\n")}`;
                     />
                   </div>
                   {startupProgressByInstance[activeChecklistInstanceId].details ? (
-                    <small>{startupProgressByInstance[activeChecklistInstanceId].details}</small>
+                    <small>
+                      {startupProgressByInstance[activeChecklistInstanceId].details}
+                    </small>
                   ) : null}
                 </div>
               ) : null}
@@ -3402,11 +3521,39 @@ ${rows.join("\n")}`;
 
                 <section className="product-dialog__checklist-panel">
                   <h4>Bitácora en vivo</h4>
-                  <div className="instance-import__log" aria-live="polite">
+                  <div
+                    className="instance-import__log"
+                    aria-live="polite"
+                    ref={checklistLogContainerRef}
+                  >
                     {launchChecklistLogs.map((line, index) => (
                       <p key={`${line}-${index}`}>{line}</p>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    className="product-dialog__checklist-copy"
+                    onClick={async () => {
+                      const content = launchChecklistLogs.join("\n");
+                      if (!content.trim()) {
+                        return;
+                      }
+                      try {
+                        await navigator.clipboard.writeText(content);
+                        setLaunchChecklistLogs((prev) => [
+                          ...prev,
+                          "📋 Bitácora copiada al portapapeles.",
+                        ]);
+                      } catch {
+                        setLaunchChecklistLogs((prev) => [
+                          ...prev,
+                          "⚠ No se pudo copiar la bitácora automáticamente en este entorno.",
+                        ]);
+                      }
+                    }}
+                  >
+                    Copiar bitácora
+                  </button>
                 </section>
 
                 <section className="product-dialog__checklist-panel">
@@ -3414,7 +3561,8 @@ ${rows.join("\n")}`;
                   {launchChecklistDebugState ? (
                     <div className="instance-import__log" aria-live="polite">
                       <p>
-                        <strong>Estado:</strong> {launchChecklistDebugState.status ?? "sin estado"}
+                        <strong>Estado:</strong>{" "}
+                        {launchChecklistDebugState.status ?? "sin estado"}
                       </p>
                       {launchChecklistDebugState.command ? (
                         <p>
@@ -3432,7 +3580,9 @@ ${rows.join("\n")}`;
                         </p>
                       ) : null}
                       {launchChecklistDebugState.details ? (
-                        <pre>{JSON.stringify(launchChecklistDebugState.details, null, 2)}</pre>
+                        <pre>
+                          {JSON.stringify(launchChecklistDebugState.details, null, 2)}
+                        </pre>
                       ) : (
                         <p>Sin detalles adicionales reportados por backend.</p>
                       )}

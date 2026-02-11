@@ -1717,6 +1717,7 @@ async fn resolve_latest_fabric_like_loader_version(
 }
 async fn install_forge_like_loader(
     app: &tauri::AppHandle,
+    instance_root: &Path,
     minecraft_root: &Path,
     minecraft_version: &str,
     loader: &str,
@@ -1821,19 +1822,30 @@ async fn install_forge_like_loader(
     } else {
         "--installClient"
     };
+    let installer_logs_dir = instance_root.join("logs");
+    fs::create_dir_all(&installer_logs_dir)
+        .map_err(|error| format!("No se pudo crear carpeta de logs del instalador: {error}"))?;
+    let installer_stdout = installer_logs_dir.join("loader-installer.stdout.log");
+    let installer_stderr = installer_logs_dir.join("loader-installer.stderr.log");
+    let installer_stdout_file = fs::File::create(&installer_stdout)
+        .map_err(|error| format!("No se pudo crear log stdout del instalador: {error}"))?;
+    let installer_stderr_file = fs::File::create(&installer_stderr)
+        .map_err(|error| format!("No se pudo crear log stderr del instalador: {error}"))?;
+
     let mut installer = Command::new(&java_bin)
         .current_dir(minecraft_root)
         .arg("-jar")
         .arg(&installer_target)
         .arg(install_flag)
         .arg(minecraft_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::from(installer_stdout_file))
+        .stderr(Stdio::from(installer_stderr_file))
         .spawn()
         .map_err(|error| format!("No se pudo ejecutar el instalador {loader}: {error}"))?;
 
     let start = std::time::Instant::now();
     let install_timeout = Duration::from_secs(600);
+    let mut next_progress_emit = Duration::from_secs(0);
     loop {
         if let Some(status) = installer
             .try_wait()
@@ -1846,6 +1858,24 @@ async fn install_forge_like_loader(
                 ));
             }
             break;
+        }
+
+        let elapsed = start.elapsed();
+        if elapsed >= next_progress_emit {
+            write_instance_state(
+                instance_root,
+                "installing_loader",
+                serde_json::json!({
+                    "loader": loader,
+                    "version": resolved_version,
+                    "step": "forge_like_wait",
+                    "elapsedSeconds": elapsed.as_secs(),
+                    "timeoutSeconds": install_timeout.as_secs(),
+                    "stdout": installer_stdout.to_string_lossy().to_string(),
+                    "stderr": installer_stderr.to_string_lossy().to_string()
+                }),
+            );
+            next_progress_emit += Duration::from_secs(5);
         }
 
         if start.elapsed() >= install_timeout {
@@ -2971,6 +3001,7 @@ async fn bootstrap_instance_runtime(
         );
         let _installed_profile_id = install_forge_like_loader(
             app,
+            instance_root,
             &minecraft_root,
             version,
             &loader,

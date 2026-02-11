@@ -925,7 +925,6 @@ select:focus-visible {
   font-size: 0.75rem;
 }
 
-
 .instance-card__startup {
   display: grid;
   gap: 6px;
@@ -2909,7 +2908,7 @@ textarea {
 
 .product-dialog__checklist-panels {
   display: grid;
-  grid-template-columns: minmax(250px, 0.85fr) minmax(0, 1.15fr);
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.05fr) minmax(0, 1.05fr);
   gap: 14px;
   min-height: 0;
   height: min(66vh, 700px);
@@ -2985,6 +2984,16 @@ textarea {
   margin: 0;
   font-size: 0.84rem;
   color: var(--color-muted);
+}
+
+.product-dialog__checklist-panel .instance-import__log {
+  min-height: 220px;
+}
+
+.product-dialog__checklist-copy {
+  justify-self: end;
+  font-size: 0.76rem;
+  padding: 6px 10px;
 }
 
 .instance-import__log {
@@ -3811,7 +3820,10 @@ textarea {
   color: #f5ebff;
   font-weight: 600;
   font-size: 12px;
-  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease;
 }
 
 .instance-config__inline-actions button:hover {
