@@ -3935,7 +3935,7 @@ async fn preflight_instance(
     }
 
     let (instance_root, _) =
-        prepare_instance_runtime(&app, &instance_id, false, false, false).await?;
+        prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
     write_instance_state(
         &instance_root,
         "preflight",
@@ -3954,7 +3954,7 @@ async fn preflight_instance(
                         .to_string(),
                 ],
                 warnings: vec![
-                    "Se evitó la instalación automática durante verificación para respetar inicio manual de instancias."
+                    "No se logró generar el plan de arranque automáticamente durante la verificación."
                         .to_string(),
                 ],
                 checks,
