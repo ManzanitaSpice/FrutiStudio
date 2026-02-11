@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{Read, Write};
 #[cfg(unix)]
@@ -1707,20 +1708,30 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
                         .bytes()
                         .await
                         .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
-                    let tmp_path = path.with_extension("part");
+                    let unique_suffix = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|value| value.as_nanos())
+                        .unwrap_or_default();
+                    let tmp_path = path.with_extension(format!("part.{unique_suffix}"));
                     fs::write(&tmp_path, bytes).map_err(|error| {
                         format!(
                             "No se pudo guardar temporal {}: {error}",
                             tmp_path.display()
                         )
                     })?;
-                    fs::rename(&tmp_path, path).map_err(|error| {
-                        format!(
-                            "No se pudo mover temporal {} a {}: {error}",
-                            tmp_path.display(),
-                            path.display()
-                        )
-                    })?;
+                    match fs::rename(&tmp_path, path) {
+                        Ok(_) => {}
+                        Err(error) if path.exists() => {
+                            let _ = fs::remove_file(&tmp_path);
+                        }
+                        Err(error) => {
+                            return Err(format!(
+                                "No se pudo mover temporal {} a {}: {error}",
+                                tmp_path.display(),
+                                path.display()
+                            ));
+                        }
+                    }
 
                     if should_validate_as_zip && !is_valid_zip_archive(path) {
                         let _ = fs::remove_file(path);
@@ -1747,6 +1758,57 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
         "No se pudo descargar {url}. Último error: {}",
         last_error.unwrap_or_else(|| "desconocido".to_string())
     ))
+}
+
+fn remove_partial_files(root: &Path) -> Result<u64, String> {
+    if !root.exists() {
+        return Ok(0);
+    }
+
+    let mut cleaned = 0_u64;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let entries = fs::read_dir(&current)
+            .map_err(|error| format!("No se pudo inspeccionar {}: {error}", current.display()))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "No se pudo leer un elemento dentro de {}: {error}",
+                    current.display()
+                )
+            })?;
+            let path = entry.path();
+            let file_type = entry.file_type().map_err(|error| {
+                format!(
+                    "No se pudo leer tipo de archivo {}: {error}",
+                    path.display()
+                )
+            })?;
+
+            if file_type.is_dir() {
+                stack.push(path);
+                continue;
+            }
+
+            if !file_type.is_file() {
+                continue;
+            }
+
+            let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or_default();
+            if file_name.contains(".part") {
+                fs::remove_file(&path).map_err(|error| {
+                    format!(
+                        "No se pudo limpiar temporal incompleto {}: {error}",
+                        path.display()
+                    )
+                })?;
+                cleaned += 1;
+            }
+        }
+    }
+
+    Ok(cleaned)
 }
 
 fn is_valid_zip_archive(path: &Path) -> bool {
@@ -1995,6 +2057,21 @@ async fn bootstrap_instance_runtime(
         .unwrap_or("vanilla")
         .trim()
         .to_lowercase();
+
+    let assets_objects_dir = minecraft_root.join("assets").join("objects");
+    let libraries_dir = minecraft_root.join("libraries");
+    let cleaned_assets = remove_partial_files(&assets_objects_dir)?;
+    let cleaned_libraries = remove_partial_files(&libraries_dir)?;
+    if cleaned_assets > 0 || cleaned_libraries > 0 {
+        write_instance_state(
+            instance_root,
+            "cleaning_partials",
+            serde_json::json!({
+                "assetsPartials": cleaned_assets,
+                "librariesPartials": cleaned_libraries
+            }),
+        );
+    }
 
     let manifest_urls = vec![
         "https://launchermeta.mojang.com/mc/game/version_manifest.json".to_string(),
