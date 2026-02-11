@@ -284,6 +284,7 @@ export const InstancePanel = ({
   >({});
   const launchChecklistRunRef = useRef(0);
   const launchChecklistSeenLinesRef = useRef<Set<string>>(new Set());
+  const launchChecklistLastBackendStateRef = useRef<string>("");
   const checklistLogContainerRef = useRef<HTMLDivElement | null>(null);
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
@@ -444,6 +445,7 @@ export const InstancePanel = ({
     const runId = Date.now();
     launchChecklistRunRef.current = runId;
     launchChecklistSeenLinesRef.current = new Set();
+    launchChecklistLastBackendStateRef.current = "";
 
     setActiveChecklistInstanceId(instanceId);
     setLaunchChecklistOpen(true);
@@ -577,7 +579,12 @@ export const InstancePanel = ({
             stage: mappedStatus.label,
             details: mapBackendStepDetail(snapshot.stateDetails?.step),
           });
-          appendLog(`ℹ Estado backend: ${mappedStatus.label}.`);
+
+          const backendStateKey = `${status}:${JSON.stringify(snapshot.stateDetails ?? {})}`;
+          if (launchChecklistLastBackendStateRef.current !== backendStateKey) {
+            launchChecklistLastBackendStateRef.current = backendStateKey;
+            appendLog(`ℹ Estado backend: ${mappedStatus.label}.`);
+          }
         }
       } catch {
         // Ignorar errores de lectura de estado durante polling.

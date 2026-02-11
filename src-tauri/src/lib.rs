@@ -3433,10 +3433,14 @@ async fn download_with_retries(
     Err(last_error.unwrap_or_else(|| "desconocido".to_string()))
 }
 
-async fn download_many_with_limit(
+async fn download_many_with_limit<F>(
     items: Vec<AssetDownloadTask>,
     concurrency: usize,
-) -> Result<(), String> {
+    mut on_item_complete: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize) -> Result<(), String>,
+{
     if items.is_empty() {
         return Ok(());
     }
@@ -3467,9 +3471,13 @@ async fn download_many_with_limit(
         });
     }
 
+    let mut completed = 0usize;
     while let Some(joined) = tasks.join_next().await {
         match joined {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => {
+                completed += 1;
+                on_item_complete(completed)?;
+            }
             Ok(Err(error)) => return Err(error),
             Err(error) => return Err(format!("Error en tarea de descarga: {error}")),
         }
@@ -4354,7 +4362,23 @@ async fn bootstrap_instance_runtime(
                 "restoredFromCache": restored_from_cache
             }),
         );
-        download_many_with_limit(downloads.clone(), 24).await?;
+        download_many_with_limit(downloads.clone(), 16, |completed| {
+            if completed == 1 || completed % 25 == 0 || completed == total_downloads {
+                write_instance_state(
+                    instance_root,
+                    "downloading_assets",
+                    serde_json::json!({
+                        "assetIndex": asset_index_id,
+                        "total": total_downloads,
+                        "restoredFromCache": restored_from_cache,
+                        "completed": completed,
+                        "remaining": total_downloads.saturating_sub(completed),
+                    }),
+                );
+            }
+            Ok(())
+        })
+        .await?;
         for task in downloads {
             persist_asset_to_cache(&assets_cache_root, &task.path, &task.sha1, &task.sha1)?;
         }
