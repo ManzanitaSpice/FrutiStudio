@@ -3181,6 +3181,57 @@ fn persist_fabric_like_profile_json(
     Ok(profile_id)
 }
 
+fn ensure_loader_profile_client_jar(
+    minecraft_root: &Path,
+    profile_id: &str,
+    minecraft_version: &str,
+    expected_sha1: Option<&str>,
+) -> Result<bool, String> {
+    let source_jar = minecraft_root
+        .join("versions")
+        .join(minecraft_version)
+        .join(format!("{minecraft_version}.jar"));
+    if !source_jar.exists() {
+        return Err(format!(
+            "No existe minecraft.jar base para enlazar perfil del loader: {}",
+            source_jar.display()
+        ));
+    }
+
+    let profile_dir = minecraft_root.join("versions").join(profile_id);
+    fs::create_dir_all(&profile_dir).map_err(|error| {
+        format!(
+            "No se pudo crear carpeta del perfil {} para alias de jar: {error}",
+            profile_id
+        )
+    })?;
+
+    let target_jar = profile_dir.join(format!("{profile_id}.jar"));
+    if is_clean_minecraft_client_jar(&target_jar, expected_sha1) {
+        return Ok(false);
+    }
+
+    fs::copy(&source_jar, &target_jar).map_err(|error| {
+        format!(
+            "No se pudo copiar minecraft.jar base ({}) al perfil del loader ({}): {error}",
+            source_jar.display(),
+            target_jar.display()
+        )
+    })?;
+
+    let validation = validate_minecraft_client_jar(&target_jar, expected_sha1);
+    if !validation.ok {
+        return Err(format!(
+            "El jar copiado para el perfil {profile_id} quedó inválido: {}",
+            validation
+                .reason
+                .unwrap_or_else(|| "razón desconocida".to_string())
+        ));
+    }
+
+    Ok(true)
+}
+
 fn validate_loader_profile_json(
     minecraft_root: &Path,
     profile_id: &str,
@@ -5344,6 +5395,30 @@ async fn bootstrap_instance_runtime(
             &loader_version,
             &profile,
         )?;
+        let base_client_sha1 = base_version_json
+            .get("downloads")
+            .and_then(|downloads| downloads.get("client"))
+            .and_then(|client| client.get("sha1"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let profile_jar_repaired = ensure_loader_profile_client_jar(
+            &minecraft_root,
+            &persisted_profile_id,
+            version,
+            base_client_sha1,
+        )?;
+        if profile_jar_repaired {
+            write_instance_state(
+                instance_root,
+                "repairing_profile_jar",
+                serde_json::json!({
+                    "loader": loader,
+                    "profileId": persisted_profile_id,
+                    "sourceVersion": version,
+                }),
+            );
+        }
         validate_loader_profile_json(&minecraft_root, &persisted_profile_id, version)?;
         launch_version_name = persisted_profile_id;
         effective_version_json = merge_version_json(&effective_version_json, &profile);
