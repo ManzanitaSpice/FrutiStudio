@@ -396,7 +396,7 @@ export const InstancePanel = ({
 
     try {
       let report = await runTimedPreflight(
-        "1/4: Revisando estructura, runtime y archivos críticos de la instancia...",
+        "1/4: Revisando estructura, runtime y archivos críticos de la instancia (si falta runtime se descargará y puede tardar)...",
       );
       appendLog("2/4: Validando checklist técnico de arranque...");
       printChecklist(report.checks);
