@@ -925,6 +925,46 @@ select:focus-visible {
   font-size: 0.75rem;
 }
 
+
+.instance-card__startup {
+  display: grid;
+  gap: 6px;
+}
+
+.instance-card__startup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.73rem;
+  color: var(--color-muted);
+}
+
+.instance-card__startup-head strong {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instance-card__startup-track {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-surface) 60%, #030712);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.instance-card__startup-fill {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-accent) 72%, #60a5fa),
+    color-mix(in srgb, var(--color-accent) 38%, #22d3ee)
+  );
+  transition: width 180ms ease;
+}
+
 .instance-menu {
   background: transparent;
   border-radius: 14px;
@@ -2767,8 +2807,8 @@ textarea {
 }
 
 .product-dialog--checklist {
-  width: min(900px, 95vw);
-  max-height: 90vh;
+  width: min(1120px, 97vw);
+  max-height: 92vh;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
   box-shadow: 0 28px 60px rgba(0, 0, 0, 0.5);
@@ -2793,6 +2833,42 @@ textarea {
   display: grid;
   gap: 14px;
   min-height: 0;
+}
+
+.product-dialog__checklist-progress {
+  display: grid;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
+}
+
+.product-dialog__checklist-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.82rem;
+}
+
+.product-dialog__checklist-progress-track {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+}
+
+.product-dialog__checklist-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  transition: width 180ms ease;
+}
+
+.product-dialog__checklist-progress small {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
 }
 
 .product-dialog__checklist-intro {
@@ -2834,9 +2910,9 @@ textarea {
 .product-dialog__checklist-panels {
   display: grid;
   grid-template-columns: minmax(250px, 0.85fr) minmax(0, 1.15fr);
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
-  height: min(58vh, 560px);
+  height: min(66vh, 700px);
 }
 
 .product-dialog__checklist-panel {
@@ -2923,7 +2999,9 @@ textarea {
 
 .instance-import__log p {
   margin: 0;
-  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
   font-size: 0.78rem;
   line-height: 1.45;
 }
