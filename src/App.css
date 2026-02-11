@@ -907,6 +907,18 @@ select:focus-visible {
   font-size: 0.8rem;
 }
 
+.instance-card__source-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #a855f7 25%, transparent);
+  color: #f3e8ff;
+  font-size: 0.72rem;
+}
+
 .instance-card__status {
   justify-self: flex-start;
   padding: 3px 8px;

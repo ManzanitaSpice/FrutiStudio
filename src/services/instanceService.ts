@@ -25,6 +25,9 @@ export const fetchInstances = async (): Promise<Instance[]> => {
       playtimeMinutes: 0,
       isDownloading: false,
       isRunning: false,
+      sourceLauncher: local.sourceLauncher,
+      sourcePath: local.sourcePath,
+      sourceInstanceName: local.sourceInstanceName,
     }));
   } catch (error) {
     console.error("No se pudieron cargar instancias locales", error);

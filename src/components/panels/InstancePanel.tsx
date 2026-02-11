@@ -26,6 +26,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   type ExternalInstance,
   fetchExternalInstances,
+  importExternalInstance,
 } from "../../services/externalInstanceService";
 import { fetchATLauncherPacks } from "../../services/atmlService";
 import {
@@ -2525,6 +2526,37 @@ export const InstancePanel = ({
     setImportFileName(file ? file.name : "");
   };
 
+  const mapLocalInstanceToUi = (imported: {
+    id: string;
+    name: string;
+    version: string;
+    loaderName?: string;
+    loaderVersion?: string;
+    loader_name?: string;
+    loader_version?: string;
+    sourceLauncher?: string;
+    sourcePath?: string;
+    sourceInstanceName?: string;
+  }): Instance => ({
+    id: imported.id,
+    name: imported.name,
+    version: imported.version,
+    loaderName: imported.loaderName ?? imported.loader_name ?? "vanilla",
+    loaderVersion: imported.loaderVersion ?? imported.loader_version ?? "latest",
+    mods: 0,
+    memory: "4 GB",
+    status: "ready",
+    group: "No agrupado",
+    lastPlayed: "Nunca",
+    playtime: "0 min",
+    playtimeMinutes: 0,
+    isDownloading: false,
+    isRunning: false,
+    sourceLauncher: imported.sourceLauncher,
+    sourcePath: imported.sourcePath,
+    sourceInstanceName: imported.sourceInstanceName,
+  });
+
   const handleImportArchive = async () => {
     try {
       const selected = await open({
@@ -2536,25 +2568,10 @@ export const InstancePanel = ({
       }
 
       const imported = await importInstance(selected);
-      const newInstance: Instance = {
-        id: imported.id,
-        name: imported.name,
-        version: imported.version,
-        loaderName: imported.loaderName ?? imported.loader_name ?? "vanilla",
-        loaderVersion: imported.loaderVersion ?? imported.loader_version ?? "latest",
-        mods: 0,
-        memory: "4 GB",
-        status: "ready",
-        group: "No agrupado",
-        lastPlayed: "Nunca",
-        playtime: "0 min",
-        playtimeMinutes: 0,
-        isDownloading: false,
-        isRunning: false,
-      };
+      const newInstance = mapLocalInstanceToUi(imported);
       onCreateInstance(newInstance);
       onSelectInstance(newInstance.id);
-      setImportFileName(selected.split(/[\\/]/).pop() ?? "");
+      setImportFileName(selected.split(/[\/]/).pop() ?? "");
       setInstanceLaunchStatus(
         newInstance.id,
         `Instancia importada: ${newInstance.name}.`,
@@ -2566,6 +2583,27 @@ export const InstancePanel = ({
         error instanceof Error
           ? `No se pudo importar la instancia: ${error.message}`
           : "No se pudo importar la instancia.",
+      );
+    }
+  };
+
+  const handleImportDetectedInstance = async (external: ExternalInstance) => {
+    try {
+      const imported = await importExternalInstance({ externalId: external.id });
+      const newInstance = mapLocalInstanceToUi(imported);
+      onCreateInstance(newInstance);
+      onSelectInstance(newInstance.id);
+      setInstanceLaunchStatus(
+        newInstance.id,
+        `Instancia vinculada desde ${external.launcher}: ${newInstance.name}.`,
+      );
+      setCreatorOpen(false);
+    } catch (error) {
+      setInstanceLaunchStatus(
+        selectedInstance?.id,
+        error instanceof Error
+          ? `No se pudo vincular la instancia externa: ${error.message}`
+          : "No se pudo vincular la instancia externa.",
       );
     }
   };
@@ -2762,6 +2800,9 @@ export const InstancePanel = ({
                 />
                 Navegar
               </label>
+              <button type="button" onClick={() => void handleImportArchive()}>
+                Importar archivo
+              </button>
             </div>
             {importFileName ? (
               <span className="instance-import__filename">Archivo: {importFileName}</span>
@@ -2784,7 +2825,7 @@ export const InstancePanel = ({
               </button>
             </div>
             {externalStatus === "loading" ? (
-              <p>Buscando instancias en Prism, CurseForge y otros launchers...</p>
+              <p>Buscando instancias en Minecraft oficial, Prism, Modrinth y CurseForge...</p>
             ) : null}
             {externalError ? (
               <p className="instance-import__error">{externalError}</p>
@@ -2796,11 +2837,12 @@ export const InstancePanel = ({
                     <div>
                       <strong>{instance.name}</strong>
                       <span>
-                        {instance.launcher} · {instance.version}
+                        {instance.launcher} · {instance.version} · {instance.loaderName} {instance.loaderVersion}
                       </span>
+                      <span>{instance.details ?? instance.path}</span>
                     </div>
-                    <button type="button" onClick={handleImportArchive}>
-                      Importar
+                    <button type="button" onClick={() => void handleImportDetectedInstance(instance)}>
+                      Vincular
                     </button>
                   </div>
                 ))}
@@ -3058,6 +3100,12 @@ export const InstancePanel = ({
                         <p>
                           {instance.loaderName} {instance.loaderVersion}
                         </p>
+                        {instance.sourceLauncher ? (
+                          <p className="instance-card__source-tag">
+                            Importada de {instance.sourceLauncher}
+                            {instance.sourceInstanceName ? ` · ${instance.sourceInstanceName}` : ""}
+                          </p>
+                        ) : null}
                       </div>
                       <span className="instance-card__status">
                         {startupProgressByInstance[instance.id]?.active
@@ -3119,7 +3167,7 @@ export const InstancePanel = ({
               <div className="instance-menu__header">
                 <div className="instance-menu__image" />
                 <div>
-                  <span className="instance-menu__launcher">FrutiLauncher</span>
+                  <span className="instance-menu__launcher">{selectedInstance.sourceLauncher ? `Importada · ${selectedInstance.sourceLauncher}` : "FrutiLauncher"}</span>
                   <h3>{selectedInstance.name}</h3>
                   <p>Minecraft {selectedInstance.version}</p>
                   <span className="instance-menu__playtime">
