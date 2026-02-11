@@ -40,3 +40,8 @@ Se documentó e implementó una base para fingerprints + resolución de descarga
 ## Diagnóstico de arranque (código 1 / loaders)
 
 Guía operativa y plan de hardening para fallos de arranque de Minecraft (Fabric/Forge/Quilt): `docs/fabric-startup-diagnostics-plan.md`.
+
+## Prompt maestro de backend de instancias
+
+Documento operativo para implementar y reparar el flujo end-to-end (Vanilla/Fabric/Forge/NeoForge/Quilt + modpacks): `docs/prompt-maestro-backend-instances.md`.
+
