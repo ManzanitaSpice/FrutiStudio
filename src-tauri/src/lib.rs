@@ -41,6 +41,7 @@ use crate::core::instance::{
 };
 use crate::core::instance_config::{instance_game_dir, resolve_instance_launch_config};
 use crate::core::java::{JavaManager, JavaResolution, JavaRuntime};
+use crate::core::java_resolver::{required_java_major, required_java_major_for_version};
 use crate::core::launcher::{
     LaunchAuth, LaunchInstanceResult, LaunchPlan, LoaderCrashDiagnostic, MinecraftJarValidation,
     ModInspection, ModLoaderKind, RuntimeLogSnapshot, RuntimeRepairResult,
@@ -58,6 +59,7 @@ use crate::core::network::{
     MojangDownload, MojangVersionDetail, MojangVersionDownloads, MojangVersionEntry,
     MojangVersionManifest, SelectFolderResult,
 };
+use crate::core::runtime_manager::RuntimeManager;
 
 fn copy_if_missing(from: &Path, to: &Path) -> Result<bool, String> {
     if !from.exists() || to.exists() {
@@ -1757,39 +1759,7 @@ impl JavaManager {
     }
 
     fn required_major_for_minecraft_version(mc_version: &str) -> u32 {
-        let clean = mc_version.trim().trim_start_matches('v');
-        let mut parts = clean.split('.');
-        let major = parts
-            .next()
-            .and_then(|p| p.parse::<u32>().ok())
-            .unwrap_or_default();
-        let minor = parts
-            .next()
-            .and_then(|p| p.parse::<u32>().ok())
-            .unwrap_or_default();
-
-        let patch = parts
-            .next()
-            .and_then(|p| p.parse::<u32>().ok())
-            .unwrap_or_default();
-
-        if major == 1 && (minor > 20 || (minor == 20 && patch >= 5)) {
-            21
-        } else if major == 1 && minor <= 16 {
-            8
-        } else if major == 1 && minor >= 17 {
-            17
-        } else if major > 1 {
-            if major > 20 || (major == 20 && minor >= 5) {
-                21
-            } else if major >= 17 {
-                17
-            } else {
-                8
-            }
-        } else {
-            17
-        }
+        required_java_major_for_version(mc_version)
     }
 
     fn detect_installed(&self) -> Vec<JavaRuntime> {
@@ -2713,6 +2683,7 @@ async fn install_forge_like_loader(
     let manager = JavaManager::new(app)?;
     let required_java_major = JavaManager::required_major_for_minecraft(minecraft_version);
     let runtimes = manager.detect_installed();
+    let runtime_manager = RuntimeManager::new(app)?;
     let java_bin = runtimes
         .iter()
         .find(|runtime| runtime.major == required_java_major)
@@ -2722,7 +2693,13 @@ async fn install_forge_like_loader(
                 .find(|runtime| runtime.major > required_java_major)
         })
         .map(|runtime| runtime.path.clone())
-        .or_else(|| command_available("java").then(|| "java".to_string()))
+        .or_else(|| {
+            runtime_manager
+                .ensure_runtime_for_java_major(required_java_major)
+                .await
+                .ok()
+                .map(|path| path.to_string_lossy().to_string())
+        })
         .ok_or_else(|| {
             let loader_name = if loader == "neoforge" {
                 "NeoForge"
@@ -4876,15 +4853,16 @@ async fn bootstrap_instance_runtime(
     }
 
     let java_major = launch_config.java_version_required.unwrap_or_else(|| {
-        base_version_json
-            .get("javaVersion")
-            .and_then(|v| v.get("majorVersion"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(17) as u32
+        required_java_major(
+            version,
+            Some(&base_version_json),
+            Some(&effective_version_json),
+        )
     });
     let manager = JavaManager::new(app)?;
     let mut resolution = manager.resolve_for_minecraft(version);
     resolution.required_major = java_major;
+    let runtime_manager = RuntimeManager::new(app)?;
     let selected = resolution
         .runtimes
         .iter()
@@ -4898,20 +4876,20 @@ async fn bootstrap_instance_runtime(
                 .cloned()
         })
         .or_else(|| {
-            if command_available("java") {
-                Some(JavaRuntime {
-                    id: "path-java".to_string(),
-                    name: "Java del PATH".to_string(),
-                    path: "java".to_string(),
-                    version: "desconocida".to_string(),
+            runtime_manager
+                .ensure_runtime_for_java_major(java_major)
+                .await
+                .ok()
+                .map(|path| JavaRuntime {
+                    id: format!("managed-java-{java_major}"),
+                    name: format!("Java {java_major} (embebido)"),
+                    path: path.to_string_lossy().to_string(),
+                    version: format!("{java_major}"),
                     major: java_major,
                     architecture: std::env::consts::ARCH.to_string(),
-                    source: "path".to_string(),
+                    source: "embebido".to_string(),
                     recommended: true,
                 })
-            } else {
-                None
-            }
         })
         .ok_or_else(|| format!("No se encontró Java compatible. Minecraft requiere Java {java_major}. Instala Java {java_major} (Temurin recomendado) o configura una ruta java válida en el launcher."))?;
 

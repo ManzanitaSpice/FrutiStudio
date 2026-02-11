@@ -7,10 +7,12 @@ pub mod instance_config;
 pub mod instance_runner;
 pub mod java;
 pub mod java_manager;
+pub mod java_resolver;
 pub mod launcher;
 pub mod launcher_discovery;
 pub mod modloader_resolver;
 pub mod network;
+pub mod runtime_manager;
 pub mod validator;
 pub mod version_resolver;
 
