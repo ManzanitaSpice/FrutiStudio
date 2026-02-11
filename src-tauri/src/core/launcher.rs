@@ -115,8 +115,10 @@ pub(crate) struct MinecraftJarValidation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ModLoaderKind {
     Vanilla,
-    FabricLike,
-    ForgeLike,
+    Fabric,
+    Quilt,
+    Forge,
+    NeoForge,
     Unknown,
 }
 
