@@ -227,6 +227,13 @@ export const InstancePanel = ({
   const [launchChecklistSummary, setLaunchChecklistSummary] = useState<string | null>(
     null,
   );
+  const [launchChecklistDebugState, setLaunchChecklistDebugState] = useState<{
+    status?: string;
+    details?: Record<string, unknown>;
+    command?: string;
+    stdoutPath?: string;
+    stderrPath?: string;
+  } | null>(null);
   const [activeChecklistInstanceId, setActiveChecklistInstanceId] = useState<string | null>(
     null,
   );
@@ -381,6 +388,7 @@ export const InstancePanel = ({
     setLaunchChecklistRunning(true);
     setLaunchChecklistSummary(null);
     setLaunchChecklistChecks([]);
+    setLaunchChecklistDebugState(null);
     setLaunchChecklistLogs(["Abriendo verificación previa de instancia..."]);
     updateStartupProgress(instanceId, {
       active: true,
@@ -432,6 +440,20 @@ export const InstancePanel = ({
         if (!isCurrentRun()) {
           return;
         }
+
+        setLaunchChecklistDebugState({
+          status: snapshot.status,
+          details: snapshot.stateDetails,
+          command: snapshot.command,
+          stdoutPath: snapshot.stdoutPath,
+          stderrPath: snapshot.stderrPath,
+        });
+
+        const backendErrors = snapshot.lines
+          .filter((line) => /falló|error|\[stderr\]/i.test(line))
+          .slice(-2);
+        backendErrors.forEach((line) => appendLog(`🔎 Backend: ${line}`));
+
         if (status && statusMap[status]) {
           const mapped = statusMap[status];
           updateStartupProgress(instanceId, {
@@ -560,6 +582,7 @@ export const InstancePanel = ({
       setLaunchChecklistSummary(summary);
     }
     setLaunchChecklistChecks([]);
+    setLaunchChecklistDebugState(null);
     setLaunchChecklistLogs((prev) =>
       prev.length > 0
         ? prev
@@ -3370,6 +3393,41 @@ ${rows.join("\n")}`;
                       <p key={`${line}-${index}`}>{line}</p>
                     ))}
                   </div>
+                </section>
+
+                <section className="product-dialog__checklist-panel">
+                  <h4>Debug backend (tiempo real)</h4>
+                  {launchChecklistDebugState ? (
+                    <div className="instance-import__log" aria-live="polite">
+                      <p>
+                        <strong>Estado:</strong> {launchChecklistDebugState.status ?? "sin estado"}
+                      </p>
+                      {launchChecklistDebugState.command ? (
+                        <p>
+                          <strong>Comando:</strong> {launchChecklistDebugState.command}
+                        </p>
+                      ) : null}
+                      {launchChecklistDebugState.stdoutPath ? (
+                        <p>
+                          <strong>STDOUT:</strong> {launchChecklistDebugState.stdoutPath}
+                        </p>
+                      ) : null}
+                      {launchChecklistDebugState.stderrPath ? (
+                        <p>
+                          <strong>STDERR:</strong> {launchChecklistDebugState.stderrPath}
+                        </p>
+                      ) : null}
+                      {launchChecklistDebugState.details ? (
+                        <pre>{JSON.stringify(launchChecklistDebugState.details, null, 2)}</pre>
+                      ) : (
+                        <p>Sin detalles adicionales reportados por backend.</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="product-dialog__checklist-empty">
+                      El estado detallado del backend aparecerá durante la validación.
+                    </p>
+                  )}
                 </section>
               </div>
             </div>
