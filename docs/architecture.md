@@ -29,6 +29,7 @@
 
 ## Core Rust de ejecución Minecraft (sin dependencia de UI)
 
+
 La capa `core/` se divide en 7 módulos independientes y reutilizables:
 
 ```text
