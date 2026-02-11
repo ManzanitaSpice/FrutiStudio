@@ -1228,6 +1228,7 @@ fn database_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn database_connection(app: &tauri::AppHandle) -> Result<Connection, String> {
+    init_database(app)?;
     let path = database_path(app)?;
     Connection::open(path).map_err(|error| format!("No se pudo abrir la base de datos: {error}"))
 }
@@ -1245,6 +1246,9 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             version TEXT NOT NULL,
+            path TEXT,
+            loader TEXT,
+            created_at INTEGER,
             loader_name TEXT,
             loader_version TEXT,
             source_launcher TEXT,
@@ -1311,6 +1315,36 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
         }
     })
     .map_err(|error| format!("No se pudo migrar columna source_instance_name: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN path TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna path: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN loader TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna loader: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN created_at INTEGER", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna created_at: {error}"))?;
 
     Ok(())
 }
@@ -1410,7 +1444,8 @@ struct BinaryDownloadTask {
     label: String,
     validate_zip: bool,
 }
-const DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOfficial";
+const DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOficial";
+const LEGACY_DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOfficial";
 const BACKUP_PREFIX: &str = "config.json.";
 const BACKUP_SUFFIX: &str = ".bak";
 const MAX_CONFIG_BACKUPS: usize = 12;
@@ -1423,7 +1458,7 @@ fn launcher_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             if let Ok(config) = serde_json::from_str::<AppConfig>(&raw) {
                 if let Some(base_dir) = config.base_dir {
                     if !base_dir.trim().is_empty() {
-                        return Ok(PathBuf::from(base_dir));
+                        return Ok(normalize_launcher_root_candidate(Path::new(&base_dir)));
                     }
                 }
             }
@@ -1434,6 +1469,22 @@ fn launcher_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|error| format!("No se pudo obtener la carpeta del launcher: {error}"))?;
     Ok(base.join(DEFAULT_LAUNCHER_DIR_NAME))
+}
+
+fn normalize_launcher_root_candidate(base_path: &Path) -> PathBuf {
+    let file_name = base_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .map(|value| value.to_ascii_lowercase());
+
+    if matches!(
+        file_name.as_deref(),
+        Some("frutilauncheroficial") | Some("frutilauncherofficial")
+    ) {
+        base_path.to_path_buf()
+    } else {
+        base_path.join(DEFAULT_LAUNCHER_DIR_NAME)
+    }
 }
 
 fn ensure_launcher_layout(app: &tauri::AppHandle) -> Result<(), String> {
@@ -1615,9 +1666,18 @@ fn cleanup_backups(backup_dir: &Path) -> Result<(), String> {
 
 #[command]
 async fn save_base_dir(app: tauri::AppHandle, base_dir: String) -> Result<(), String> {
-    let normalized = base_dir.trim().to_string();
+    let normalized = base_dir.trim();
+    let target = if normalized.is_empty() {
+        None
+    } else {
+        Some(
+            normalize_launcher_root_candidate(Path::new(normalized))
+                .display()
+                .to_string(),
+        )
+    };
     let config = AppConfig {
-        base_dir: (!normalized.is_empty()).then_some(normalized),
+        base_dir: target,
         ..load_config(app.clone()).await?
     };
     save_config(app, config).await
@@ -1816,6 +1876,10 @@ async fn launcher_factory_reset(
     if !roots.iter().any(|candidate| candidate == &default_root) {
         roots.push(default_root);
     }
+    let legacy_default_root = app_data_dir.join(LEGACY_DEFAULT_LAUNCHER_DIR_NAME);
+    if !roots.iter().any(|candidate| candidate == &legacy_default_root) {
+        roots.push(legacy_default_root);
+    }
     let local_root = local_data_dir.join(DEFAULT_LAUNCHER_DIR_NAME);
     if !roots.iter().any(|candidate| candidate == &local_root) {
         roots.push(local_root);
@@ -1879,6 +1943,7 @@ async fn launcher_factory_reset(
         delete_reset_target(&db_path, &mut removed_entries)
             .map_err(|error| format!("No se pudo eliminar base de datos del launcher: {error}"))?;
     }
+    init_database(&app)?;
 
     let cfg_path = config_path(&app)?;
     if cfg_path.exists() {
@@ -5827,9 +5892,7 @@ async fn delete_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
             })?;
         }
 
-        let path = database_path(&app)?;
-        let conn = Connection::open(path)
-            .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+        let conn = database_connection(&app)?;
         conn.execute("DELETE FROM instances WHERE id = ?1", params![instance_id])
             .map_err(|error| {
                 format!("No se pudo eliminar la instancia de la base de datos: {error}")
@@ -6115,9 +6178,7 @@ async fn resolve_java_for_minecraft(
 
 #[command]
 async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, String> {
-    let path = database_path(&app)?;
-    let conn = Connection::open(path)
-        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+    let conn = database_connection(&app)?;
     let mut stmt = conn
         .prepare("SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name FROM instances")
         .map_err(|error| format!("No se pudo leer instancias: {error}"))?;
@@ -6354,9 +6415,7 @@ fn read_instance_record(
     app: &tauri::AppHandle,
     instance_id: &str,
 ) -> Result<InstanceRecord, String> {
-    let path = database_path(app)?;
-    let conn = Connection::open(path)
-        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+    let conn = database_connection(app)?;
 
     conn.query_row(
         "SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name FROM instances WHERE id = ?1",
@@ -6390,15 +6449,25 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
         source_instance_name: None,
     };
 
-    let path = database_path(&app)?;
-    let conn = Connection::open(path)
-        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+    let conn = database_connection(&app)?;
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
+    let instance_path = instance_root.display().to_string();
+    let normalized_loader = instance
+        .loader_name
+        .as_deref()
+        .unwrap_or("vanilla")
+        .to_lowercase();
+    let created_at = current_unix_secs() as i64;
+
     conn.execute(
-        "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT OR REPLACE INTO instances (id, name, version, path, loader, created_at, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             normalized.id,
             normalized.name,
             normalized.version,
+            instance_path,
+            normalized_loader,
+            created_at,
             normalized.loader_name,
             normalized.loader_version,
             normalized.source_launcher,
@@ -6408,7 +6477,6 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
     )
     .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
 
-    let instance_root = launcher_root(&app)?.join("instances").join(&instance.id);
     ensure_instance_layout(&instance_root)?;
 
     write_instance_metadata(&instance_root, &normalized)?;
@@ -6418,9 +6486,7 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
 
 #[command]
 async fn update_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Result<(), String> {
-    let path = database_path(&app)?;
-    let conn = Connection::open(path)
-        .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
+    let conn = database_connection(&app)?;
     conn.execute(
         "UPDATE instances SET name = ?2, version = ?3, loader_name = ?4, loader_version = ?5 WHERE id = ?1",
         params![
