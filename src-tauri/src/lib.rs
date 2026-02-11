@@ -3646,6 +3646,33 @@ fn has_minecraft_client_marker(path: &Path) -> bool {
     .any(|entry| zip.by_name(entry).is_ok())
 }
 
+const MIN_CLIENT_JAR_SIZE_BYTES: u64 = 15 * 1024 * 1024;
+
+fn is_clean_minecraft_client_jar(path: &Path, expected_sha1: Option<&str>) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+
+    if !metadata.is_file() || metadata.len() < MIN_CLIENT_JAR_SIZE_BYTES {
+        return false;
+    }
+
+    if !is_valid_zip_stream(path) || !has_minecraft_client_marker(path) {
+        return false;
+    }
+
+    if let Some(expected_sha1) = expected_sha1 {
+        let Ok(actual_sha1) = file_sha1(path) else {
+            return false;
+        };
+        if !actual_sha1.eq_ignore_ascii_case(expected_sha1) {
+            return false;
+        }
+    }
+
+    true
+}
+
 fn looks_like_minecraft_version_jar(path: &Path) -> bool {
     let Some(file_stem) = path.file_stem().and_then(|value| value.to_str()) else {
         return false;
@@ -4270,6 +4297,34 @@ async fn bootstrap_instance_runtime(
         should_validate_zip_from_path(&client_jar),
     )
     .await?;
+
+    if !is_clean_minecraft_client_jar(&client_jar, Some(client_sha1)) {
+        let _ = fs::remove_file(&client_jar);
+        write_instance_state(
+            instance_root,
+            "repairing_client",
+            serde_json::json!({
+                "version": version,
+                "reason": "client_jar_invalid_after_download",
+                "target": client_jar.to_string_lossy(),
+                "sha1": client_sha1
+            }),
+        );
+        download_with_retries(
+            &[client_url.to_string()],
+            &client_jar,
+            Some(client_sha1),
+            4,
+            should_validate_zip_from_path(&client_jar),
+        )
+        .await?;
+
+        if !is_clean_minecraft_client_jar(&client_jar, Some(client_sha1)) {
+            return Err(format!(
+                "El minecraft.jar descargado para {version} quedó inválido/corrupto tras 2 intentos. Borra versions/{version} y vuelve a intentar (SHA1 esperado: {client_sha1})."
+            ));
+        }
+    }
 
     let asset_index_url = base_version_json
         .get("assetIndex")
@@ -4927,7 +4982,7 @@ fn write_instance_state(instance_root: &Path, status: &str, details: Value) {
 }
 
 fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationReport {
-    const MIN_MINECRAFT_JAR_SIZE_BYTES: u64 = 15 * 1024 * 1024;
+    const MIN_MINECRAFT_JAR_SIZE_BYTES: u64 = MIN_CLIENT_JAR_SIZE_BYTES;
 
     let mut checks = HashMap::new();
     let mut errors = Vec::new();
