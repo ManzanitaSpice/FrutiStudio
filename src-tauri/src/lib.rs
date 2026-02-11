@@ -1591,10 +1591,16 @@ fn resolve_loader_profile_json(
 }
 
 async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(25))
+        .build()
+        .ok()?;
+
     if loader == "forge" {
         let promotions_url =
             "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
-        if let Ok(resp) = reqwest::get(promotions_url).await {
+        if let Ok(resp) = client.get(promotions_url).send().await {
             if let Ok(json) = resp.json::<Value>().await {
                 let key_recommended = format!("{minecraft_version}-recommended");
                 let key_latest = format!("{minecraft_version}-latest");
@@ -1618,7 +1624,7 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
     let neoforge_channel = neoforge_channel_for_minecraft(minecraft_version);
 
     for url in metadata_urls {
-        let Ok(resp) = reqwest::get(url).await else {
+        let Ok(resp) = client.get(url).send().await else {
             continue;
         };
         let Ok(xml) = resp.text().await else {
@@ -1690,7 +1696,13 @@ async fn resolve_latest_fabric_like_loader_version(
         format!("https://meta.fabricmc.net/v2/versions/loader/{minecraft_version}")
     };
 
-    let Ok(resp) = reqwest::get(&endpoint).await else {
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(25))
+        .build()
+        .ok()?;
+
+    let Ok(resp) = client.get(&endpoint).send().await else {
         return None;
     };
     let Ok(json) = resp.json::<Value>().await else {
@@ -1923,6 +1935,9 @@ fn discover_forge_like_profile_id(
     let loader_lower = loader.to_lowercase();
     let mc_prefix = format!("{minecraft_version}-").to_lowercase();
 
+    let mut strong_matches: Vec<String> = Vec::new();
+    let mut relaxed_matches: Vec<String> = Vec::new();
+
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
@@ -1942,17 +1957,23 @@ fn discover_forge_like_profile_id(
         if !id_lower.contains(&loader_lower) {
             continue;
         }
-        if !id_lower.contains(&resolved_lower) {
-            continue;
-        }
-
         let profile_json = path.join(format!("{id}.json"));
         if profile_json.exists() {
-            return Some(id);
+            if id_lower.contains(&resolved_lower) {
+                strong_matches.push(id);
+            } else {
+                relaxed_matches.push(id);
+            }
         }
     }
 
-    None
+    if !strong_matches.is_empty() {
+        strong_matches.sort_by(|left, right| compare_numeric_versions(left, right));
+        return strong_matches.pop();
+    }
+
+    relaxed_matches.sort_by(|left, right| compare_numeric_versions(left, right));
+    relaxed_matches.pop()
 }
 
 fn ensure_forge_preflight_files(
