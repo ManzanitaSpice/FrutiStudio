@@ -512,6 +512,78 @@ struct AssetDownloadTask {
     object_name: String,
 }
 
+fn launcher_assets_cache_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(launcher_root(app)?.join("assets_cache").join("objects"))
+}
+
+fn sync_asset_from_cache(
+    cache_root: &Path,
+    hash: &str,
+    target: &Path,
+    expected_sha1: &str,
+) -> Result<bool, String> {
+    if hash.len() < 2 {
+        return Ok(false);
+    }
+    let sub = &hash[0..2];
+    let cache_file = cache_root.join(sub).join(hash);
+    if !cache_file.exists() {
+        return Ok(false);
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("No se pudo crear carpeta destino de asset: {error}"))?;
+    }
+
+    let cache_hash = file_sha1(&cache_file)?;
+    if !cache_hash.eq_ignore_ascii_case(expected_sha1) {
+        let _ = fs::remove_file(&cache_file);
+        return Ok(false);
+    }
+
+    fs::copy(&cache_file, target).map_err(|error| {
+        format!(
+            "No se pudo copiar asset desde cache {} a {}: {error}",
+            cache_file.display(),
+            target.display()
+        )
+    })?;
+    Ok(true)
+}
+
+fn persist_asset_to_cache(
+    cache_root: &Path,
+    source: &Path,
+    hash: &str,
+    expected_sha1: &str,
+) -> Result<(), String> {
+    if hash.len() < 2 || !source.exists() {
+        return Ok(());
+    }
+    let source_hash = file_sha1(source)?;
+    if !source_hash.eq_ignore_ascii_case(expected_sha1) {
+        return Err(format!(
+            "Asset descargado con hash inválido al persistir cache (esperado {expected_sha1}, obtenido {source_hash})"
+        ));
+    }
+    let sub = &hash[0..2];
+    let cache_dir = cache_root.join(sub);
+    fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("No se pudo crear carpeta de cache de assets: {error}"))?;
+    let cache_file = cache_dir.join(hash);
+    if cache_file.exists() {
+        return Ok(());
+    }
+    fs::copy(source, &cache_file).map_err(|error| {
+        format!(
+            "No se pudo persistir asset en cache {}: {error}",
+            cache_file.display()
+        )
+    })?;
+    Ok(())
+}
+
 #[derive(Clone)]
 struct BinaryDownloadTask {
     urls: Vec<String>,
@@ -1667,11 +1739,8 @@ async fn install_forge_like_loader(
             "forge",
         )
     };
-    let expected_id_candidates = expected_forge_like_profile_ids(
-        loader,
-        minecraft_version,
-        &resolved_version,
-    );
+    let expected_id_candidates =
+        expected_forge_like_profile_ids(loader, minecraft_version, &resolved_version);
 
     let installer_url =
         format!("{base_url}/{resolved_version}/{artifact_name}-{resolved_version}-installer.jar");
@@ -1787,12 +1856,7 @@ async fn install_forge_like_loader(
     });
 
     let installed_profile_id = installed_profile_id.or_else(|| {
-        discover_forge_like_profile_id(
-            minecraft_root,
-            loader,
-            minecraft_version,
-            &resolved_version,
-        )
+        discover_forge_like_profile_id(minecraft_root, loader, minecraft_version, &resolved_version)
     });
 
     if installed_profile_id.is_none() {
@@ -2028,6 +2092,32 @@ fn download_partial_path(path: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(format!("{file_name}.part")))
 }
 
+fn normalized_display_path(path: &Path) -> String {
+    fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string()
+}
+
+fn ensure_writable_dir(path: &Path) -> Result<(), String> {
+    fs::create_dir_all(path)
+        .map_err(|error| format!("No se pudo asegurar carpeta {}: {error}", path.display()))?;
+    let probe_path = path.join(".fruti-write-test");
+    fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&probe_path)
+        .map_err(|error| {
+            format!(
+                "No hay permisos de escritura en {}: {error}",
+                normalized_display_path(path)
+            )
+        })?;
+    let _ = fs::remove_file(probe_path);
+    Ok(())
+}
+
 async fn download_with_retries(
     urls: &[String],
     path: &Path,
@@ -2049,8 +2139,7 @@ async fn download_with_retries(
     }
 
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("No se pudo crear carpeta para descarga: {error}"))?;
+        ensure_writable_dir(parent)?;
     }
 
     let client = reqwest::Client::builder()
@@ -2061,6 +2150,9 @@ async fn download_with_retries(
         .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
 
     let partial_path = download_partial_path(path);
+    if partial_path.exists() {
+        let _ = fs::remove_file(&partial_path);
+    }
     let max_attempts = attempts.max(1);
     let mut last_error = None;
 
@@ -2120,17 +2212,35 @@ async fn download_with_retries(
                             last_error = Some(format!(
                                 "{url} devolvió hash SHA1 inválido (esperado {expected}, obtenido {downloaded_hash})"
                             ));
+                            let _ = fs::remove_file(&partial_path);
                             continue;
                         }
                     }
 
-                    fs::rename(&partial_path, path).map_err(|error| {
-                        format!(
-                            "No se pudo mover temporal {} a {}: {error}",
-                            partial_path.display(),
-                            path.display()
-                        )
-                    })?;
+                    let mut moved = false;
+                    for _ in 0..4 {
+                        if let Some(parent) = path.parent() {
+                            ensure_writable_dir(parent)?;
+                        }
+                        if !partial_path.exists() {
+                            break;
+                        }
+                        if fs::rename(&partial_path, path).is_ok() {
+                            moved = true;
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                    }
+
+                    if !moved {
+                        let final_exists = path.exists();
+                        return Err(format!(
+                            "No se pudo mover temporal a destino. sha1={}; temp={}; final={}; finalExiste={final_exists}",
+                            expected_sha1.unwrap_or("sin-sha1"),
+                            normalized_display_path(&partial_path),
+                            normalized_display_path(path),
+                        ));
+                    }
                     return Ok(());
                 }
                 Err(error) => {
@@ -2165,10 +2275,18 @@ async fn download_many_with_limit(
                 .acquire_owned()
                 .await
                 .map_err(|error| format!("No se pudo adquirir cupo de descarga: {error}"))?;
+            let temp_path = download_partial_path(&task.path);
             download_with_retries(&task.urls, &task.path, Some(&task.sha1), 5, false)
                 .await
                 .map_err(|error| {
-                    format!("Asset {} ({}) falló: {error}", task.object_name, task.sha1)
+                    format!(
+                        "Asset {} ({}) falló: {} | final={} | temp={}",
+                        task.object_name,
+                        task.sha1,
+                        error,
+                        normalized_display_path(&task.path),
+                        normalized_display_path(&temp_path)
+                    )
                 })
         });
     }
@@ -2261,7 +2379,7 @@ fn remove_partial_files(root: &Path) -> Result<u64, String> {
             }
 
             let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or_default();
-            if file_name.contains(".part.") {
+            if file_name.ends_with(".part") || file_name.contains(".part.") {
                 fs::remove_file(&path).map_err(|error| {
                     format!(
                         "No se pudo limpiar temporal incompleto {}: {error}",
@@ -2755,20 +2873,33 @@ async fn bootstrap_instance_runtime(
     );
 
     if let Some(objects) = asset_index_json.get("objects").and_then(|v| v.as_object()) {
+        let assets_cache_root = launcher_assets_cache_root(app)?;
+        ensure_writable_dir(&assets_cache_root)?;
+
+        let mut seen_hashes = HashSet::new();
         let mut downloads = Vec::new();
+        let mut restored_from_cache = 0_u64;
+
         for value in objects.values() {
             let Some(hash) = value.get("hash").and_then(|v| v.as_str()) else {
                 continue;
             };
-            if hash.len() < 2 {
+            if hash.len() < 2 || !seen_hashes.insert(hash.to_string()) {
                 continue;
             }
+
             let sub = &hash[0..2];
             let target = minecraft_root
                 .join("assets")
                 .join("objects")
                 .join(sub)
                 .join(hash);
+
+            if sync_asset_from_cache(&assets_cache_root, hash, &target, hash)? {
+                restored_from_cache += 1;
+                continue;
+            }
+
             let urls = ASSET_MIRROR_BASES
                 .iter()
                 .map(|base| format!("{base}/{sub}/{hash}"))
@@ -2784,17 +2915,29 @@ async fn bootstrap_instance_runtime(
                     .to_string(),
             });
         }
+
         let total_downloads = downloads.len();
         write_instance_state(
             instance_root,
             "downloading_assets",
-            serde_json::json!({"assetIndex": asset_index_id, "total": total_downloads}),
+            serde_json::json!({
+                "assetIndex": asset_index_id,
+                "total": total_downloads,
+                "restoredFromCache": restored_from_cache
+            }),
         );
-        download_many_with_limit(downloads, 24).await?;
+        download_many_with_limit(downloads.clone(), 24).await?;
+        for task in downloads {
+            persist_asset_to_cache(&assets_cache_root, &task.path, &task.sha1, &task.sha1)?;
+        }
         write_instance_state(
             instance_root,
             "assets_ready",
-            serde_json::json!({"assetIndex": asset_index_id, "total": total_downloads}),
+            serde_json::json!({
+                "assetIndex": asset_index_id,
+                "total": total_downloads,
+                "restoredFromCache": restored_from_cache
+            }),
         );
     }
 
@@ -5033,7 +5176,6 @@ mod tests {
 
         assert_eq!(args, vec!["--height".to_string(), "720".to_string()]);
     }
-
 
     #[test]
     fn expected_forge_like_profile_ids_include_forge_variants() {
