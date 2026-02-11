@@ -1568,6 +1568,7 @@ async fn resolve_latest_fabric_like_loader_version(
         .map(|value| value.to_string())
 }
 async fn install_forge_like_loader(
+    app: &tauri::AppHandle,
     minecraft_root: &Path,
     minecraft_version: &str,
     loader: &str,
@@ -1614,11 +1615,29 @@ async fn install_forge_like_loader(
         .join(format!("{artifact_name}-{resolved_version}-installer.jar"));
     download_to(&installer_url, &installer_target).await?;
 
-    let java_bin = if command_available("java") {
-        "java".to_string()
-    } else {
-        return Err("No se encontró Java en PATH para instalar Forge/NeoForge.".to_string());
-    };
+    let manager = JavaManager::new(app)?;
+    let required_java_major = manager.required_major_for_minecraft(minecraft_version);
+    let runtimes = manager.detect_installed();
+    let java_bin = runtimes
+        .iter()
+        .find(|runtime| runtime.major == required_java_major)
+        .or_else(|| {
+            runtimes
+                .iter()
+                .find(|runtime| runtime.major > required_java_major)
+        })
+        .map(|runtime| runtime.path.clone())
+        .or_else(|| command_available("java").then(|| "java".to_string()))
+        .ok_or_else(|| {
+            let loader_name = if loader == "neoforge" {
+                "NeoForge"
+            } else {
+                "Forge"
+            };
+            format!(
+                "No se encontró Java compatible para instalar {loader_name} (requerido Java {required_java_major})."
+            )
+        })?;
 
     let install_flag = if loader == "neoforge" {
         "--install-client"
@@ -2167,6 +2186,7 @@ async fn bootstrap_instance_runtime(
     let mut effective_version_json = base_version_json.clone();
     if loader == "forge" || loader == "neoforge" {
         let _installed_profile_id = install_forge_like_loader(
+            app,
             &minecraft_root,
             version,
             &loader,
