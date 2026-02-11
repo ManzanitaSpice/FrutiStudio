@@ -2142,43 +2142,63 @@ async fn bootstrap_instance_runtime(
         if !library_allowed_for_current_os(&library) {
             continue;
         }
-        let Some(downloads) = library.get("downloads") else {
-            continue;
-        };
+        let mut artifact_resolved = false;
 
-        if let Some(artifact) = downloads.get("artifact") {
-            let url = artifact.get("url").and_then(|v| v.as_str());
-            let path = artifact
-                .get("path")
-                .and_then(|v| v.as_str())
-                .map(PathBuf::from)
-                .or_else(|| {
-                    library
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .and_then(maven_path)
-                });
-            if let (Some(url), Some(rel)) = (url, path) {
-                let target = minecraft_root.join("libraries").join(rel);
-                download_to(url, &target).await?;
-                if classpath_seen.insert(target.clone()) {
-                    classpath_entries.push(target);
+        if let Some(downloads) = library.get("downloads") {
+            if let Some(artifact) = downloads.get("artifact") {
+                let url = artifact.get("url").and_then(|v| v.as_str());
+                let path = artifact
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        library
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .and_then(maven_path)
+                    });
+                if let (Some(url), Some(rel)) = (url, path) {
+                    let target = minecraft_root.join("libraries").join(rel);
+                    download_to(url, &target).await?;
+                    if classpath_seen.insert(target.clone()) {
+                        classpath_entries.push(target);
+                    }
+                    artifact_resolved = true;
+                }
+            }
+
+            if let Some(classifiers) = downloads.get("classifiers") {
+                if let Some(native) = classifiers
+                    .get(os_native_key)
+                    .or_else(|| classifiers.get("natives-windows-64"))
+                {
+                    if let (Some(url), Some(path)) = (
+                        native.get("url").and_then(|v| v.as_str()),
+                        native.get("path").and_then(|v| v.as_str()),
+                    ) {
+                        let native_jar = minecraft_root.join("libraries").join(path);
+                        download_to(url, &native_jar).await?;
+                        extract_native_library(&native_jar, &natives_dir)?;
+                    }
                 }
             }
         }
 
-        if let Some(classifiers) = downloads.get("classifiers") {
-            if let Some(native) = classifiers
-                .get(os_native_key)
-                .or_else(|| classifiers.get("natives-windows-64"))
-            {
-                if let (Some(url), Some(path)) = (
-                    native.get("url").and_then(|v| v.as_str()),
-                    native.get("path").and_then(|v| v.as_str()),
-                ) {
-                    let native_jar = minecraft_root.join("libraries").join(path);
-                    download_to(url, &native_jar).await?;
-                    extract_native_library(&native_jar, &natives_dir)?;
+        if !artifact_resolved {
+            let maven_name = library.get("name").and_then(|v| v.as_str());
+            let base_url = library
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://libraries.minecraft.net/")
+                .trim_end_matches('/');
+
+            if let Some(rel) = maven_name.and_then(maven_path) {
+                let rel_url = rel.to_string_lossy().replace('\\', "/");
+                let target = minecraft_root.join("libraries").join(&rel);
+                let url = format!("{base_url}/{rel_url}");
+                download_to(&url, &target).await?;
+                if classpath_seen.insert(target.clone()) {
+                    classpath_entries.push(target);
                 }
             }
         }
