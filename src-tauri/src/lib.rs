@@ -942,6 +942,64 @@ fn read_last_lines(path: &Path, max_lines: usize) -> Vec<String> {
     lines
 }
 
+fn startup_crash_hint(stderr_lines: &[String]) -> Option<String> {
+    if stderr_lines.is_empty() {
+        return None;
+    }
+
+    let joined = stderr_lines.join("\n").to_lowercase();
+
+    if joined.contains("net.fabricmc.tinyremapper.tinyremapper.readfile") {
+        return Some(
+            "Diagnóstico Fabric: TinyRemapper no pudo leer uno de los jars requeridos. \
+            Suele indicar librerías/runtime corruptos o incompletos. Abre la instancia y prueba \
+            \"Reparar runtime\"; si persiste, reinstala el loader Fabric y valida que no haya \
+            mods/jars truncados en la carpeta mods."
+                .to_string(),
+        );
+    }
+
+    if joined.contains("mcversionlookup") || joined.contains("classreader") {
+        return Some(
+            "Diagnóstico loader: falló la lectura de metadata del minecraft.jar. Ejecuta \
+            \"Reparar runtime\" para re-descargar versión, libraries y natives, y confirma \
+            compatibilidad entre versión de Minecraft, loader y mods instalados."
+                .to_string(),
+        );
+    }
+
+    None
+}
+
+fn format_startup_crash_message(code: i32, stderr_lines: &[String]) -> String {
+    let stderr_excerpt = stderr_lines
+        .iter()
+        .rev()
+        .take(8)
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let hint = startup_crash_hint(stderr_lines);
+    match (stderr_excerpt.is_empty(), hint) {
+        (true, Some(hint)) => format!(
+            "Minecraft cerró durante el arranque (código {code}). {hint} Revisa logs/runtime*.stderr.log"
+        ),
+        (true, None) => {
+            format!("Minecraft cerró durante el arranque (código {code}). Revisa logs/runtime*.stderr.log")
+        }
+        (false, Some(hint)) => format!(
+            "Minecraft cerró durante el arranque (código {code}). {hint}\n\nÚltimas líneas:\n{stderr_excerpt}"
+        ),
+        (false, None) => format!(
+            "Minecraft cerró durante el arranque (código {code}). Últimas líneas:\n{stderr_excerpt}"
+        ),
+    }
+}
+
 fn latest_runtime_log(logs_dir: &Path, suffix: &str) -> Option<PathBuf> {
     let Ok(entries) = fs::read_dir(logs_dir) else {
         return None;
@@ -4672,15 +4730,7 @@ async fn launch_instance(
                 "crashed",
                 serde_json::json!({"exitCode": code, "stderr": stderr_excerpt}),
             );
-            return Err(if stderr_excerpt.is_empty() {
-                format!(
-                    "Minecraft cerró durante el arranque (código {code}). Revisa logs/runtime*.stderr.log"
-                )
-            } else {
-                format!(
-                    "Minecraft cerró durante el arranque (código {code}). Últimas líneas:\n{stderr_excerpt}"
-                )
-            });
+            return Err(format_startup_crash_message(code, &stderr_lines));
         }
     }
 
