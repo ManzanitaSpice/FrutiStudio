@@ -13,7 +13,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { useUI } from "./hooks/useUI";
 import { featureFlags } from "./config/featureFlags";
-import { fetchInstances } from "./services/instanceService";
+import { fetchInstances, updateInstance as persistInstanceUpdate } from "./services/instanceService";
 import { fetchNewsOverview } from "./services/newsService";
 import { fetchExplorerItems } from "./services/explorerService";
 import { fetchServerListings } from "./services/serverService";
@@ -323,11 +323,32 @@ const AppShell = () => {
   };
 
   const handleUpdateInstance = (instanceId: string, patch: Partial<Instance>) => {
+    let updatedInstance: Instance | null = null;
     setInstances((prev) =>
-      prev.map((instance) =>
-        instance.id === instanceId ? { ...instance, ...patch } : instance,
-      ),
+      prev.map((instance) => {
+        if (instance.id !== instanceId) {
+          return instance;
+        }
+        updatedInstance = { ...instance, ...patch };
+        return updatedInstance;
+      }),
     );
+
+    if (!updatedInstance) {
+      return;
+    }
+
+    const shouldPersist =
+      patch.name !== undefined ||
+      patch.version !== undefined ||
+      patch.loaderName !== undefined ||
+      patch.loaderVersion !== undefined;
+
+    if (shouldPersist) {
+      void persistInstanceUpdate(updatedInstance).catch((error) => {
+        console.error("No se pudo persistir la edición de la instancia", error);
+      });
+    }
   };
 
   const handleDeleteInstance = (instanceId: string) => {
