@@ -111,10 +111,22 @@ struct LaunchPlan {
     natives_dir: String,
     version_json: String,
     asset_index: String,
+    #[serde(default)]
+    required_java_major: u32,
+    #[serde(default)]
+    resolved_java_major: u32,
     loader: String,
     loader_profile_resolved: bool,
     auth: LaunchAuth,
     env: HashMap<String, String>,
+}
+
+fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
+    match loader {
+        "fabric" | "quilt" => Some("net.fabricmc.loader.launch.knot.KnotClient"),
+        "vanilla" => Some("net.minecraft.client.main.Main"),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -2439,6 +2451,8 @@ async fn bootstrap_instance_runtime(
             .to_string_lossy()
             .to_string(),
         asset_index: asset_index_id.to_string(),
+        required_java_major: java_major,
+        resolved_java_major: selected.major,
         loader,
         loader_profile_resolved: true,
         auth: LaunchAuth {
@@ -2517,6 +2531,42 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let launch_command_path = instance_root.join("launch-command.txt");
     let logs_dir = instance_root.join("logs");
     let crash_reports_dir = Path::new(&plan.game_dir).join("crash-reports");
+    let version_jar_path = Path::new(&plan.version_json).with_extension("jar");
+
+    let classpath_entries_paths: Vec<&Path> = plan
+        .classpath_entries
+        .iter()
+        .map(|entry| Path::new(entry))
+        .collect();
+    let classpath_complete = !plan.classpath_entries.is_empty();
+    let classpath_libraries_ok = classpath_complete
+        && classpath_entries_paths
+            .iter()
+            .all(|entry| is_non_empty_file(entry));
+    let classpath_has_mc_jar = classpath_entries_paths
+        .iter()
+        .any(|entry| *entry == version_jar_path.as_path());
+    let has_loader_runtime_jar = match plan.loader.as_str() {
+        "fabric" => plan
+            .classpath_entries
+            .iter()
+            .any(|entry| entry.contains("fabric-loader")),
+        "quilt" => plan
+            .classpath_entries
+            .iter()
+            .any(|entry| entry.contains("quilt-loader")),
+        _ => true,
+    };
+
+    let main_class_matches_loader = expected_main_class_for_loader(plan.loader.as_str())
+        .map(|expected| plan.main_class == expected)
+        .unwrap_or(true);
+
+    let java_major_compatible = if plan.required_java_major == 0 || plan.resolved_java_major == 0 {
+        true
+    } else {
+        plan.resolved_java_major >= plan.required_java_major
+    };
 
     let required_checks = [
         (
@@ -2531,7 +2581,9 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             "json_version_minecraft",
             is_non_empty_file(Path::new(&plan.version_json)),
         ),
+        ("jar_minecraft_valido", is_non_empty_file(&version_jar_path)),
         ("main_class_resuelta", !plan.main_class.trim().is_empty()),
+        ("main_class_loader_compatible", main_class_matches_loader),
         ("argumentos_jvm", !plan.java_args.is_empty()),
         ("argumentos_juego", !plan.game_args.is_empty()),
         (
@@ -2546,24 +2598,24 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             "modo_demo_desactivado",
             !plan.game_args.iter().any(|arg| arg == "--demo"),
         ),
-        ("classpath_completo", !plan.classpath_entries.is_empty()),
-        (
-            "libraries_descargadas_compatibles",
-            plan.classpath_entries
-                .iter()
-                .all(|entry| is_non_empty_file(Path::new(entry))),
-        ),
+        ("classpath_completo", classpath_complete),
+        ("classpath_incluye_jar_minecraft", classpath_has_mc_jar),
+        ("libraries_descargadas_compatibles", classpath_libraries_ok),
         ("assets_index", !plan.asset_index.trim().is_empty()),
         (
             "assets_descargados",
             is_non_empty_dir(&Path::new(&plan.assets_dir).join("objects")),
         ),
-        ("natives_extraidos", Path::new(&plan.natives_dir).exists()),
+        (
+            "natives_extraidos",
+            is_non_empty_dir(Path::new(&plan.natives_dir)),
+        ),
         (
             "runtime_java_compatible",
             Path::new(&plan.java_path).exists() || plan.java_path == "java",
         ),
         ("ruta_java_correcta", !plan.java_path.trim().is_empty()),
+        ("version_java_compatible", java_major_compatible),
         ("game_dir", Path::new(&plan.game_dir).exists()),
         ("assets_dir", Path::new(&plan.assets_dir).exists()),
         ("libraries_dir", Path::new(&plan.libraries_dir).exists()),
@@ -2583,6 +2635,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
                 plan.loader_profile_resolved
             },
         ),
+        ("runtime_loader_en_classpath", has_loader_runtime_jar),
         (
             "configuracion_memoria",
             plan.java_args.iter().any(|arg| arg.starts_with("-Xms"))
@@ -2608,6 +2661,18 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             errors.push(format!("Fallo en requisito crítico: {name}"));
         }
     }
+
+    let classpath_separator_valid = if cfg!(target_os = "windows") {
+        plan.classpath_separator == ";"
+    } else {
+        plan.classpath_separator == ":"
+    };
+    let classpath_raw_size: usize = plan
+        .classpath_entries
+        .iter()
+        .map(|entry| entry.len() + 1)
+        .sum();
+    let game_dir_is_long = cfg!(target_os = "windows") && plan.game_dir.len() > 180;
 
     let advisory_checks = [
         (
@@ -2654,6 +2719,11 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             instance_root.join("instance-state.json").exists(),
             "El estado de instancia aún no fue actualizado en disco.",
         ),
+        (
+            "classpath_separator",
+            classpath_separator_valid,
+            "Separador de classpath inválido para el sistema actual.",
+        ),
     ];
 
     for (name, ok, warning_message) in advisory_checks {
@@ -2661,6 +2731,20 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         if !ok {
             warnings.push(format!("{warning_message} ({name})"));
         }
+    }
+
+    if cfg!(target_os = "windows") && classpath_raw_size > 24_000 {
+        warnings.push(format!(
+            "El classpath acumulado tiene {} caracteres y puede causar fallos de arranque en Windows.",
+            classpath_raw_size
+        ));
+    }
+
+    if game_dir_is_long {
+        warnings.push(
+            "La ruta de la instancia es muy larga en Windows; usa una carpeta base más corta para evitar errores del loader."
+                .to_string(),
+        );
     }
 
     if !["vanilla", "fabric", "quilt", "forge", "neoforge"].contains(&plan.loader.as_str()) {
@@ -3121,6 +3205,7 @@ async fn prepare_instance_runtime(
     app: &tauri::AppHandle,
     instance_id: &str,
     reinstall: bool,
+    auto_rebuild_plan: bool,
 ) -> Result<(PathBuf, InstanceRecord), String> {
     if instance_id.trim().is_empty() {
         return Err("No hay una instancia válida seleccionada para preparar.".to_string());
@@ -3150,7 +3235,8 @@ async fn prepare_instance_runtime(
         })
         .unwrap_or(false);
 
-    if reinstall || !cached_is_usable {
+    let launch_plan_exists = instance_root.join("launch-plan.json").exists();
+    if reinstall || !launch_plan_exists || (auto_rebuild_plan && !cached_is_usable) {
         bootstrap_instance_runtime(app, &instance_root, &instance).await?;
         let _ = build_launch_command(app, &instance_root, &instance)?;
     }
@@ -3165,7 +3251,8 @@ async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
         return Err("No hay una instancia válida seleccionada para reparar.".to_string());
     }
 
-    let (instance_root, instance) = prepare_instance_runtime(&app, &instance_id, true).await?;
+    let (instance_root, instance) =
+        prepare_instance_runtime(&app, &instance_id, true, true).await?;
     write_instance_state(
         &instance_root,
         "repairing",
@@ -3204,7 +3291,7 @@ async fn preflight_instance(
         return Err("No hay una instancia válida seleccionada para validar.".to_string());
     }
 
-    let (instance_root, _) = prepare_instance_runtime(&app, &instance_id, false).await?;
+    let (instance_root, _) = prepare_instance_runtime(&app, &instance_id, false, false).await?;
     write_instance_state(
         &instance_root,
         "preflight",
@@ -3225,7 +3312,8 @@ async fn launch_instance(
         return Err("No hay una instancia válida seleccionada para iniciar.".to_string());
     }
 
-    let (instance_root, instance) = prepare_instance_runtime(&app, &instance_id, false).await?;
+    let (instance_root, instance) =
+        prepare_instance_runtime(&app, &instance_id, false, true).await?;
 
     let mut launch_plan = read_launch_plan(&instance_root)?;
 
