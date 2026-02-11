@@ -830,7 +830,10 @@ fn hydrate_from_detected_launcher(
 
 fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
     match loader {
-        "fabric" | "quilt" => Some("net.fabricmc.loader.launch.knot.KnotClient"),
+        "fabric" => Some("net.fabricmc.loader.launch.knot.KnotClient"),
+        "quilt" => Some("org.quiltmc.loader.impl.launch.knot.KnotClient"),
+        "forge" => Some("cpw.mods.modlauncher.Launcher"),
+        "neoforge" => Some("net.neoforged.fml.loading.targets.ClientLaunchHandler"),
         "vanilla" => Some("net.minecraft.client.main.Main"),
         _ => None,
     }
@@ -3138,7 +3141,29 @@ fn resolve_loader_profile_json(
     None
 }
 
-fn persist_fabric_like_profile_json(
+fn normalize_loader_profile(profile: &mut Value, minecraft_version: &str, loader: &str) {
+    let Some(profile_obj) = profile.as_object_mut() else {
+        return;
+    };
+
+    profile_obj.insert(
+        "inheritsFrom".to_string(),
+        Value::String(minecraft_version.to_string()),
+    );
+    profile_obj.insert(
+        "jar".to_string(),
+        Value::String(minecraft_version.to_string()),
+    );
+
+    if let Some(main_class) = expected_main_class_for_loader(loader) {
+        profile_obj.insert(
+            "mainClass".to_string(),
+            Value::String(main_class.to_string()),
+        );
+    }
+}
+
+fn persist_loader_profile_json(
     minecraft_root: &Path,
     minecraft_version: &str,
     loader: &str,
@@ -3156,17 +3181,8 @@ fn persist_fabric_like_profile_json(
     let mut normalized_profile = profile.clone();
     if let Some(profile_obj) = normalized_profile.as_object_mut() {
         profile_obj.insert("id".to_string(), Value::String(profile_id.clone()));
-
-        profile_obj.insert(
-            "inheritsFrom".to_string(),
-            Value::String(minecraft_version.to_string()),
-        );
-
-        profile_obj.insert(
-            "jar".to_string(),
-            Value::String(minecraft_version.to_string()),
-        );
     }
+    normalize_loader_profile(&mut normalized_profile, minecraft_version, loader);
 
     let profile_dir = minecraft_root.join("versions").join(&profile_id);
     fs::create_dir_all(&profile_dir).map_err(|error| {
@@ -3180,6 +3196,39 @@ fn persist_fabric_like_profile_json(
     .map_err(|error| format!("No se pudo guardar perfil {loader}: {error}"))?;
 
     Ok(profile_id)
+}
+
+fn normalize_loader_profile_json_file(
+    minecraft_root: &Path,
+    profile_id: &str,
+    minecraft_version: &str,
+    loader: &str,
+) -> Result<(), String> {
+    let profile_path = minecraft_root
+        .join("versions")
+        .join(profile_id)
+        .join(format!("{profile_id}.json"));
+    let raw = fs::read_to_string(&profile_path).map_err(|error| {
+        format!(
+            "No se pudo leer perfil del loader {} en {}: {error}",
+            profile_id,
+            profile_path.display()
+        )
+    })?;
+    let mut profile: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Perfil de loader inválido {}: {error}", profile_id))?;
+    normalize_loader_profile(&mut profile, minecraft_version, loader);
+
+    fs::write(
+        &profile_path,
+        serde_json::to_string_pretty(&profile)
+            .map_err(|error| format!("No se pudo serializar perfil {loader}: {error}"))?,
+    )
+    .map_err(|error| {
+        format!("No se pudo guardar perfil {loader} normalizado ({profile_id}): {error}")
+    })?;
+
+    Ok(())
 }
 
 fn ensure_loader_profile_client_jar(
@@ -5316,6 +5365,12 @@ async fn bootstrap_instance_runtime(
             Some(launch_config.modloader_version.as_str()),
         )
         .await?;
+        normalize_loader_profile_json_file(
+            &minecraft_root,
+            &installed_profile_id,
+            version,
+            &loader,
+        )?;
         validate_loader_profile_json(&minecraft_root, &installed_profile_id, version)?;
         if let Some(profile_json) = resolve_loader_profile_json(
             &minecraft_root,
@@ -5388,8 +5443,9 @@ async fn bootstrap_instance_runtime(
             "installing_loader",
             serde_json::json!({"loader": loader, "version": loader_version, "step": "fabric_profile"}),
         );
-        let profile = fetch_json_with_fallback(&profile_urls, "perfil del loader").await?;
-        let persisted_profile_id = persist_fabric_like_profile_json(
+        let mut profile = fetch_json_with_fallback(&profile_urls, "perfil del loader").await?;
+        normalize_loader_profile(&mut profile, version, &loader);
+        let persisted_profile_id = persist_loader_profile_json(
             &minecraft_root,
             version,
             &loader,
@@ -8856,7 +8912,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("epoch")
             .as_nanos();
-        let minecraft_root = std::env::temp_dir().join(format!("frutistudio-fabric-profile-{unique}"));
+        let minecraft_root =
+            std::env::temp_dir().join(format!("frutistudio-fabric-profile-{unique}"));
         fs::create_dir_all(&minecraft_root).expect("minecraft root");
 
         let profile = serde_json::json!({
@@ -8865,30 +8922,111 @@ mod tests {
             "jar": "fabric-loader-0.15.11-1.21.1"
         });
 
-        let profile_id = persist_fabric_like_profile_json(
-            &minecraft_root,
-            "1.21.1",
-            "fabric",
-            "0.15.11",
-            &profile,
-        )
-        .expect("persist profile");
+        let profile_id =
+            persist_loader_profile_json(&minecraft_root, "1.21.1", "fabric", "0.15.11", &profile)
+                .expect("persist profile");
 
         let profile_path = minecraft_root
             .join("versions")
             .join(&profile_id)
             .join(format!("{profile_id}.json"));
-        let stored: Value = serde_json::from_str(
-            &fs::read_to_string(&profile_path).expect("read profile json"),
-        )
-        .expect("parse profile json");
+        let stored: Value =
+            serde_json::from_str(&fs::read_to_string(&profile_path).expect("read profile json"))
+                .expect("parse profile json");
 
         assert_eq!(
             stored.get("inheritsFrom").and_then(Value::as_str),
             Some("1.21.1")
         );
         assert_eq!(stored.get("jar").and_then(Value::as_str), Some("1.21.1"));
+        assert_eq!(
+            stored.get("mainClass").and_then(Value::as_str),
+            Some("net.fabricmc.loader.launch.knot.KnotClient")
+        );
 
         fs::remove_dir_all(minecraft_root).expect("cleanup");
+    }
+
+    #[test]
+    fn persist_quilt_profile_normalizes_to_vanilla_ancestry_and_main_class() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let minecraft_root =
+            std::env::temp_dir().join(format!("frutistudio-quilt-profile-{unique}"));
+        fs::create_dir_all(&minecraft_root).expect("minecraft root");
+
+        let profile = serde_json::json!({
+            "id": "quilt-loader-0.27.1-1.21.1",
+            "inheritsFrom": "loader-chain",
+            "jar": "quilt-loader-0.27.1-1.21.1",
+            "mainClass": "broken.Main"
+        });
+
+        let profile_id =
+            persist_loader_profile_json(&minecraft_root, "1.21.1", "quilt", "0.27.1", &profile)
+                .expect("persist profile");
+
+        let profile_path = minecraft_root
+            .join("versions")
+            .join(&profile_id)
+            .join(format!("{profile_id}.json"));
+        let stored: Value =
+            serde_json::from_str(&fs::read_to_string(&profile_path).expect("read profile json"))
+                .expect("parse profile json");
+
+        assert_eq!(
+            stored.get("inheritsFrom").and_then(Value::as_str),
+            Some("1.21.1")
+        );
+        assert_eq!(stored.get("jar").and_then(Value::as_str), Some("1.21.1"));
+        assert_eq!(
+            stored.get("mainClass").and_then(Value::as_str),
+            Some("org.quiltmc.loader.impl.launch.knot.KnotClient")
+        );
+
+        fs::remove_dir_all(minecraft_root).expect("cleanup");
+    }
+
+    #[test]
+    fn normalize_loader_profile_supports_forge_and_neoforge_main_classes() {
+        let mut forge_profile = serde_json::json!({
+            "inheritsFrom": "forge-loader-1.21.1",
+            "jar": "forge-loader-1.21.1",
+            "mainClass": "broken.Main"
+        });
+        normalize_loader_profile(&mut forge_profile, "1.21.1", "forge");
+        assert_eq!(
+            forge_profile.get("inheritsFrom").and_then(Value::as_str),
+            Some("1.21.1")
+        );
+        assert_eq!(
+            forge_profile.get("jar").and_then(Value::as_str),
+            Some("1.21.1")
+        );
+        assert_eq!(
+            forge_profile.get("mainClass").and_then(Value::as_str),
+            Some("cpw.mods.modlauncher.Launcher")
+        );
+
+        let mut neoforge_profile = serde_json::json!({
+            "inheritsFrom": "neoforge-loader-1.21.1",
+            "jar": "neoforge-loader-1.21.1",
+            "mainClass": "broken.Main"
+        });
+        normalize_loader_profile(&mut neoforge_profile, "1.21.1", "neoforge");
+        assert_eq!(
+            neoforge_profile.get("inheritsFrom").and_then(Value::as_str),
+            Some("1.21.1")
+        );
+        assert_eq!(
+            neoforge_profile.get("jar").and_then(Value::as_str),
+            Some("1.21.1")
+        );
+        assert_eq!(
+            neoforge_profile.get("mainClass").and_then(Value::as_str),
+            Some("net.neoforged.fml.loading.targets.ClientLaunchHandler")
+        );
     }
 }
