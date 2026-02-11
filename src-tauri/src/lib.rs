@@ -584,7 +584,21 @@ fn instance_game_dir(instance_root: &Path) -> PathBuf {
                 .map(PathBuf::from)
         });
 
-    explicit.unwrap_or_else(|| instance_root.join(".minecraft"))
+    if let Some(path) = explicit {
+        return path;
+    }
+
+    let canonical = instance_root.join("minecraft");
+    if canonical.exists() {
+        return canonical;
+    }
+
+    let legacy = instance_root.join(".minecraft");
+    if legacy.exists() {
+        return legacy;
+    }
+
+    canonical
 }
 
 fn resolve_instance_launch_config(
@@ -4793,12 +4807,25 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
 
 fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
     let minecraft_root = instance_game_dir(instance_root);
-    let legacy_root = instance_root.join("minecraft");
-    if minecraft_root != legacy_root && legacy_root.exists() && !minecraft_root.exists() {
-        fs::rename(&legacy_root, &minecraft_root).map_err(|error| {
+    let canonical_root = instance_root.join("minecraft");
+    let legacy_hidden_root = instance_root.join(".minecraft");
+
+    if minecraft_root == canonical_root && legacy_hidden_root.exists() && !canonical_root.exists() {
+        fs::rename(&legacy_hidden_root, &canonical_root).map_err(|error| {
             format!(
                 "No se pudo migrar estructura legacy {} -> {}: {error}",
-                legacy_root.display(),
+                legacy_hidden_root.display(),
+                minecraft_root.display()
+            )
+        })?;
+    } else if minecraft_root != canonical_root
+        && canonical_root.exists()
+        && !minecraft_root.exists()
+    {
+        fs::rename(&canonical_root, &minecraft_root).map_err(|error| {
+            format!(
+                "No se pudo migrar estructura legacy {} -> {}: {error}",
+                canonical_root.display(),
                 minecraft_root.display()
             )
         })?;
@@ -6638,5 +6665,43 @@ mod tests {
             .any(|issue| issue.reason.contains("sin clases cliente esperadas")));
 
         fs::remove_dir_all(game_dir).expect("cleanup");
+    }
+
+    #[test]
+    fn instance_game_dir_defaults_to_canonical_minecraft_folder() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let instance_root =
+            std::env::temp_dir().join(format!("frutistudio-instance-dir-default-{unique}"));
+        fs::create_dir_all(&instance_root).expect("instance root");
+
+        let resolved = instance_game_dir(&instance_root);
+        assert_eq!(resolved, instance_root.join("minecraft"));
+
+        fs::remove_dir_all(instance_root).expect("cleanup");
+    }
+
+    #[test]
+    fn ensure_instance_layout_migrates_hidden_minecraft_into_canonical_folder() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let instance_root =
+            std::env::temp_dir().join(format!("frutistudio-instance-dir-migrate-{unique}"));
+        let legacy_root = instance_root.join(".minecraft");
+        fs::create_dir_all(legacy_root.join("mods")).expect("legacy mods dir");
+        fs::write(legacy_root.join("mods").join("marker.txt"), b"ok").expect("legacy marker");
+
+        ensure_instance_layout(&instance_root).expect("ensure layout");
+
+        let canonical_root = instance_root.join("minecraft");
+        assert!(canonical_root.join("mods").is_dir());
+        assert!(canonical_root.join("mods").join("marker.txt").is_file());
+        assert!(!legacy_root.exists());
+
+        fs::remove_dir_all(instance_root).expect("cleanup");
     }
 }
