@@ -1278,7 +1278,7 @@ impl JavaManager {
         self.launcher_root.join("runtime").join("java")
     }
 
-    fn required_major_for_minecraft(&self, mc_version: &str) -> u32 {
+    fn required_major_for_minecraft(mc_version: &str) -> u32 {
         Self::required_major_for_minecraft_version(mc_version)
     }
 
@@ -1391,7 +1391,7 @@ impl JavaManager {
     }
 
     fn resolve_for_minecraft(&self, mc_version: &str) -> JavaResolution {
-        let required_major = self.required_major_for_minecraft(mc_version);
+        let required_major = Self::required_major_for_minecraft(mc_version);
         let mut runtimes = self.detect_installed();
 
         let selected_index = runtimes
@@ -2041,7 +2041,7 @@ async fn install_forge_like_loader(
     })?;
 
     let manager = JavaManager::new(app)?;
-    let required_java_major = manager.required_major_for_minecraft(minecraft_version);
+    let required_java_major = JavaManager::required_major_for_minecraft(minecraft_version);
     let runtimes = manager.detect_installed();
     let java_bin = runtimes
         .iter()
