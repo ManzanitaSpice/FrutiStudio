@@ -3154,17 +3154,15 @@ fn persist_fabric_like_profile_json(
     if let Some(profile_obj) = normalized_profile.as_object_mut() {
         profile_obj.insert("id".to_string(), Value::String(profile_id.clone()));
 
-        let inherits_from = profile_obj
-            .get("inheritsFrom")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or_default();
-        if inherits_from.is_empty() {
-            profile_obj.insert(
-                "inheritsFrom".to_string(),
-                Value::String(minecraft_version.to_string()),
-            );
-        }
+        profile_obj.insert(
+            "inheritsFrom".to_string(),
+            Value::String(minecraft_version.to_string()),
+        );
+
+        profile_obj.insert(
+            "jar".to_string(),
+            Value::String(minecraft_version.to_string()),
+        );
     }
 
     let profile_dir = minecraft_root.join("versions").join(&profile_id);
@@ -8848,5 +8846,47 @@ mod tests {
         assert!(!legacy_root.exists());
 
         fs::remove_dir_all(instance_root).expect("cleanup");
+    }
+
+    #[test]
+    fn persist_fabric_profile_normalizes_inherits_from_and_jar_to_vanilla_version() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let minecraft_root = std::env::temp_dir().join(format!("frutistudio-fabric-profile-{unique}"));
+        fs::create_dir_all(&minecraft_root).expect("minecraft root");
+
+        let profile = serde_json::json!({
+            "id": "fabric-loader-0.15.11-1.21.1",
+            "inheritsFrom": "bogus-version",
+            "jar": "fabric-loader-0.15.11-1.21.1"
+        });
+
+        let profile_id = persist_fabric_like_profile_json(
+            &minecraft_root,
+            "1.21.1",
+            "fabric",
+            "0.15.11",
+            &profile,
+        )
+        .expect("persist profile");
+
+        let profile_path = minecraft_root
+            .join("versions")
+            .join(&profile_id)
+            .join(format!("{profile_id}.json"));
+        let stored: Value = serde_json::from_str(
+            &fs::read_to_string(&profile_path).expect("read profile json"),
+        )
+        .expect("parse profile json");
+
+        assert_eq!(
+            stored.get("inheritsFrom").and_then(Value::as_str),
+            Some("1.21.1")
+        );
+        assert_eq!(stored.get("jar").and_then(Value::as_str), Some("1.21.1"));
+
+        fs::remove_dir_all(minecraft_root).expect("cleanup");
     }
 }
