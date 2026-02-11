@@ -439,6 +439,22 @@ export const InstancePanel = ({
     ]);
   };
 
+  const checklistLogLineClass = (line: string) => {
+    if (/^✖|\berror\b|\bfalló\b|\bexception\b|\[stderr\]/i.test(line)) {
+      return "is-error";
+    }
+    if (/^⚠|\bwarning\b|\baviso\b|reintentando/i.test(line)) {
+      return "is-warning";
+    }
+    if (/^✅|^✔|completad|running|confirmó estado/i.test(line)) {
+      return "is-success";
+    }
+    if (/^ℹ|^🧩|^🔎|estado backend|debug/i.test(line)) {
+      return "is-info";
+    }
+    return "is-neutral";
+  };
+
   const runLaunchChecklist = async (instanceId: string) => {
     const checklistMaxAttempts = 2;
     const checklistRetryDelayMs = 400;
@@ -642,6 +658,7 @@ export const InstancePanel = ({
         appendLog(`${check.ok ? "✔" : "✖"} ${check.name}`);
       });
     };
+
 
     try {
       const pollerPromise = pollBackendContinuously();
@@ -1950,7 +1967,14 @@ export const InstancePanel = ({
           </div>
           <div className="instance-live-log__stream" aria-live="polite">
             {logs.length ? (
-              logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)
+              logs.map((line, index) => (
+                <p
+                  key={`${line}-${index}`}
+                  className={`instance-import__log-line ${checklistLogLineClass(line)}`}
+                >
+                  {line}
+                </p>
+              ))
             ) : (
               <p>Sin eventos todavía.</p>
             )}
@@ -2950,19 +2974,15 @@ export const InstancePanel = ({
       loaderVersion: resolvedLoaderVersion,
       mods: 0,
       memory: "4 GB",
-      status: "pending-update",
+      status: "ready",
       group: trimmedGroup.length > 0 ? trimmedGroup : "No agrupado",
       lastPlayed: "Nunca",
       playtime: "0 min",
       playtimeMinutes: 0,
-      isDownloading: true,
+      isDownloading: false,
       isRunning: false,
-      downloadProgress: 5,
-      downloadStage: "descargando",
-      downloadLabel:
-        instanceLoader === "Vanilla"
-          ? `Descargando Minecraft ${resolvedVersion}`
-          : `Descargando Minecraft ${resolvedVersion} + ${instanceLoader} ${resolvedLoaderVersion}`,
+      downloadProgress: 0,
+      downloadLabel: "Instancia creada. Pulsa Iniciar para descargar/verificar runtime.",
     };
     onCreateInstance(newInstance);
     try {
@@ -2982,7 +3002,7 @@ export const InstancePanel = ({
     } catch (error) {
       console.error("No se pudo crear la instancia", error);
       onUpdateInstance(newInstance.id, {
-        status: "pending-update",
+        status: "stopped",
         isDownloading: false,
         downloadProgress: 0,
       });
@@ -3762,7 +3782,12 @@ ${rows.join("\n")}`;
                     ref={checklistLogContainerRef}
                   >
                     {launchChecklistLogs.map((line, index) => (
-                      <p key={`${line}-${index}`}>{line}</p>
+                      <p
+                        key={`${line}-${index}`}
+                        className={`instance-import__log-line ${checklistLogLineClass(line)}`}
+                      >
+                        {line}
+                      </p>
                     ))}
                   </div>
                   <button
@@ -3793,6 +3818,7 @@ ${rows.join("\n")}`;
 
                 <section className="product-dialog__checklist-panel">
                   <h4>Debug backend (tiempo real)</h4>
+                  <p className="product-dialog__checklist-empty">Incluye estado crudo, comando de Java y rutas de logs para soporte técnico.</p>
                   {launchChecklistDebugState ? (
                     <div className="instance-import__log" aria-live="polite">
                       <p>

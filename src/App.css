@@ -2920,10 +2920,10 @@ textarea {
 
 .product-dialog__checklist-panels {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.05fr) minmax(0, 1.05fr);
+  grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.15fr) minmax(0, 1.2fr);
   gap: 14px;
   min-height: 0;
-  height: min(66vh, 700px);
+  height: min(70vh, 760px);
 }
 
 .product-dialog__checklist-panel {
@@ -3018,6 +3018,35 @@ textarea {
   background: color-mix(in srgb, var(--color-bg) 55%, transparent);
 }
 
+
+.product-dialog__checklist-panel:first-child {
+  grid-column: span 1;
+}
+
+.product-dialog__checklist-panel:nth-child(2),
+.product-dialog__checklist-panel:nth-child(3) {
+  grid-column: span 1;
+}
+
+.instance-import__log-line.is-error {
+  color: #fda4af;
+}
+
+.instance-import__log-line.is-warning {
+  color: #fcd34d;
+}
+
+.instance-import__log-line.is-success {
+  color: #86efac;
+}
+
+.instance-import__log-line.is-info {
+  color: #93c5fd;
+}
+
+.instance-import__log-line.is-neutral {
+  color: var(--color-text);
+}
 .instance-import__log p {
   margin: 0;
   overflow-wrap: anywhere;
@@ -3037,6 +3066,17 @@ textarea {
   font-size: 0.74rem;
   line-height: 1.35;
   overflow: auto;
+}
+
+
+@media (max-width: 1200px) {
+  .product-dialog__checklist-panels {
+    grid-template-columns: minmax(220px, 1fr) minmax(0, 1fr);
+  }
+
+  .product-dialog__checklist-panel:last-child {
+    grid-column: span 2;
+  }
 }
 
 @media (max-width: 900px) {
