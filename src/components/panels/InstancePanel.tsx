@@ -185,6 +185,7 @@ export const InstancePanel = ({
   >("idle");
   const [versionsError, setVersionsError] = useState<string | null>(null);
   const [instanceName, setInstanceName] = useState("");
+  const [instanceSearch, setInstanceSearch] = useState("");
   const [instanceGroup, setInstanceGroup] = useState("");
   const [instanceVersion, setInstanceVersion] = useState("");
   const [instanceLoader, setInstanceLoader] = useState("Vanilla");
@@ -722,8 +723,25 @@ export const InstancePanel = ({
   ];
 
   const groupedInstances = useMemo(() => {
+    const normalizedSearch = instanceSearch.trim().toLowerCase();
+    const visibleInstances =
+      normalizedSearch.length === 0
+        ? instances
+        : instances.filter((instance) => {
+            const haystack = [
+              instance.name,
+              instance.group,
+              instance.version,
+              instance.loaderName,
+              instance.loaderVersion,
+            ]
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(normalizedSearch);
+          });
+
     const groupMap = new Map<string, Instance[]>();
-    instances.forEach((instance) => {
+    visibleInstances.forEach((instance) => {
       const groupName =
         instance.group && instance.group.trim().length > 0
           ? instance.group
@@ -742,7 +760,7 @@ export const InstancePanel = ({
       }
       return left.localeCompare(right, "es", { sensitivity: "base" });
     });
-  }, [instances]);
+  }, [instanceSearch, instances]);
 
   const openEditor = () => {
     if (selectedInstance) {
@@ -761,6 +779,70 @@ export const InstancePanel = ({
   const openCreator = () => {
     setCreatorOpen(true);
     setContextMenu(null);
+  };
+
+  const detectJavaFromSystem = () => {
+    updateSelectedConfig("javaOverrideEnabled", false);
+    updateSelectedConfig("javaExecutable", "");
+    setJavaAdvisorNotes((prev) => [
+      "Se activó la detección automática: FrutiLauncher elegirá el Java más compatible al iniciar.",
+      ...prev.filter((note) => !note.includes("detección automática")),
+    ]);
+  };
+
+  const browseJavaExecutable = async () => {
+    try {
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        title: "Seleccionar ejecutable de Java",
+        filters: [
+          {
+            name: "Java",
+            extensions: ["exe", "bin", "cmd", "bat", "sh"],
+          },
+        ],
+      });
+      if (typeof selected === "string" && selected.trim().length > 0) {
+        updateSelectedConfig("javaOverrideEnabled", true);
+        updateSelectedConfig("javaExecutable", selected);
+        setJavaAdvisorNotes((prev) => [
+          `Java manual seleccionado: ${selected}`,
+          ...prev.filter((note) => !note.startsWith("Java manual seleccionado:")),
+        ]);
+      }
+    } catch (error) {
+      setJavaAdvisorNotes((prev) => [
+        error instanceof Error
+          ? `No se pudo seleccionar Java manual: ${error.message}`
+          : "No se pudo seleccionar Java manual.",
+        ...prev,
+      ]);
+    }
+  };
+
+  const testJavaSettings = () => {
+    const javaPath = selectedConfig.javaExecutable.trim();
+    if (!selectedConfig.javaOverrideEnabled || javaPath.length === 0) {
+      setJavaAdvisorNotes((prev) => [
+        "Sin override activo: se usará Java automático y la configuración es válida.",
+        ...prev,
+      ]);
+      return;
+    }
+
+    const looksValid =
+      javaPath.toLowerCase().includes("java") || javaPath.endsWith(".exe");
+    setJavaAdvisorNotes((prev) => [
+      looksValid
+        ? "Ruta Java manual validada localmente. Si falla al iniciar, revisa permisos y versión requerida por Minecraft."
+        : "La ruta Java no parece un ejecutable válido. Verifica el archivo antes de iniciar.",
+      ...prev,
+    ]);
+  };
+
+  const openJavaDownloader = () => {
+    window.open("https://adoptium.net/temurin/releases/", "_blank", "noopener,noreferrer");
   };
 
   const openInstanceSubPath = async (subPath?: string, label?: string) => {
@@ -1926,12 +2008,20 @@ export const InstancePanel = ({
                 </label>
                 <div className="instance-config__inline-actions">
                   <button type="button" onClick={handleAutoTuneJava}>
-                    Auto detectar y aplicar flags
+                    ⚡ Auto-tune de flags
                   </button>
-                  <button type="button">Detect</button>
-                  <button type="button">Browse</button>
-                  <button type="button">Test Settings</button>
-                  <button type="button">Open Java Downloader</button>
+                  <button type="button" onClick={detectJavaFromSystem}>
+                    🧭 Detectar Java automáticamente
+                  </button>
+                  <button type="button" onClick={browseJavaExecutable}>
+                    📂 Buscar ejecutable
+                  </button>
+                  <button type="button" onClick={testJavaSettings}>
+                    🧪 Probar configuración
+                  </button>
+                  <button type="button" onClick={openJavaDownloader}>
+                    ⬇️ Descargar Java recomendado
+                  </button>
                 </div>
                 <label className="instance-config__warning">
                   <input
@@ -2569,7 +2659,12 @@ export const InstancePanel = ({
     >
       <div className="panel-view__header">
         <div className="panel-view__actions">
-          <input type="search" placeholder="Buscar instancia..." />
+          <input
+            type="search"
+            placeholder="Buscar instancia, grupo, versión o loader..."
+            value={instanceSearch}
+            onChange={(event) => setInstanceSearch(event.target.value)}
+          />
           <button type="button" onClick={openCreator}>
             Crear instancia
           </button>
@@ -2609,8 +2704,17 @@ export const InstancePanel = ({
         >
           {groupedInstances.length === 0 && (
             <div className="instances-layout__empty">
-              <p>No hay instancias creadas todavía.</p>
-              <span>Usa "Crear instancia" para comenzar.</span>
+              {instanceSearch.trim().length > 0 ? (
+                <>
+                  <p>No hay resultados para "{instanceSearch}".</p>
+                  <span>Prueba con nombre, grupo, versión o loader.</span>
+                </>
+              ) : (
+                <>
+                  <p>No hay instancias creadas todavía.</p>
+                  <span>Usa "Crear instancia" para comenzar.</span>
+                </>
+              )}
             </div>
           )}
           {groupedInstances.map(([groupName, groupInstances]) => (

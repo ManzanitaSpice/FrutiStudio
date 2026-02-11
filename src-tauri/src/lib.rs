@@ -1656,23 +1656,22 @@ async fn install_forge_like_loader(
         requested
     };
 
-    let (base_url, artifact_name, expected_id_candidates) = if loader == "neoforge" {
+    let (base_url, artifact_name) = if loader == "neoforge" {
         (
             "https://maven.neoforged.net/releases/net/neoforged/neoforge",
             "neoforge",
-            vec![
-                format!("{minecraft_version}-neoforge-{resolved_version}"),
-                format!("{minecraft_version}-{resolved_version}"),
-                resolved_version.clone(),
-            ],
         )
     } else {
         (
             "https://maven.minecraftforge.net/net/minecraftforge/forge",
             "forge",
-            vec![resolved_version.clone()],
         )
     };
+    let expected_id_candidates = expected_forge_like_profile_ids(
+        loader,
+        minecraft_version,
+        &resolved_version,
+    );
 
     let installer_url =
         format!("{base_url}/{resolved_version}/{artifact_name}-{resolved_version}-installer.jar");
@@ -1787,6 +1786,15 @@ async fn install_forge_like_loader(
         path.exists().then_some(candidate.to_string())
     });
 
+    let installed_profile_id = installed_profile_id.or_else(|| {
+        discover_forge_like_profile_id(
+            minecraft_root,
+            loader,
+            minecraft_version,
+            &resolved_version,
+        )
+    });
+
     if installed_profile_id.is_none() {
         return Err(format!(
             "El instalador de {loader} terminó pero no creó un profile esperado ({:?}).",
@@ -1795,6 +1803,92 @@ async fn install_forge_like_loader(
     }
 
     Ok(installed_profile_id.unwrap_or_else(|| resolved_version.clone()))
+}
+
+fn expected_forge_like_profile_ids(
+    loader: &str,
+    minecraft_version: &str,
+    resolved_version: &str,
+) -> Vec<String> {
+    let mut candidates = vec![resolved_version.to_string()];
+    let trimmed = resolved_version.trim();
+
+    if loader == "forge" {
+        let without_mc_prefix = trimmed
+            .strip_prefix(&format!("{minecraft_version}-"))
+            .unwrap_or(trimmed)
+            .to_string();
+        let forge_suffix = without_mc_prefix
+            .strip_prefix("forge-")
+            .unwrap_or(&without_mc_prefix)
+            .to_string();
+
+        candidates.push(format!("{minecraft_version}-{without_mc_prefix}"));
+        candidates.push(format!("{minecraft_version}-forge-{without_mc_prefix}"));
+        candidates.push(format!("{minecraft_version}-{forge_suffix}"));
+        candidates.push(format!("{minecraft_version}-forge-{forge_suffix}"));
+    }
+
+    if loader == "neoforge" {
+        candidates.push(format!("{minecraft_version}-neoforge-{trimmed}"));
+        candidates.push(format!("{minecraft_version}-{trimmed}"));
+    }
+
+    dedupe_non_empty(candidates)
+}
+
+fn dedupe_non_empty(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
+}
+
+fn discover_forge_like_profile_id(
+    minecraft_root: &Path,
+    loader: &str,
+    minecraft_version: &str,
+    resolved_version: &str,
+) -> Option<String> {
+    let versions_dir = minecraft_root.join("versions");
+    let entries = fs::read_dir(&versions_dir).ok()?;
+    let resolved_lower = resolved_version.to_lowercase();
+    let loader_lower = loader.to_lowercase();
+    let mc_prefix = format!("{minecraft_version}-").to_lowercase();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(id) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_string())
+        else {
+            continue;
+        };
+        let id_lower = id.to_lowercase();
+        if !id_lower.starts_with(&mc_prefix) {
+            continue;
+        }
+        if !id_lower.contains(&loader_lower) {
+            continue;
+        }
+        if !id_lower.contains(&resolved_lower) {
+            continue;
+        }
+
+        let profile_json = path.join(format!("{id}.json"));
+        if profile_json.exists() {
+            return Some(id);
+        }
+    }
+
+    None
 }
 
 fn ensure_forge_preflight_files(
@@ -4940,6 +5034,20 @@ mod tests {
         assert_eq!(args, vec!["--height".to_string(), "720".to_string()]);
     }
 
+
+    #[test]
+    fn expected_forge_like_profile_ids_include_forge_variants() {
+        let candidates = expected_forge_like_profile_ids("forge", "1.21.4", "1.21.4-54.1.8");
+        assert!(candidates.contains(&"1.21.4-54.1.8".to_string()));
+        assert!(candidates.contains(&"1.21.4-forge-54.1.8".to_string()));
+    }
+
+    #[test]
+    fn expected_forge_like_profile_ids_include_neoforge_variants() {
+        let candidates = expected_forge_like_profile_ids("neoforge", "1.21.1", "21.1.128");
+        assert!(candidates.contains(&"21.1.128".to_string()));
+        assert!(candidates.contains(&"1.21.1-neoforge-21.1.128".to_string()));
+    }
     #[test]
     fn normalize_resolution_args_applies_defaults_for_invalid_values() {
         let mut args = vec![
