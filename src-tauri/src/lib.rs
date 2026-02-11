@@ -2566,6 +2566,157 @@ fn is_valid_zip_archive(path: &Path) -> bool {
     ZipArchive::new(file).is_ok()
 }
 
+#[derive(Debug, Clone)]
+struct RuntimeIntegrityIssue {
+    path: PathBuf,
+    reason: String,
+}
+
+#[derive(Debug, Default)]
+struct RuntimeIntegrityReport {
+    issues: Vec<RuntimeIntegrityIssue>,
+    corrupt_files: Vec<PathBuf>,
+}
+
+impl RuntimeIntegrityReport {
+    fn ok(&self) -> bool {
+        self.issues.is_empty()
+    }
+}
+
+fn is_valid_zip_stream(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let Ok(mut zip) = ZipArchive::new(file) else {
+        return false;
+    };
+
+    if zip.len() == 0 {
+        return false;
+    }
+
+    let probes = zip.len().min(3);
+    for index in 0..probes {
+        let Ok(mut entry) = zip.by_index(index) else {
+            return false;
+        };
+        let mut byte = [0_u8; 1];
+        if entry.read(&mut byte).is_err() {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn scan_runtime_integrity(game_dir: &Path) -> RuntimeIntegrityReport {
+    let mut report = RuntimeIntegrityReport::default();
+    let mut seen_corrupt = HashSet::new();
+
+    for scope in ["libraries", "versions", "mods"] {
+        let root = game_dir.join(scope);
+        if !root.exists() {
+            continue;
+        }
+
+        let mut stack = vec![root];
+        while let Some(current) = stack.pop() {
+            let Ok(entries) = fs::read_dir(&current) else {
+                report.issues.push(RuntimeIntegrityIssue {
+                    path: current.clone(),
+                    reason: "No se pudo leer carpeta para validar integridad".to_string(),
+                });
+                continue;
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Ok(file_type) = entry.file_type() else {
+                    report.issues.push(RuntimeIntegrityIssue {
+                        path: path.clone(),
+                        reason: "No se pudo inspeccionar el tipo de archivo".to_string(),
+                    });
+                    continue;
+                };
+
+                if file_type.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+
+                if !file_type.is_file() {
+                    continue;
+                }
+
+                let file_name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default();
+                if file_name.ends_with(".part") || file_name.contains(".part.") {
+                    report.issues.push(RuntimeIntegrityIssue {
+                        path: path.clone(),
+                        reason: "Temporal incompleto (.part) detectado".to_string(),
+                    });
+                    if seen_corrupt.insert(path.clone()) {
+                        report.corrupt_files.push(path.clone());
+                    }
+                    continue;
+                }
+
+                let is_archive = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"))
+                    .unwrap_or(false);
+
+                if !is_archive {
+                    continue;
+                }
+
+                let Ok(meta) = fs::metadata(&path) else {
+                    report.issues.push(RuntimeIntegrityIssue {
+                        path: path.clone(),
+                        reason: "No se pudo leer metadata del archivo".to_string(),
+                    });
+                    if seen_corrupt.insert(path.clone()) {
+                        report.corrupt_files.push(path.clone());
+                    }
+                    continue;
+                };
+
+                let min_size = if scope == "mods" { 1024 } else { 10 * 1024 };
+                if meta.len() < min_size {
+                    report.issues.push(RuntimeIntegrityIssue {
+                        path: path.clone(),
+                        reason: format!(
+                            "Archivo con tamaño sospechoso ({} bytes; mínimo recomendado {} bytes)",
+                            meta.len(),
+                            min_size
+                        ),
+                    });
+                    if seen_corrupt.insert(path.clone()) {
+                        report.corrupt_files.push(path.clone());
+                    }
+                    continue;
+                }
+
+                if !is_valid_zip_stream(&path) {
+                    report.issues.push(RuntimeIntegrityIssue {
+                        path: path.clone(),
+                        reason: "ZIP/JAR inválido o ilegible".to_string(),
+                    });
+                    if seen_corrupt.insert(path.clone()) {
+                        report.corrupt_files.push(path.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    report
+}
+
 fn is_valid_jar_for_runtime(path: &Path) -> bool {
     let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
         return true;
@@ -2949,15 +3100,21 @@ async fn bootstrap_instance_runtime(
 
     let assets_objects_dir = minecraft_root.join("assets").join("objects");
     let libraries_dir = minecraft_root.join("libraries");
+    let versions_dir = minecraft_root.join("versions");
+    let mods_dir = minecraft_root.join("mods");
     let cleaned_assets = remove_partial_files(&assets_objects_dir)?;
     let cleaned_libraries = remove_partial_files(&libraries_dir)?;
-    if cleaned_assets > 0 || cleaned_libraries > 0 {
+    let cleaned_versions = remove_partial_files(&versions_dir)?;
+    let cleaned_mods = remove_partial_files(&mods_dir)?;
+    if cleaned_assets > 0 || cleaned_libraries > 0 || cleaned_versions > 0 || cleaned_mods > 0 {
         write_instance_state(
             instance_root,
             "cleaning_partials",
             serde_json::json!({
                 "assetsPartials": cleaned_assets,
-                "librariesPartials": cleaned_libraries
+                "librariesPartials": cleaned_libraries,
+                "versionsPartials": cleaned_versions,
+                "modsPartials": cleaned_mods
             }),
         );
     }
@@ -3720,6 +3877,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
 
     let (mods_compatible_with_loader, mod_compatibility_issues) =
         evaluate_mod_loader_compatibility(Path::new(&plan.game_dir), &plan.loader);
+    let runtime_integrity = scan_runtime_integrity(Path::new(&plan.game_dir));
 
     let java_major_compatible = if plan.required_java_major == 0 || plan.resolved_java_major == 0 {
         true
@@ -3760,6 +3918,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ("classpath_completo", classpath_complete),
         ("classpath_incluye_jar_minecraft", classpath_has_mc_jar),
         ("libraries_descargadas_compatibles", classpath_libraries_ok),
+        ("runtime_sin_archivos_corruptos", runtime_integrity.ok()),
         ("assets_index", !plan.asset_index.trim().is_empty()),
         (
             "assets_descargados",
@@ -3827,6 +3986,19 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         if !ok {
             errors.push(format!("Fallo en requisito crítico: {name}"));
         }
+    }
+
+    if !runtime_integrity.ok() {
+        let formatted = runtime_integrity
+            .issues
+            .iter()
+            .take(8)
+            .map(|issue| format!("{} ({})", issue.path.display(), issue.reason))
+            .collect::<Vec<_>>()
+            .join("; ");
+        errors.push(format!(
+            "Se detectaron archivos corruptos/incompletos en libraries, versions o mods: {formatted}"
+        ));
     }
 
     let classpath_separator_valid = if cfg!(target_os = "windows") {
@@ -4471,6 +4643,33 @@ async fn prepare_instance_runtime(
 
     let instance = read_instance_record(app, instance_id)?;
     ensure_instance_metadata(&instance_root, &instance)?;
+    let minecraft_root = instance_root.join("minecraft");
+
+    let integrity_report = scan_runtime_integrity(&minecraft_root);
+    if !integrity_report.ok() {
+        for path in &integrity_report.corrupt_files {
+            let _ = fs::remove_file(path);
+        }
+        let integrity_details = integrity_report
+            .issues
+            .iter()
+            .take(20)
+            .map(|issue| {
+                serde_json::json!({
+                    "path": issue.path.to_string_lossy(),
+                    "reason": issue.reason
+                })
+            })
+            .collect::<Vec<_>>();
+        write_instance_state(
+            &instance_root,
+            "runtime_integrity_repair",
+            serde_json::json!({
+                "removed": integrity_report.corrupt_files.len(),
+                "issues": integrity_details
+            }),
+        );
+    }
 
     let cached_plan = read_launch_plan(&instance_root).ok();
     let cached_is_usable = cached_plan
@@ -4478,6 +4677,7 @@ async fn prepare_instance_runtime(
         .map(|plan| {
             launch_plan_matches_instance(plan, &instance)
                 && validate_launch_plan(&instance_root, plan).ok
+                && integrity_report.ok()
         })
         .unwrap_or(false);
 
@@ -5619,5 +5819,54 @@ mod tests {
         let message = format_startup_crash_message(1, &stderr_lines);
         assert!(message.contains("Diagnóstico Fabric"));
         assert!(message.contains("Últimas líneas"));
+    }
+
+    #[test]
+    fn scan_runtime_integrity_flags_partials_and_tiny_archives() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let game_dir = std::env::temp_dir().join(format!("frutistudio-integrity-{unique}"));
+        let libraries_dir = game_dir.join("libraries");
+        let versions_dir = game_dir.join("versions").join("1.21.4");
+        fs::create_dir_all(&libraries_dir).expect("libraries dir");
+        fs::create_dir_all(&versions_dir).expect("versions dir");
+
+        fs::write(libraries_dir.join("broken.jar.part"), b"partial").expect("partial");
+        fs::write(versions_dir.join("1.21.4.jar"), b"small").expect("tiny jar");
+
+        let report = scan_runtime_integrity(&game_dir);
+        assert!(!report.ok());
+        assert!(!report.corrupt_files.is_empty());
+
+        fs::remove_dir_all(game_dir).expect("cleanup");
+    }
+
+    #[test]
+    fn scan_runtime_integrity_accepts_valid_mod_archive() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let game_dir = std::env::temp_dir().join(format!("frutistudio-integrity-ok-{unique}"));
+        let mods_dir = game_dir.join("mods");
+        fs::create_dir_all(&mods_dir).expect("mods dir");
+
+        let mod_path = mods_dir.join("valid.jar");
+        let file = fs::File::create(&mod_path).expect("mod jar");
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.start_file("fabric.mod.json", options)
+            .expect("zip start file");
+        let large_payload = "x".repeat(2048);
+        zip.write_all(large_payload.as_bytes())
+            .expect("zip write metadata");
+        zip.finish().expect("zip finish");
+
+        let report = scan_runtime_integrity(&game_dir);
+        assert!(report.ok());
+
+        fs::remove_dir_all(game_dir).expect("cleanup");
     }
 }
