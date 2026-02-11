@@ -2663,6 +2663,52 @@ fn resolve_loader_profile_json(
     None
 }
 
+fn persist_fabric_like_profile_json(
+    minecraft_root: &Path,
+    minecraft_version: &str,
+    loader: &str,
+    loader_version: &str,
+    profile: &Value,
+) -> Result<String, String> {
+    let profile_id = profile
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| format!("{minecraft_version}-{loader}-{loader_version}"));
+
+    let mut normalized_profile = profile.clone();
+    if let Some(profile_obj) = normalized_profile.as_object_mut() {
+        profile_obj.insert("id".to_string(), Value::String(profile_id.clone()));
+
+        let inherits_from = profile_obj
+            .get("inheritsFrom")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        if inherits_from.is_empty() {
+            profile_obj.insert(
+                "inheritsFrom".to_string(),
+                Value::String(minecraft_version.to_string()),
+            );
+        }
+    }
+
+    let profile_dir = minecraft_root.join("versions").join(&profile_id);
+    fs::create_dir_all(&profile_dir).map_err(|error| {
+        format!("No se pudo crear carpeta de perfil {loader} ({profile_id}): {error}")
+    })?;
+    fs::write(
+        profile_dir.join(format!("{profile_id}.json")),
+        serde_json::to_string_pretty(&normalized_profile)
+            .map_err(|error| format!("No se pudo serializar perfil {loader}: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo guardar perfil {loader}: {error}"))?;
+
+    Ok(profile_id)
+}
+
 async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) -> Option<String> {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -4449,6 +4495,7 @@ async fn bootstrap_instance_runtime(
     }
 
     let mut effective_version_json = base_version_json.clone();
+    let mut launch_version_name = version.to_string();
     if loader == "forge" || loader == "neoforge" {
         write_instance_state(
             instance_root,
@@ -4536,6 +4583,14 @@ async fn bootstrap_instance_runtime(
             serde_json::json!({"loader": loader, "version": loader_version, "step": "fabric_profile"}),
         );
         let profile = fetch_json_with_fallback(&profile_urls, "perfil del loader").await?;
+        let persisted_profile_id = persist_fabric_like_profile_json(
+            &minecraft_root,
+            version,
+            &loader,
+            &loader_version,
+            &profile,
+        )?;
+        launch_version_name = persisted_profile_id;
         effective_version_json = merge_version_json(&effective_version_json, &profile);
         libraries = effective_version_json
             .get("libraries")
@@ -4780,12 +4835,16 @@ async fn bootstrap_instance_runtime(
     let auth_player_name = user.to_string();
     let auth_uuid = uuid.clone();
     let auth_access_token = "0".to_string();
-    let version_name = effective_version_json
-        .get("id")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(version)
-        .to_string();
+    let version_name = if launch_version_name.trim().is_empty() {
+        effective_version_json
+            .get("id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(version)
+            .to_string()
+    } else {
+        launch_version_name.clone()
+    };
     let game_dir = minecraft_root.to_string_lossy().to_string();
     let assets_root = minecraft_root.join("assets").to_string_lossy().to_string();
     let library_directory = minecraft_root
