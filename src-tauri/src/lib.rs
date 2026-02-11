@@ -80,6 +80,12 @@ struct InstanceRecord {
     loader_name: Option<String>,
     #[serde(default)]
     loader_version: Option<String>,
+    #[serde(default)]
+    source_launcher: Option<String>,
+    #[serde(default)]
+    source_path: Option<String>,
+    #[serde(default)]
+    source_instance_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,6 +124,20 @@ struct InstalledModEntry {
     size_bytes: u64,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ExternalDetectedInstance {
+    id: String,
+    name: String,
+    version: String,
+    launcher: String,
+    path: String,
+    game_dir: String,
+    loader_name: String,
+    loader_version: String,
+    details: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct LaunchPlan {
@@ -153,6 +173,20 @@ fn detect_minecraft_launcher_installations() -> Vec<LauncherInstallation> {
             let usable = root.join("versions").is_dir();
             installations.push(LauncherInstallation {
                 launcher: "minecraft".to_string(),
+                root: root.to_string_lossy().to_string(),
+                kind: "env".to_string(),
+                usable,
+            });
+        }
+    }
+
+    if let Ok(path) = std::env::var("MODRINTH_HOME") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            let root = PathBuf::from(trimmed);
+            let usable = root.join("versions").is_dir();
+            installations.push(LauncherInstallation {
+                launcher: "modrinth".to_string(),
                 root: root.to_string_lossy().to_string(),
                 kind: "env".to_string(),
                 usable,
@@ -284,6 +318,214 @@ fn detect_minecraft_launcher_installations() -> Vec<LauncherInstallation> {
         .collect()
 }
 
+fn normalize_loader_name(value: Option<&str>) -> String {
+    match value.unwrap_or("vanilla").trim().to_lowercase().as_str() {
+        "forge" => "Forge".to_string(),
+        "fabric" => "Fabric".to_string(),
+        "quilt" => "Quilt".to_string(),
+        "neoforge" => "NeoForge".to_string(),
+        _ => "Vanilla".to_string(),
+    }
+}
+
+fn detect_external_instances_from_root(
+    launcher: &str,
+    root: &Path,
+) -> Vec<ExternalDetectedInstance> {
+    let mut entries = Vec::new();
+
+    if launcher == "prism" {
+        let instances_root = root.join("instances");
+        let Ok(read_dir) = fs::read_dir(&instances_root) else {
+            return entries;
+        };
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let mmc_pack = path.join("mmc-pack.json");
+            if !mmc_pack.exists() {
+                continue;
+            }
+            let raw = fs::read_to_string(&mmc_pack).unwrap_or_default();
+            let json: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+            let name = json
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| path.file_name().and_then(|v| v.to_str()))
+                .unwrap_or("Prism Instance")
+                .to_string();
+            let version = json
+                .get("components")
+                .and_then(Value::as_array)
+                .and_then(|components| {
+                    components.iter().find_map(|component| {
+                        let uid = component.get("uid")?.as_str()?;
+                        if uid == "net.minecraft" {
+                            component.get("version")?.as_str().map(str::to_string)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or_else(|| "latest".to_string());
+            let (loader_name, loader_version) = json
+                .get("components")
+                .and_then(Value::as_array)
+                .and_then(|components| {
+                    for component in components {
+                        let uid = component
+                            .get("uid")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if uid.contains("forge") || uid.contains("fabric") || uid.contains("quilt")
+                        {
+                            return Some((
+                                normalize_loader_name(Some(uid)),
+                                component
+                                    .get("version")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("latest")
+                                    .to_string(),
+                            ));
+                        }
+                    }
+                    None
+                })
+                .unwrap_or(("Vanilla".to_string(), "latest".to_string()));
+            let game_dir = if path.join(".minecraft").is_dir() {
+                path.join(".minecraft")
+            } else {
+                path.clone()
+            };
+            entries.push(ExternalDetectedInstance {
+                id: format!("prism:{}", path.to_string_lossy()),
+                name: name.clone(),
+                version,
+                launcher: "prism".to_string(),
+                path: path.to_string_lossy().to_string(),
+                game_dir: game_dir.to_string_lossy().to_string(),
+                loader_name,
+                loader_version,
+                details: Some(format!("Instancia Prism: {name}")),
+            });
+        }
+        return entries;
+    }
+
+    if launcher == "minecraft" || launcher == "curseforge" || launcher == "modrinth" {
+        let versions_root = root.join("versions");
+        let Ok(read_dir) = fs::read_dir(&versions_root) else {
+            return entries;
+        };
+        for entry in read_dir.flatten() {
+            let version_dir = entry.path();
+            if !version_dir.is_dir() {
+                continue;
+            }
+            let Some(version_id) = version_dir.file_name().and_then(|v| v.to_str()) else {
+                continue;
+            };
+            let version_json = version_dir.join(format!("{version_id}.json"));
+            if !version_json.exists() {
+                continue;
+            }
+            let raw = fs::read_to_string(&version_json).unwrap_or_default();
+            let json: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+            let id = json
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or(version_id)
+                .to_string();
+            let normalized = id.to_lowercase();
+            let (loader_name, loader_version) = if normalized.contains("neoforge") {
+                ("NeoForge".to_string(), "latest".to_string())
+            } else if normalized.contains("forge") {
+                ("Forge".to_string(), "latest".to_string())
+            } else if normalized.contains("fabric") {
+                ("Fabric".to_string(), "latest".to_string())
+            } else if normalized.contains("quilt") {
+                ("Quilt".to_string(), "latest".to_string())
+            } else {
+                ("Vanilla".to_string(), "latest".to_string())
+            };
+            entries.push(ExternalDetectedInstance {
+                id: format!("{launcher}:{}", version_dir.to_string_lossy()),
+                name: id.clone(),
+                version: id,
+                launcher: launcher.to_string(),
+                path: version_dir.to_string_lossy().to_string(),
+                game_dir: root.to_string_lossy().to_string(),
+                loader_name,
+                loader_version,
+                details: Some(format!("Versión detectada en {}", root.display())),
+            });
+        }
+    }
+
+    entries
+}
+
+fn detect_external_instances() -> Vec<ExternalDetectedInstance> {
+    let mut all = Vec::new();
+    for installation in detect_minecraft_launcher_installations() {
+        if !installation.usable {
+            continue;
+        }
+        let root = PathBuf::from(&installation.root);
+        all.extend(detect_external_instances_from_root(
+            &installation.launcher,
+            &root,
+        ));
+
+        if installation.launcher == "modrinth" {
+            all.extend(detect_external_instances_from_root("modrinth", &root));
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let linux_modrinth = PathBuf::from(&home)
+            .join(".local")
+            .join("share")
+            .join("ModrinthApp")
+            .join("meta");
+        if linux_modrinth.exists() {
+            all.extend(detect_external_instances_from_root(
+                "modrinth",
+                &linux_modrinth,
+            ));
+        }
+
+        let mac_modrinth = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("ModrinthApp")
+            .join("meta");
+        if mac_modrinth.exists() {
+            all.extend(detect_external_instances_from_root(
+                "modrinth",
+                &mac_modrinth,
+            ));
+        }
+    }
+
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let windows_modrinth = PathBuf::from(appdata).join("ModrinthApp").join("meta");
+        if windows_modrinth.exists() {
+            all.extend(detect_external_instances_from_root(
+                "modrinth",
+                &windows_modrinth,
+            ));
+        }
+    }
+
+    let mut dedup = HashSet::new();
+    all.into_iter()
+        .filter(|entry| dedup.insert(entry.id.clone()))
+        .collect()
+}
+
 fn copy_if_missing(from: &Path, to: &Path) -> Result<bool, String> {
     if !from.exists() || to.exists() {
         return Ok(false);
@@ -395,6 +637,13 @@ struct InstanceArchiveArgs {
     #[serde(alias = "instance_id", alias = "id", alias = "uuid")]
     instance_id: Option<String>,
     archive_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExternalImportArgs {
+    external_id: String,
+    custom_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -756,7 +1005,10 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
             name TEXT NOT NULL,
             version TEXT NOT NULL,
             loader_name TEXT,
-            loader_version TEXT
+            loader_version TEXT,
+            source_launcher TEXT,
+            source_path TEXT,
+            source_instance_name TEXT
         );
         CREATE TABLE IF NOT EXISTS modpacks (
             id TEXT PRIMARY KEY,
@@ -785,6 +1037,39 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
             }
         })
         .map_err(|error| format!("No se pudo migrar columna loader_version: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN source_launcher TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna source_launcher: {error}"))?;
+
+    conn.execute("ALTER TABLE instances ADD COLUMN source_path TEXT", [])
+        .or_else(|error| {
+            if error.to_string().contains("duplicate column name") {
+                Ok(0)
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("No se pudo migrar columna source_path: {error}"))?;
+
+    conn.execute(
+        "ALTER TABLE instances ADD COLUMN source_instance_name TEXT",
+        [],
+    )
+    .or_else(|error| {
+        if error.to_string().contains("duplicate column name") {
+            Ok(0)
+        } else {
+            Err(error)
+        }
+    })
+    .map_err(|error| format!("No se pudo migrar columna source_instance_name: {error}"))?;
 
     Ok(())
 }
@@ -4686,9 +4971,135 @@ async fn delete_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Re
     })
 }
 
+fn slugify_instance_id(input: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in input.chars() {
+        let normalized = if ch.is_ascii_alphanumeric() {
+            ch.to_ascii_lowercase()
+        } else {
+            '-'
+        };
+        if normalized == '-' {
+            if last_dash || out.is_empty() {
+                continue;
+            }
+            last_dash = true;
+            out.push('-');
+        } else {
+            last_dash = false;
+            out.push(normalized);
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
 #[command]
 async fn detect_minecraft_launchers() -> Result<Vec<LauncherInstallation>, String> {
     Ok(detect_minecraft_launcher_installations())
+}
+
+#[command]
+async fn list_external_instances() -> Result<Vec<ExternalDetectedInstance>, String> {
+    Ok(detect_external_instances())
+}
+
+#[command]
+async fn import_external_instance(
+    app: tauri::AppHandle,
+    args: ExternalImportArgs,
+) -> Result<InstanceRecord, String> {
+    ensure_launcher_layout(&app)?;
+    let external_id = args.external_id.trim();
+    if external_id.is_empty() {
+        return Err("external_id es requerido".to_string());
+    }
+
+    let external = detect_external_instances()
+        .into_iter()
+        .find(|entry| entry.id == external_id)
+        .ok_or_else(|| "No se encontró la instancia externa seleccionada".to_string())?;
+
+    let base_id = slugify_instance_id(
+        args.custom_name
+            .as_deref()
+            .unwrap_or(external.name.as_str()),
+    );
+    let instance_id = if base_id.is_empty() {
+        format!("external-{}", current_unix_secs())
+    } else {
+        format!("external-{base_id}")
+    };
+
+    with_instance_lock(&instance_id, || {
+        let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+        fs::create_dir_all(&instance_root)
+            .map_err(|error| format!("No se pudo preparar carpeta de la instancia: {error}"))?;
+
+        let record = InstanceRecord {
+            id: instance_id.clone(),
+            name: args
+                .custom_name
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| external.name.clone()),
+            version: external.version.clone(),
+            loader_name: Some(external.loader_name.to_lowercase()),
+            loader_version: Some(external.loader_version.clone()),
+            source_launcher: Some(external.launcher.clone()),
+            source_path: Some(external.path.clone()),
+            source_instance_name: Some(external.name.clone()),
+        };
+
+        let meta = serde_json::json!({
+            "id": record.id,
+            "name": record.name,
+            "minecraft_version": record.version,
+            "modloader": record.loader_name.clone().unwrap_or_else(|| "vanilla".to_string()),
+            "modloader_version": record.loader_version.clone().unwrap_or_else(|| "latest".to_string()),
+            "loader": record.loader_name.clone().unwrap_or_else(|| "vanilla".to_string()),
+            "loader_version": record.loader_version.clone().unwrap_or_else(|| "latest".to_string()),
+            "java_version_required": JavaManager::required_major_for_minecraft_version(record.version.as_str()),
+            "java": Value::Null,
+            "memory_alloc": {"min": 2048, "max": 4096},
+            "memory": {"min": 2048, "max": 4096},
+            "game_dir": external.game_dir,
+            "createdAt": current_unix_secs(),
+            "external": {
+                "launcher": record.source_launcher,
+                "instanceName": record.source_instance_name,
+                "path": record.source_path
+            }
+        });
+
+        fs::write(
+            instance_root.join("instance.json"),
+            serde_json::to_string_pretty(&meta)
+                .map_err(|error| format!("No se pudo serializar metadata externa: {error}"))?,
+        )
+        .map_err(|error| format!("No se pudo guardar metadata externa: {error}"))?;
+
+        ensure_instance_layout(&instance_root)?;
+
+        let connection = database_connection(&app)?;
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    record.id,
+                    record.name,
+                    record.version,
+                    record.loader_name,
+                    record.loader_version,
+                    record.source_launcher,
+                    record.source_path,
+                    record.source_instance_name
+                ],
+            )
+            .map_err(|error| format!("No se pudo guardar la instancia externa: {error}"))?;
+
+        Ok(record)
+    })
 }
 
 #[command]
@@ -4771,7 +5182,7 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
     let conn = Connection::open(path)
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
     let mut stmt = conn
-        .prepare("SELECT id, name, version, loader_name, loader_version FROM instances")
+        .prepare("SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name FROM instances")
         .map_err(|error| format!("No se pudo leer instancias: {error}"))?;
     let rows = stmt
         .query_map([], |row| {
@@ -4781,6 +5192,9 @@ async fn list_instances(app: tauri::AppHandle) -> Result<Vec<InstanceRecord>, St
                 version: row.get(2)?,
                 loader_name: row.get(3)?,
                 loader_version: row.get(4)?,
+                source_launcher: row.get(5)?,
+                source_path: row.get(6)?,
+                source_instance_name: row.get(7)?,
             })
         })
         .map_err(|error| format!("No se pudo mapear instancias: {error}"))?;
@@ -4995,7 +5409,7 @@ fn read_instance_record(
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
 
     conn.query_row(
-        "SELECT id, name, version, loader_name, loader_version FROM instances WHERE id = ?1",
+        "SELECT id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name FROM instances WHERE id = ?1",
         params![instance_id],
         |row| {
             Ok(InstanceRecord {
@@ -5004,6 +5418,9 @@ fn read_instance_record(
                 version: row.get(2)?,
                 loader_name: row.get(3)?,
                 loader_version: row.get(4)?,
+                source_launcher: row.get(5)?,
+                source_path: row.get(6)?,
+                source_instance_name: row.get(7)?,
             })
         },
     )
@@ -5018,19 +5435,25 @@ async fn create_instance(app: tauri::AppHandle, instance: InstanceRecord) -> Res
         version: instance.version.clone(),
         loader_name: instance.loader_name.clone(),
         loader_version: Some(normalized_loader_version(&instance)),
+        source_launcher: None,
+        source_path: None,
+        source_instance_name: None,
     };
 
     let path = database_path(&app)?;
     let conn = Connection::open(path)
         .map_err(|error| format!("No se pudo abrir la base de datos: {error}"))?;
     conn.execute(
-        "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             normalized.id,
             normalized.name,
             normalized.version,
             normalized.loader_name,
-            normalized.loader_version
+            normalized.loader_version,
+            normalized.source_launcher,
+            normalized.source_path,
+            normalized.source_instance_name
         ],
     )
     .map_err(|error| format!("No se pudo crear la instancia: {error}"))?;
@@ -5206,18 +5629,24 @@ async fn import_instance(
             version: imported_version,
             loader_name: Some(imported_loader),
             loader_version: Some(imported_loader_version),
+            source_launcher: None,
+            source_path: None,
+            source_instance_name: None,
         };
 
         let connection = database_connection(&app)?;
         connection
             .execute(
-                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO instances (id, name, version, loader_name, loader_version, source_launcher, source_path, source_instance_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     record.id,
                     record.name,
                     record.version,
                     record.loader_name,
-                    record.loader_version
+                    record.loader_version,
+                    record.source_launcher,
+                    record.source_path,
+                    record.source_instance_name
                 ],
             )
             .map_err(|error| format!("No se pudo guardar la instancia importada: {error}"))?;
@@ -6027,7 +6456,8 @@ async fn open_instance_path(app: tauri::AppHandle, args: InstancePathArgs) -> Re
         return Err("instance_id es requerido".to_string());
     }
 
-    let mut target = launcher_root(&app)?.join("instances").join(&instance_id);
+    let instance_root = launcher_root(&app)?.join("instances").join(&instance_id);
+    let mut target = instance_root.clone();
     if let Some(raw_sub_path) = args.sub_path {
         let trimmed = raw_sub_path.trim();
         if !trimmed.is_empty() {
@@ -6039,7 +6469,18 @@ async fn open_instance_path(app: tauri::AppHandle, args: InstancePathArgs) -> Re
             {
                 return Err("sub_path inválido".to_string());
             }
-            target = target.join(sub_path);
+
+            if trimmed.starts_with("minecraft/") || trimmed == "minecraft" {
+                let game_dir = instance_game_dir(&instance_root);
+                let relative = trimmed.strip_prefix("minecraft/").unwrap_or("");
+                target = if relative.is_empty() {
+                    game_dir
+                } else {
+                    game_dir.join(relative)
+                };
+            } else {
+                target = target.join(sub_path);
+            }
         }
     }
 
@@ -6130,6 +6571,8 @@ pub fn run() {
             append_log,
             list_instances,
             detect_minecraft_launchers,
+            list_external_instances,
+            import_external_instance,
             detect_installed_mods,
             list_java_runtimes,
             resolve_java_for_minecraft,

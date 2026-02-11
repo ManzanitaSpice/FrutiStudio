@@ -25,6 +25,9 @@ export interface Instance {
   downloadProgress?: number;
   downloadStage?: "descargando" | "instalando" | "finalizando";
   processId?: number;
+  sourceLauncher?: string;
+  sourcePath?: string;
+  sourceInstanceName?: string;
 }
 
 export interface Modpack {
@@ -71,6 +74,9 @@ export interface LocalInstance {
   loaderVersion?: string;
   loader_name?: string;
   loader_version?: string;
+  sourceLauncher?: string;
+  sourcePath?: string;
+  sourceInstanceName?: string;
 }
 
 export interface FeatureFlags {
