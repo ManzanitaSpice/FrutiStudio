@@ -30,7 +30,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::core::config::{
     AppConfig, BaseDirValidationResult, LauncherFactoryResetArgs, LauncherFactoryResetResult,
-    StartupFileEntry,
+    NetworkTuning, StartupFileEntry,
 };
 use crate::core::download_routes;
 use crate::core::external_discovery::{
@@ -56,10 +56,11 @@ use crate::core::launcher_discovery::{
     expected_main_class_for_loader,
 };
 use crate::core::loader_normalizer::normalize_loader_profile as normalize_loader_profile_core;
+use crate::core::mods::ModDownloadIntegrity;
 use crate::core::network::{
     CurseforgeDownloadResolution, CurseforgeFileEnvelope, CurseforgeFingerprintsEnvelope,
-    CurseforgeModEnvelope, FingerprintFileResult, FingerprintScanResult, FingerprintsRequestBody,
-    ModpackAction, MojangVersionManifest, SelectFolderResult,
+    CurseforgeModEnvelope, DownloadTrace, FingerprintFileResult, FingerprintScanResult,
+    FingerprintsRequestBody, ModpackAction, MojangVersionManifest, SelectFolderResult,
 };
 use crate::core::runtime_manager::RuntimeManager;
 
@@ -379,10 +380,41 @@ const ASSET_MIRROR_BASES: [&str; 3] = [
 ];
 const ASSET_VALIDATION_RECHECK_SECS: u64 = 3 * 24 * 60 * 60;
 
+fn env_u64(key: &str, default_value: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_value)
+}
+
+fn resolve_network_tuning(config: Option<&AppConfig>) -> NetworkTuning {
+    config
+        .and_then(|cfg| cfg.network_tuning.clone())
+        .unwrap_or_default()
+}
+
+fn http_client_with_tuning(tuning: &NetworkTuning) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(tuning.connect_timeout_secs.max(1)))
+        .timeout(Duration::from_secs(tuning.request_timeout_secs.max(1)))
+        .pool_max_idle_per_host(32)
+        .tcp_keepalive(Duration::from_secs(30))
+        .user_agent("FrutiLauncher/1.0")
+        .build()
+        .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))
+}
+
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(12))
-        .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(env_u64(
+            "FRUTI_CONNECT_TIMEOUT_SECS",
+            12,
+        )))
+        .timeout(std::time::Duration::from_secs(env_u64(
+            "FRUTI_REQUEST_TIMEOUT_SECS",
+            120,
+        )))
         .pool_max_idle_per_host(32)
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .user_agent("FrutiLauncher/1.0")
@@ -2465,7 +2497,9 @@ fn persist_loader_profile_json(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
-        .unwrap_or_else(|| format!("{minecraft_version}-{loader}-{loader_version}"));
+        .unwrap_or_else(|| {
+            crate::core::loaders::profile_id_for_loader(loader, minecraft_version, loader_version)
+        });
 
     let mut normalized_profile = profile.clone();
     if let Some(profile_obj) = normalized_profile.as_object_mut() {
@@ -2812,8 +2846,14 @@ fn validate_loader_profile_json(
 
 async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) -> Option<String> {
     let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(25))
+        .connect_timeout(Duration::from_secs(env_u64(
+            "FRUTI_ENDPOINT_CONNECT_TIMEOUT_SECS",
+            10,
+        )))
+        .timeout(Duration::from_secs(env_u64(
+            "FRUTI_ENDPOINT_REQUEST_TIMEOUT_SECS",
+            25,
+        )))
         .build()
         .ok()?;
     let user_agent = "FrutiLauncher/1.0 (+https://github.com/fruti-studio)";
@@ -2924,8 +2964,14 @@ async fn resolve_latest_fabric_like_loader_version(
     };
 
     let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(25))
+        .connect_timeout(Duration::from_secs(env_u64(
+            "FRUTI_ENDPOINT_CONNECT_TIMEOUT_SECS",
+            10,
+        )))
+        .timeout(Duration::from_secs(env_u64(
+            "FRUTI_ENDPOINT_REQUEST_TIMEOUT_SECS",
+            25,
+        )))
         .build()
         .ok()?;
 
@@ -2988,7 +3034,10 @@ async fn install_forge_like_loader(
     loader: &str,
     requested_loader_version: Option<&str>,
 ) -> Result<String, String> {
+    crate::core::loaders::validate_loader_request(loader, minecraft_version)?;
     ensure_forge_preflight_files(minecraft_root, minecraft_version)?;
+    let config = load_config(app)?;
+    let tuning = resolve_network_tuning(Some(&config));
 
     let requested = requested_loader_version
         .unwrap_or("latest")
@@ -3015,6 +3064,31 @@ async fn install_forge_like_loader(
         expected_forge_like_profile_ids(loader, minecraft_version, &resolved_version);
 
     let installer_urls = download_routes::forge_like_installer_urls(loader, &resolved_version);
+    let compatibility = download_routes::loader_compatibility_routes();
+    let compatible = compatibility.iter().any(|entry| {
+        entry.loader == loader
+            && minecraft_version.starts_with(entry.minecraft_prefix)
+            && entry.jar_published
+    });
+    if !compatible {
+        return Err(format!(
+            "No hay ruta de compatibilidad publicada para loader {loader} en Minecraft {minecraft_version}"
+        ));
+    }
+    write_instance_state(
+        instance_root,
+        "loader_compatibility_checked",
+        serde_json::json!({
+            "loader": loader,
+            "minecraftVersion": minecraft_version,
+            "resolvedVersion": resolved_version,
+            "metadataEndpoints": compatibility
+                .iter()
+                .filter(|entry| entry.loader == loader)
+                .map(|entry| entry.metadata_endpoint.to_string())
+                .collect::<Vec<_>>()
+        }),
+    );
     let launcher_cache_dir = launcher_root(app)?
         .join("cache")
         .join("loaders")
@@ -3029,6 +3103,7 @@ async fn install_forge_like_loader(
         &installer_urls,
         &installer_cache_target,
         "instalador Forge/NeoForge",
+        &tuning,
     )
     .await?;
 
@@ -3304,10 +3379,23 @@ fn ensure_forge_preflight_files(
     Ok(())
 }
 
-async fn download_from_candidates(urls: &[String], path: &Path, label: &str) -> Result<(), String> {
-    download_with_retries(urls, path, None, 4, should_validate_zip_from_path(path))
-        .await
-        .map_err(|error| format!("No se pudo descargar {label}. Último error: {error}"))
+async fn download_from_candidates(
+    urls: &[String],
+    path: &Path,
+    label: &str,
+    tuning: &NetworkTuning,
+) -> Result<(), String> {
+    download_with_retries(
+        urls,
+        path,
+        None,
+        tuning.retries,
+        should_validate_zip_from_path(path),
+        tuning,
+        label,
+    )
+    .await
+    .map_err(|error| format!("No se pudo descargar {label}. Último error: {error}"))
 }
 
 fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
@@ -3324,9 +3412,41 @@ fn upsert_game_arg(args: &mut Vec<String>, key: &str, value: String) {
     args.push(value);
 }
 
-async fn download_to(url: &str, path: &Path) -> Result<(), String> {
+async fn download_to(
+    url: &str,
+    path: &Path,
+    tuning: &NetworkTuning,
+    expected_sha1: Option<&str>,
+    expected_md5: Option<&str>,
+) -> Result<ModDownloadIntegrity, String> {
     let urls = vec![url.to_string()];
-    download_with_retries(&urls, path, None, 4, should_validate_zip_from_path(path)).await
+    download_with_retries(
+        &urls,
+        path,
+        expected_sha1,
+        tuning.retries,
+        should_validate_zip_from_path(path),
+        tuning,
+        "mod_download",
+    )
+    .await?;
+
+    let actual_sha1 = file_sha1(path)?;
+    let actual_md5 = file_md5(path)?;
+    if let Some(expected) = expected_md5 {
+        if !actual_md5.eq_ignore_ascii_case(expected) {
+            return Err(format!(
+                "MD5 inválido tras descarga (esperado {expected}, obtenido {actual_md5})"
+            ));
+        }
+    }
+
+    Ok(ModDownloadIntegrity {
+        expected_sha1: expected_sha1.map(ToOwned::to_owned),
+        expected_md5: expected_md5.map(ToOwned::to_owned),
+        actual_sha1,
+        actual_md5,
+    })
 }
 
 fn mirror_candidates_for_url(url: &str) -> Vec<String> {
@@ -3338,6 +3458,30 @@ fn should_validate_zip_from_path(path: &Path) -> bool {
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"))
         .unwrap_or(false)
+}
+
+fn file_md5(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| {
+        format!(
+            "No se pudo abrir archivo para MD5 {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut context = md5::Context::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| {
+            format!(
+                "No se pudo leer archivo para MD5 {}: {error}",
+                path.display()
+            )
+        })?;
+        if read == 0 {
+            break;
+        }
+        context.consume(&buffer[..read]);
+    }
+    Ok(format!("{:x}", context.compute()))
 }
 
 fn file_sha1(path: &Path) -> Result<String, String> {
@@ -3467,6 +3611,8 @@ async fn download_with_retries(
     expected_sha1: Option<&str>,
     attempts: u8,
     validate_zip: bool,
+    tuning: &NetworkTuning,
+    stage: &str,
 ) -> Result<(), String> {
     if let Ok(meta) = fs::metadata(path) {
         if meta.is_file() && meta.len() > 0 && (!validate_zip || is_valid_zip_stream(path)) {
@@ -3485,7 +3631,8 @@ async fn download_with_retries(
         ensure_writable_dir(parent)?;
     }
 
-    let client = HTTP_CLIENT.clone();
+    let client = http_client_with_tuning(tuning)?;
+    let mut traces: Vec<DownloadTrace> = Vec::new();
 
     let partial_path = download_partial_path(path);
     ensure_writable_file(path)?;
@@ -3499,6 +3646,12 @@ async fn download_with_retries(
 
     for attempt in 1..=max_attempts {
         for url in urls {
+            traces.push(DownloadTrace {
+                endpoint: format!("{}:{}", stage, download_routes::endpoint_label(url)),
+                url: url.clone(),
+                sha1: expected_sha1.map(ToOwned::to_owned),
+                md5: None,
+            });
             let resume_from = fs::metadata(&partial_path)
                 .map(|meta| meta.len())
                 .unwrap_or(0);
@@ -3686,7 +3839,16 @@ async fn download_with_retries(
         }
     }
 
-    Err(last_error.unwrap_or_else(|| "desconocido".to_string()))
+    let trace_summary = traces
+        .iter()
+        .map(|trace| format!("{}=>{}", trace.endpoint, trace.url))
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(format!(
+        "{} | endpoints: {}",
+        last_error.unwrap_or_else(|| "desconocido".to_string()),
+        trace_summary
+    ))
 }
 
 async fn download_many_with_limit<F>(
@@ -3703,9 +3865,11 @@ where
 
     let gate = std::sync::Arc::new(Semaphore::new(concurrency.max(1)));
     let mut tasks = tokio::task::JoinSet::new();
+    let tuning = NetworkTuning::default();
 
     for task in items {
         let permit_gate = gate.clone();
+        let tuning = tuning.clone();
         tasks.spawn(async move {
             let _permit = permit_gate
                 .acquire_owned()
@@ -3714,7 +3878,15 @@ where
             let temp_path = download_partial_path(&task.path);
             tokio::time::timeout(
                 std::time::Duration::from_secs(240),
-                download_with_retries(&task.urls, &task.path, Some(&task.sha1), 5, false),
+                download_with_retries(
+                    &task.urls,
+                    &task.path,
+                    Some(&task.sha1),
+                    tuning.retries,
+                    false,
+                    &tuning,
+                    "asset",
+                ),
             )
             .await
             .map_err(|_| {
@@ -3761,9 +3933,11 @@ async fn download_binaries_with_limit(
 
     let gate = std::sync::Arc::new(Semaphore::new(concurrency.max(1)));
     let mut tasks = tokio::task::JoinSet::new();
+    let tuning = NetworkTuning::default();
 
     for task in items {
         let permit_gate = gate.clone();
+        let tuning = tuning.clone();
         tasks.spawn(async move {
             let _permit = permit_gate
                 .acquire_owned()
@@ -3773,8 +3947,10 @@ async fn download_binaries_with_limit(
                 &task.urls,
                 &task.path,
                 task.sha1.as_deref(),
-                5,
+                tuning.retries,
                 task.validate_zip,
+                &tuning,
+                "binary",
             )
             .await
             .map_err(|error| format!("{} falló: {error}", task.label))
@@ -4529,29 +4705,51 @@ fn evaluate_mod_loader_compatibility(
 
 async fn fetch_json_with_fallback(urls: &[String], context: &str) -> Result<Value, String> {
     let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(env_u64(
+            "FRUTI_ENDPOINT_CONNECT_TIMEOUT_SECS",
+            10,
+        )))
+        .timeout(std::time::Duration::from_secs(env_u64(
+            "FRUTI_ENDPOINT_REQUEST_TIMEOUT_SECS",
+            30,
+        )))
         .user_agent("FrutiLauncher/1.0")
         .build()
         .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
     let mut last_error = None;
-    for url in urls {
-        match client.get(url).send().await {
-            Ok(response) => {
-                if !response.status().is_success() {
-                    last_error = Some(format!("{url} respondió {}", response.status()));
-                    continue;
-                }
-                match response.json::<Value>().await {
-                    Ok(json) => return Ok(json),
-                    Err(error) => {
-                        last_error = Some(format!("JSON inválido en {url}: {error}"));
+    let retries = env_u64("FRUTI_ENDPOINT_RETRIES", 3).max(1);
+    for attempt in 1..=retries {
+        for url in urls {
+            match client.get(url).send().await {
+                Ok(response) => {
+                    if !response.status().is_success() {
+                        last_error = Some(format!(
+                            "{url} [{}] respondió {}",
+                            download_routes::endpoint_label(url),
+                            response.status()
+                        ));
+                        continue;
+                    }
+                    match response.json::<Value>().await {
+                        Ok(json) => return Ok(json),
+                        Err(error) => {
+                            last_error = Some(format!(
+                                "JSON inválido en {url} [{}]: {error}",
+                                download_routes::endpoint_label(url)
+                            ));
+                        }
                     }
                 }
+                Err(error) => {
+                    last_error = Some(format!(
+                        "No se pudo descargar {url} [{}]: {error}",
+                        download_routes::endpoint_label(url)
+                    ));
+                }
             }
-            Err(error) => {
-                last_error = Some(format!("No se pudo descargar {url}: {error}"));
-            }
+        }
+        if attempt < retries {
+            tokio::time::sleep(Duration::from_millis(300 * attempt)).await;
         }
     }
 
@@ -4944,12 +5142,15 @@ async fn bootstrap_instance_runtime(
             "sha1": client_sha1
         }),
     );
+    let network_tuning = resolve_network_tuning(Some(&load_config(app)?));
     download_with_retries(
         &[client_url.to_string()],
         &client_jar,
         Some(client_sha1),
-        4,
+        network_tuning.retries,
         should_validate_zip_from_path(&client_jar),
+        &network_tuning,
+        "client_jar",
     )
     .await?;
 
@@ -4982,8 +5183,10 @@ async fn bootstrap_instance_runtime(
             &[client_url.to_string()],
             &client_jar,
             Some(client_sha1),
-            4,
+            network_tuning.retries,
             should_validate_zip_from_path(&client_jar),
+            &network_tuning,
+            "client_jar_retry",
         )
         .await?;
 
@@ -7270,6 +7473,25 @@ async fn prepare_instance_runtime(
     let instance = read_instance_record(app, instance_id)?;
     ensure_instance_metadata(&instance_root, &instance)?;
     let minecraft_root = instance_game_dir(&instance_root);
+    let repair_eval = crate::core::repair::evaluate_instance_repair_needs(
+        minecraft_root
+            .join("versions")
+            .join(&instance.version)
+            .join(format!("{}.json", instance.version))
+            .exists(),
+        minecraft_root
+            .join("versions")
+            .join(&instance.version)
+            .join(format!("{}.jar", instance.version))
+            .exists(),
+    );
+    if !repair_eval.ok {
+        write_instance_state(
+            &instance_root,
+            "repair_precheck",
+            serde_json::json!({"issues": repair_eval.issues}),
+        );
+    }
 
     let integrity_report = scan_runtime_integrity(&minecraft_root, Some(&instance.version));
     if !integrity_report.ok() {
@@ -8058,17 +8280,16 @@ async fn install_mod_file(
     instance_id: String,
     url: String,
     file_name: String,
+    expected_sha1: Option<String>,
+    expected_md5: Option<String>,
+    mod_loader_hint: Option<String>,
 ) -> Result<String, String> {
     let id = instance_id.trim();
     if id.is_empty() {
         return Err("instance_id es requerido".to_string());
     }
 
-    let safe_name = file_name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("mod.jar")
-        .trim();
+    let safe_name = crate::core::mods::normalize_mod_file_name(&file_name, "mod.jar");
     if safe_name.is_empty() {
         return Err("Nombre de archivo inválido".to_string());
     }
@@ -8091,7 +8312,35 @@ async fn install_mod_file(
     }
 
     let target = mods_dir.join(&effective_name);
-    download_to(url.trim(), &target).await.map_err(|error| {
+    let instance = get_instance(&app, id)?;
+    let loader_name = instance
+        .loader_name
+        .as_deref()
+        .or(instance.loader.as_deref())
+        .unwrap_or("vanilla");
+    crate::core::mods::validate_mod_loader_compatibility(loader_name, mod_loader_hint.as_deref())?;
+
+    let tuning = resolve_network_tuning(Some(&load_config(&app)?));
+    write_instance_state(
+        &instance_root,
+        "preflight",
+        serde_json::json!({
+            "step": "mod_download",
+            "url": url.trim(),
+            "endpoint": download_routes::endpoint_label(url.trim()),
+            "expectedSha1": expected_sha1,
+            "expectedMd5": expected_md5
+        }),
+    );
+    let integrity = download_to(
+        url.trim(),
+        &target,
+        &tuning,
+        expected_sha1.as_deref(),
+        expected_md5.as_deref(),
+    )
+    .await
+    .map_err(|error| {
         format!(
             "No se pudo instalar el mod {} desde {}: {error}",
             effective_name,
@@ -8114,7 +8363,20 @@ async fn install_mod_file(
         serde_json::json!({
             "instanceId": id,
             "file": effective_name,
-            "target": target.to_string_lossy().to_string()
+            "target": target.to_string_lossy().to_string(),
+            "url": url.trim(),
+            "endpoint": download_routes::endpoint_label(url.trim()),
+            "sha1": integrity.actual_sha1,
+            "md5": integrity.actual_md5
+        }),
+    );
+
+    write_instance_state(
+        &instance_root,
+        "launching",
+        serde_json::json!({
+            "step": "mod_integrity_verified",
+            "file": effective_name
         }),
     );
 
