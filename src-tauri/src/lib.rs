@@ -3664,24 +3664,31 @@ fn classpath_contains_loader_artifact(entries: &[String], needle: &str) -> bool 
 }
 
 fn classpath_has_loader_runtime(loader: &str, entries: &[String]) -> bool {
+    let has_any = |needles: &[&str]| -> bool {
+        needles
+            .iter()
+            .any(|needle| classpath_contains_loader_artifact(entries, needle))
+    };
+
     match loader {
         "fabric" => classpath_contains_loader_artifact(entries, "fabric-loader"),
         "quilt" => classpath_contains_loader_artifact(entries, "quilt-loader"),
         "forge" => {
-            let modern_runtime = classpath_contains_loader_artifact(entries, "bootstraplauncher")
-                && (classpath_contains_loader_artifact(entries, "fmlloader")
-                    || classpath_contains_loader_artifact(entries, "net/minecraftforge/forge"));
+            let modern_runtime = has_any(&["bootstraplauncher", "modlauncher"])
+                && has_any(&[
+                    "fmlloader",
+                    "net/minecraftforge/forge",
+                    "minecraftforge/fml",
+                ]);
 
             let legacy_runtime = classpath_contains_loader_artifact(entries, "launchwrapper")
-                && (classpath_contains_loader_artifact(entries, "net/minecraftforge/forge")
-                    || classpath_contains_loader_artifact(entries, "minecraftforge/fml"));
+                && has_any(&["net/minecraftforge/forge", "minecraftforge/fml"]);
 
             modern_runtime || legacy_runtime
         }
         "neoforge" => {
             classpath_contains_loader_artifact(entries, "bootstraplauncher")
-                && (classpath_contains_loader_artifact(entries, "net/neoforged/neoforge")
-                    || classpath_contains_loader_artifact(entries, "net/neoforged/fml"))
+                && has_any(&["net/neoforged/neoforge", "net/neoforged/fml"])
         }
         _ => true,
     }
@@ -8810,6 +8817,16 @@ mod tests {
         let entries = vec![
             "/home/user/.minecraft/libraries/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar".to_string(),
             "/home/user/.minecraft/libraries/net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860.jar".to_string(),
+        ];
+
+        assert!(classpath_has_loader_runtime("forge", &entries));
+    }
+
+    #[test]
+    fn classpath_loader_detection_accepts_modlauncher_based_forge_runtime() {
+        let entries = vec![
+            "/home/user/.minecraft/libraries/cpw/mods/modlauncher/10.0.9/modlauncher-10.0.9.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/minecraftforge/forge/1.20.1-47.3.0/forge-1.20.1-47.3.0-client.jar".to_string(),
         ];
 
         assert!(classpath_has_loader_runtime("forge", &entries));
