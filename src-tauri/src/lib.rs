@@ -1033,15 +1033,6 @@ fn request_windows_admin_confirmation() -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn admin_mode_marker_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let local_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("No se pudo resolver app_local_data_dir: {error}"))?;
-    Ok(local_data_dir.join("admin_mode_enabled.flag"))
-}
-
-#[cfg(target_os = "windows")]
 fn is_windows_process_elevated() -> bool {
     let output = Command::new("powershell")
         .args([
@@ -1104,19 +1095,8 @@ fn relaunch_self_as_admin() -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn ensure_persistent_admin_mode(app: &tauri::AppHandle) -> Result<(), String> {
-    let marker = admin_mode_marker_path(app)?;
-    if marker.exists() {
-        return Ok(());
-    }
-
+fn ensure_persistent_admin_mode(_app: &tauri::AppHandle) -> Result<(), String> {
     if is_windows_process_elevated() {
-        if let Some(parent) = marker.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("No se pudo crear carpeta de estado admin: {error}"))?;
-        }
-        fs::write(&marker, b"enabled")
-            .map_err(|error| format!("No se pudo guardar estado admin: {error}"))?;
         return Ok(());
     }
 
@@ -3194,7 +3174,7 @@ fn ensure_writable_dir(path: &Path) -> Result<(), String> {
         .open(&probe_path)
         .map_err(|error| {
             format!(
-                "No hay permisos de escritura en {}: {error}",
+                "No hay permisos de escritura en {}: {error}. Cierra procesos Java/Minecraft, ejecuta FrutiLauncher como administrador y revisa antivirus/Acceso controlado a carpetas.",
                 normalized_display_path(path)
             )
         })?;
