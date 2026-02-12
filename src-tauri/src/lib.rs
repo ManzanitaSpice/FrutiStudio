@@ -64,6 +64,7 @@ use crate::core::network::{
     CurseforgeModEnvelope, DownloadTrace, FingerprintFileResult, FingerprintScanResult,
     FingerprintsRequestBody, ModpackAction, MojangVersionManifest, SelectFolderResult,
 };
+use crate::core::repair::{RepairMode, RepairReport};
 use crate::core::runtime_manager::RuntimeManager;
 
 fn copy_if_missing(from: &Path, to: &Path) -> Result<bool, String> {
@@ -7760,67 +7761,76 @@ async fn prepare_instance_runtime(
     Ok((instance_root, instance))
 }
 
+fn parse_repair_mode(value: Option<String>) -> RepairMode {
+    match value
+        .unwrap_or_else(|| "inteligente".to_string())
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "completa" | "full" | "deep" => RepairMode::Completa,
+        "solo_verificar" | "verify" | "check" => RepairMode::SoloVerificar,
+        "solo_mods" | "mods" => RepairMode::SoloMods,
+        "reinstalar_loader" | "loader" => RepairMode::ReinstalarLoader,
+        "reparar_y_optimizar" | "optimize" => RepairMode::RepararYOptimizar,
+        _ => RepairMode::Inteligente,
+    }
+}
+
 #[command]
-async fn repair_instance(app: tauri::AppHandle, args: InstanceCommandArgs) -> Result<(), String> {
+async fn repair_instance(
+    app: tauri::AppHandle,
+    args: InstanceCommandArgs,
+) -> Result<RepairReport, String> {
     let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
     if instance_id.is_empty() {
         return Err("No hay una instancia válida seleccionada para reparar.".to_string());
     }
 
-    let mut last_error = None;
+    let mode = parse_repair_mode(args.repair_mode);
+    let reinstall = matches!(mode, RepairMode::Completa);
+    let (instance_root, instance) =
+        prepare_instance_runtime(&app, &instance_id, reinstall, true, true).await?;
 
-    for attempt in 1..=2 {
-        let (instance_root, instance) =
-            prepare_instance_runtime(&app, &instance_id, true, true, true).await?;
-        write_instance_state(
-            &instance_root,
-            "repairing",
-            serde_json::json!({"instance": instance.id, "attempt": attempt}),
-        );
+    write_instance_state(
+        &instance_root,
+        "repairing",
+        serde_json::json!({"instance": instance.id, "mode": format!("{:?}", mode)}),
+    );
 
-        match read_launch_plan(&instance_root) {
-            Ok(launch_plan) => {
-                let validation = validate_launch_plan(&instance_root, &launch_plan);
-                if validation.ok {
-                    write_instance_state(
-                        &instance_root,
-                        "repaired",
-                        serde_json::json!({
-                            "instance": instance.id,
-                            "attempt": attempt,
-                            "checks": validation.checks,
-                            "warnings": validation.warnings
-                        }),
-                    );
-                    return Ok(());
-                }
+    let minecraft_root = instance_game_dir(&instance_root);
+    let summary = crate::core::repair::repair_manager::repair_instance(
+        &instance.id,
+        mode,
+        &instance_root,
+        &minecraft_root,
+        &instance.version,
+        instance.loader_name.as_deref(),
+    )
+    .await?;
 
-                last_error = Some(format!(
-                    "La reinstalación terminó con validaciones fallidas: {}",
-                    validation.errors.join("; ")
-                ));
-            }
-            Err(error) => {
-                last_error = Some(error);
-            }
-        }
-
-        if attempt == 1 {
-            write_instance_state(
-                &instance_root,
-                "repair_fallback_reinstall",
-                serde_json::json!({
-                    "instance": instance.id,
-                    "message": "La reparación no pasó validación; se eliminará y recreará completamente la instancia."
-                }),
-            );
-            let _ = fs::remove_dir_all(&instance_root);
-        }
+    let launch_plan = read_launch_plan(&instance_root)?;
+    let validation = validate_launch_plan(&instance_root, &launch_plan);
+    if !validation.ok {
+        return Err(format!(
+            "La reparación terminó con validaciones fallidas: {}",
+            validation.errors.join("; ")
+        ));
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        "La reparación falló después de reintentar la reinstalación completa.".to_string()
-    }))
+    write_instance_state(
+        &instance_root,
+        "repaired",
+        serde_json::json!({
+            "instance": instance.id,
+            "report": summary.report,
+            "message": summary.user_message,
+            "checks": validation.checks,
+            "warnings": validation.warnings
+        }),
+    );
+
+    Ok(summary.report)
 }
 
 #[command]

@@ -21,6 +21,7 @@ import {
   readInstanceRuntimeLogs,
   removeInstance,
   repairInstance,
+  type RepairMode,
 } from "../../services/instanceService";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
@@ -312,6 +313,9 @@ export const InstancePanel = ({
   >("idle");
   const [creatorError, setCreatorError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [repairModalOpen, setRepairModalOpen] = useState(false);
+  const [repairMode, setRepairMode] = useState<RepairMode>("inteligente");
+  const [repairQuickOpen, setRepairQuickOpen] = useState(false);
   const [launchStatusByInstance, setLaunchStatusByInstance] = useState<
     Record<string, string>
   >({});
@@ -861,6 +865,44 @@ export const InstancePanel = ({
     );
   };
 
+  const runRepairFlow = async (mode: RepairMode) => {
+    if (!selectedInstance) {
+      return;
+    }
+    setRepairQuickOpen(false);
+    setRepairModalOpen(false);
+    const modeLabel = {
+      inteligente: "Reparación inteligente",
+      completa: "Reparación completa",
+      solo_verificar: "Solo verificar",
+      solo_mods: "Reparar solo mods",
+      reinstalar_loader: "Reinstalar loader",
+      reparar_y_optimizar: "Reparar y optimizar",
+    }[mode];
+    try {
+      setInstanceLaunchStatus(selectedInstance.id, `Ejecutando ${modeLabel}...`);
+      const report = await repairInstance(selectedInstance.id, mode);
+      setInstanceLaunchStatus(
+        selectedInstance.id,
+        report.issuesDetected.length === 0
+          ? "No se encontraron problemas."
+          : `Reparación completada · libs: ${report.librariesFixed}, assets: ${report.assetsFixed}, mods: ${report.modsFixed}`,
+      );
+      onUpdateInstance(selectedInstance.id, {
+        status: "ready",
+        isRunning: false,
+        processId: undefined,
+      });
+    } catch (error) {
+      setInstanceLaunchStatus(
+        selectedInstance.id,
+        error instanceof Error
+          ? `No se pudo reparar la instancia: ${error.message}`
+          : "No se pudo reparar la instancia.",
+      );
+    }
+  };
+
   const instanceHealth = useMemo(() => {
     if (!selectedInstance) {
       return { icon: "✔", label: "Instancia correcta" };
@@ -885,28 +927,8 @@ export const InstancePanel = ({
         label: "🔧 Reparar instancia",
         disabled: false,
         action: () => {
-          void (async () => {
-            try {
-              setLaunchChecklistSummary(null);
-              await repairInstance(selectedInstance.id);
-              setInstanceLaunchStatus(
-                selectedInstance?.id,
-                "Reparación completada: reinstalación total ejecutada y verificada.",
-              );
-              onUpdateInstance(selectedInstance.id, {
-                status: "ready",
-                isRunning: false,
-                processId: undefined,
-              });
-            } catch (error) {
-              setInstanceLaunchStatus(
-                selectedInstance?.id,
-                error instanceof Error
-                  ? `No se pudo reparar la instancia: ${error.message}`
-                  : "No se pudo reparar la instancia.",
-              );
-            }
-          })();
+          setRepairMode("inteligente");
+          setRepairModalOpen(true);
         },
       };
     }
@@ -1229,31 +1251,8 @@ export const InstancePanel = ({
           id: "repair",
           label: "Reparar",
           action: () => {
-            void (async () => {
-              try {
-                setInstanceLaunchStatus(
-                  selectedInstance?.id,
-                  "Reinstalando instancia desde cero...",
-                );
-                await repairInstance(selectedInstance.id);
-                setInstanceLaunchStatus(
-                  selectedInstance?.id,
-                  "Reparación completada: reinstalación total ejecutada y verificada.",
-                );
-                onUpdateInstance(selectedInstance.id, {
-                  status: "ready",
-                  isRunning: false,
-                  processId: undefined,
-                });
-              } catch (error) {
-                setInstanceLaunchStatus(
-                  selectedInstance?.id,
-                  error instanceof Error
-                    ? `No se pudo reparar la instancia: ${error.message}`
-                    : "No se pudo reparar la instancia.",
-                );
-              }
-            })();
+            setRepairMode("inteligente");
+            setRepairModalOpen(true);
           },
         },
         {
@@ -3391,14 +3390,32 @@ export const InstancePanel = ({
                     <p className="instance-menu__launch-status">{selectedLaunchStatus}</p>
                   ) : null}
 
-                  <button
-                    type="button"
-                    className="instance-menu__primary-action"
-                    onClick={() => void primaryAction.action()}
-                    disabled={primaryAction.disabled}
-                  >
-                    {primaryAction.label}
-                  </button>
+                  <div className="instance-menu__repair-split">
+                    <button
+                      type="button"
+                      className="instance-menu__primary-action"
+                      onClick={() => void primaryAction.action()}
+                      disabled={primaryAction.disabled}
+                    >
+                      {primaryAction.label}
+                    </button>
+                    <button
+                      type="button"
+                      className="instance-menu__primary-action instance-menu__primary-action--mini"
+                      onClick={() => setRepairQuickOpen((prev) => !prev)}
+                      disabled={!selectedInstanceHasValidId}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  {repairQuickOpen ? (
+                    <div className="instance-menu__repair-quick">
+                      <button type="button" onClick={() => void runRepairFlow("inteligente")}>Reparación rápida</button>
+                      <button type="button" onClick={() => void runRepairFlow("completa")}>Reparación profunda</button>
+                      <button type="button" onClick={() => void runRepairFlow("reinstalar_loader")}>Reinstalar loader</button>
+                      <button type="button" onClick={() => void runRepairFlow("reparar_y_optimizar")}>Limpiar caché + optimizar</button>
+                    </div>
+                  ) : null}
 
                   <div className="instance-menu__section-title">Uso diario</div>
                   <div className="instance-menu__actions instance-menu__actions--grid">
@@ -3441,6 +3458,42 @@ export const InstancePanel = ({
             </>
           </aside>
         )}
+        {repairModalOpen && selectedInstance ? (
+          <div className="instance-repair-modal__backdrop" onClick={() => setRepairModalOpen(false)}>
+            <section className="instance-repair-modal" onClick={(event) => event.stopPropagation()}>
+              <h3>Reparar Instancia</h3>
+              <p>Selecciona el modo de reparación:</p>
+              <div className="instance-repair-modal__modes">
+                {[
+                  ["inteligente", "Reparación Inteligente (Recomendado)"],
+                  ["completa", "Reparación Completa (Forzar todo)"],
+                  ["solo_verificar", "Solo verificar"],
+                  ["solo_mods", "Reparar solo Mods"],
+                  ["reinstalar_loader", "Reinstalar Loader"],
+                  ["reparar_y_optimizar", "🛡 Reparar y Optimizar"],
+                ].map(([value, label]) => (
+                  <label key={value}>
+                    <input
+                      type="radio"
+                      name="repairMode"
+                      checked={repairMode === value}
+                      onChange={() => setRepairMode(value as RepairMode)}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <div className="instance-repair-modal__actions">
+                <button type="button" onClick={() => setRepairModalOpen(false)}>
+                  Cancelar
+                </button>
+                <button type="button" onClick={() => void runRepairFlow(repairMode)}>
+                  Ejecutar reparación
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
         {selectedInstance && editorOpen && (
           <div className="instance-editor__backdrop" onClick={closeEditor}>
             <section

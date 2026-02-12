@@ -4,6 +4,28 @@ import { getActiveAccount } from "./accountService";
 
 let cachedInstances: Instance[] | null = null;
 
+export type RepairMode =
+  | "inteligente"
+  | "completa"
+  | "solo_verificar"
+  | "solo_mods"
+  | "reinstalar_loader"
+  | "reparar_y_optimizar";
+
+export interface RepairReport {
+  librariesFixed: number;
+  assetsFixed: number;
+  modsFixed: number;
+  loaderReinstalled: boolean;
+  configRegenerated: boolean;
+  worldBackedUp: boolean;
+  dependenciesFixed: number;
+  versionFixed: boolean;
+  checkedOnly: boolean;
+  optimized: boolean;
+  issuesDetected: string[];
+}
+
 export const fetchInstances = async (): Promise<Instance[]> => {
   if (cachedInstances) {
     return cachedInstances;
@@ -134,11 +156,12 @@ export const launchInstance = async (instanceId: string) => {
   });
 };
 
-export const repairInstance = async (instanceId: string) => {
+export const repairInstance = async (instanceId: string, mode: RepairMode = "inteligente") => {
   const validInstanceId = assertValidInstanceId(instanceId);
-  return invokeWithHandling<void>("repair_instance", {
+  return invokeWithHandling<RepairReport>("repair_instance", {
     args: {
       instanceId: validInstanceId,
+      repairMode: mode,
     },
   });
 };

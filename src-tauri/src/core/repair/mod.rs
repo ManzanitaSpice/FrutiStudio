@@ -1,3 +1,15 @@
+pub mod assets_repair;
+pub mod config_repair;
+pub mod integrity_check;
+pub mod libraries_repair;
+pub mod loader_repair;
+pub mod mods_repair;
+pub mod repair_manager;
+pub mod version_repair;
+pub mod world_repair;
+
+pub use repair_manager::{RepairError, RepairMode, RepairReport, RepairSummary};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

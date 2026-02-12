@@ -110,6 +110,8 @@ pub(crate) struct InstanceCommandArgs {
     pub(crate) java_mode: Option<String>,
     #[serde(default)]
     pub(crate) java_path: Option<String>,
+    #[serde(default)]
+    pub(crate) repair_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
