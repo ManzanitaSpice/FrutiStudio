@@ -79,6 +79,34 @@ const creatorSections = [
   "Importar",
 ];
 
+const serverImportFlows = [
+  {
+    title: "Crear servidor desde cero",
+    description:
+      "Asistente guiado con versión, loader, RAM, puerto, modo online y tipo de mundo.",
+    badge: "Nuevo",
+  },
+  {
+    title: "Convertir cliente → servidor",
+    description:
+      "Analiza la instancia, detecta loader, filtra mods client-only y genera estructura server-ready.",
+    badge: "Automático",
+  },
+  {
+    title: "Exportación profesional",
+    description:
+      "Empaqueta ZIP/TAR.GZ con scripts run.sh/run.bat, validaciones y optimización para hosting.",
+    badge: "Producción",
+  },
+];
+
+const serverImportCapabilities = [
+  "Detección automática de loader (Fabric/Forge/NeoForge/Quilt).",
+  "Filtrado inteligente de mods por entorno (cliente/servidor/universal).",
+  "Validaciones de RAM, puerto, dependencias y conflictos de loader.",
+  "Generación de instance_server.json, README y paquete portable.",
+];
+
 const instanceConfigTabs = [
   "General",
   "Java",
@@ -2650,6 +2678,13 @@ export const InstancePanel = ({
     setImportFileName(file ? file.name : "");
   };
 
+  const handleServerFlowPreview = (flowName: string) => {
+    setInstanceLaunchStatus(
+      selectedInstance?.id,
+      `Flujo "${flowName}" listo para integración en esta ventana de importación.`,
+    );
+  };
+
   const mapLocalInstanceToUi = (imported: {
     id: string;
     name: string;
@@ -2927,15 +2962,43 @@ export const InstancePanel = ({
           <div className="instance-import__hero">
             <img src={importGuide} alt="Guía de importación" />
             <div>
-              <h5>Importar instancias y modpacks</h5>
+              <h5>Centro de Importación y Servidores</h5>
               <p>
-                Usa un link directo o selecciona un archivo local compatible con
-                CurseForge, Modrinth, Prism o Technic.
+                Importa modpacks, detecta instancias externas y prepara flujos de
+                servidor en una vista profesional y ordenada.
               </p>
             </div>
           </div>
+          <div className="instance-import__server-blueprint">
+            <div className="instance-import__header">
+              <h6>Arquitectura de servidor integrada en importación</h6>
+              <span>Planificador visual</span>
+            </div>
+            <div className="instance-import__flow-grid">
+              {serverImportFlows.map((flow) => (
+                <article key={flow.title} className="instance-import__flow-card">
+                  <header>
+                    <strong>{flow.title}</strong>
+                    <span>{flow.badge}</span>
+                  </header>
+                  <p>{flow.description}</p>
+                  <button
+                    type="button"
+                    onClick={() => handleServerFlowPreview(flow.title)}
+                  >
+                    Ver en esta ventana
+                  </button>
+                </article>
+              ))}
+            </div>
+            <ul>
+              {serverImportCapabilities.map((capability) => (
+                <li key={capability}>{capability}</li>
+              ))}
+            </ul>
+          </div>
           <div className="instance-import__row">
-            <label htmlFor="import-url">Archivo local o enlace directo</label>
+            <label htmlFor="import-url">Importación rápida por archivo o enlace</label>
             <div className="instance-import__controls">
               <input
                 id="import-url"
@@ -2961,7 +3024,7 @@ export const InstancePanel = ({
             ) : null}
           </div>
           <div className="instance-import__supported">
-            <h6>Formatos soportados</h6>
+            <h6>Formatos soportados y origen</h6>
             <ul>
               <li>Modpacks de CurseForge (ZIP / curseforge:// URL).</li>
               <li>Modpacks de Modrinth (ZIP y mrpack).</li>
