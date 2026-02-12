@@ -1202,7 +1202,8 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
         return None;
     }
 
-    let joined = runtime_lines.join("\n").to_lowercase();
+    let joined_raw = runtime_lines.join("\n");
+    let joined = joined_raw.to_lowercase();
 
     let has_tinyremapper_read_failure = joined
         .contains("net.fabricmc.tinyremapper.tinyremapper.readfile")
@@ -1250,6 +1251,34 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
             && joined.contains("this version of the java runtime"));
 
     if has_java_too_old {
+        let mismatch =
+            Regex::new(r"class file version\s+(\d+(?:\.\d+)?).+?up to\s+(\d+(?:\.\d+)?)")
+                .ok()
+                .and_then(|pattern| {
+                    pattern
+                        .captures(&joined)
+                        .map(|captures| (captures[1].to_string(), captures[2].to_string()))
+                });
+
+        if let Some((required_class, current_class)) = mismatch {
+            let class_to_java = |value: &str| -> Option<u16> {
+                value
+                    .split('.')
+                    .next()
+                    .and_then(|raw| raw.parse::<u16>().ok())
+                    .and_then(|class_version| class_version.checked_sub(44))
+            };
+
+            let required_java = class_to_java(&required_class);
+            let current_java = class_to_java(&current_class);
+
+            if let (Some(required_java), Some(current_java)) = (required_java, current_java) {
+                return Some(format!(
+                    "Diagnóstico Java: la instancia requiere Java {required_java}, pero la instancia está usando Java {current_java}. Abre Configuración > Java y selecciona/instala Java {required_java} para esta instancia."
+                ));
+            }
+        }
+
         return Some(
             "Diagnóstico Java: la instancia fue compilada para una versión más nueva de Java que la disponible. Minecraft 1.20.5+ requiere Java 21. Abre Configuración > Java y selecciona/instala Java 21 para esta instancia."
                 .to_string(),
@@ -8129,6 +8158,20 @@ mod tests {
         let message = format_startup_crash_message(1, &[], &stdout_lines);
         assert!(message.contains("Diagnóstico loader"));
         assert!(message.contains("Últimas líneas"));
+    }
+
+    #[test]
+    fn startup_crash_hint_detects_java_class_version_mismatch() {
+        let stderr_lines = vec![
+            "Error: LinkageError occurred while loading main class net.minecraft.client.main.Main"
+                .to_string(),
+            "java.lang.UnsupportedClassVersionError: net/minecraft/client/main/Main has been compiled by a more recent version of the Java Runtime (class file version 65.0), this version of the Java Runtime only recognizes class file versions up to 61.0"
+                .to_string(),
+        ];
+
+        let hint = startup_crash_hint(&stderr_lines).expect("hint");
+        assert!(hint.contains("requiere Java 21"));
+        assert!(hint.contains("usando Java 17"));
     }
 
     #[test]
