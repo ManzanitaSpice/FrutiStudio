@@ -556,13 +556,46 @@ fn sync_asset_from_cache(
         return Ok(false);
     }
 
-    fs::copy(&cache_file, target).map_err(|error| {
-        format!(
+    let mut last_copy_error = None;
+    for attempt in 0..6 {
+        match fs::copy(&cache_file, target) {
+            Ok(_) => return Ok(true),
+            Err(error) if cfg!(target_os = "windows") && error.raw_os_error() == Some(32) => {
+                last_copy_error = Some(error);
+                if attempt < 5 {
+                    std::thread::sleep(Duration::from_millis(120 * (attempt + 1) as u64));
+                    continue;
+                }
+            }
+            Err(error) => {
+                return Err(format!(
+                    "No se pudo copiar asset desde cache {} a {}: {error}",
+                    cache_file.display(),
+                    target.display()
+                ));
+            }
+        }
+    }
+
+    if target.exists() {
+        let target_hash = file_sha1(target)?;
+        if target_hash.eq_ignore_ascii_case(expected_sha1) {
+            return Ok(true);
+        }
+    }
+
+    if cfg!(target_os = "windows") {
+        return Ok(false);
+    }
+
+    if let Some(error) = last_copy_error {
+        return Err(format!(
             "No se pudo copiar asset desde cache {} a {}: {error}",
             cache_file.display(),
             target.display()
-        )
-    })?;
+        ));
+    }
+
     Ok(true)
 }
 
@@ -3621,10 +3654,12 @@ fn content_type_is_suspicious_for_archive(
 }
 
 fn classpath_contains_loader_artifact(entries: &[String], needle: &str) -> bool {
+    let normalized_needle = needle.to_ascii_lowercase().replace('\\', "/");
     entries.iter().any(|entry| {
         entry
             .to_ascii_lowercase()
-            .contains(&needle.to_ascii_lowercase())
+            .replace('\\', "/")
+            .contains(&normalized_needle)
     })
 }
 
@@ -8749,6 +8784,16 @@ mod tests {
                 "final-cp".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn classpath_loader_detection_normalizes_windows_separators() {
+        let entries = vec![
+            r"C:\libs\cpw\mods\bootstraplauncher\1.1.2\bootstraplauncher-1.1.2.jar".to_string(),
+            r"C:\libs\net\minecraftforge\fmlloader\1.20.1-47.3.0\fmlloader.jar".to_string(),
+        ];
+
+        assert!(classpath_has_loader_runtime("forge", &entries));
     }
 
     #[test]
