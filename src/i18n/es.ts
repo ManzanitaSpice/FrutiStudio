@@ -1,6 +1,7 @@
 export const esMessages = {
   appTitle: "Fruti Launcher",
   sections: {
+    home: "Menú",
     modpacks: "Mis modpacks",
     features: "Features",
     community: "Comunidad",

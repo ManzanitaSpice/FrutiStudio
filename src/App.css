@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Poppins:wght@400;500;600;700&display=swap");
+
 :root {
   --app-font-family: "Inter", system-ui, sans-serif;
   font-family: var(--app-font-family);
@@ -3099,7 +3101,6 @@ textarea {
   background: color-mix(in srgb, var(--color-bg) 55%, transparent);
 }
 
-
 .product-dialog__checklist-panel:first-child {
   grid-column: span 1;
 }
@@ -3148,7 +3149,6 @@ textarea {
   line-height: 1.35;
   overflow: auto;
 }
-
 
 @media (max-width: 1200px) {
   .product-dialog__checklist-panels {
@@ -4477,9 +4477,9 @@ input[type="text"] {
 }
 
 .instance-menu__repair-quick button {
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
-  background: rgba(255,255,255,0.04);
+  background: rgba(255, 255, 255, 0.04);
   color: inherit;
   padding: 8px 10px;
   text-align: left;
@@ -4497,7 +4497,7 @@ input[type="text"] {
 .instance-repair-modal {
   width: min(520px, 92vw);
   background: #111a2a;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 12px;
   padding: 18px;
 }
@@ -4517,4 +4517,196 @@ input[type="text"] {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+:root {
+  --shell-glow: color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+.app-shell {
+  position: relative;
+  background:
+    radial-gradient(
+      circle at 8% 4%,
+      color-mix(in srgb, var(--color-accent) 16%, transparent) 0%,
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 90% 0%,
+      color-mix(in srgb, var(--color-accent) 12%, transparent) 0%,
+      transparent 38%
+    ),
+    linear-gradient(
+      160deg,
+      var(--color-bg),
+      color-mix(in srgb, var(--color-bg) 82%, var(--color-surface) 18%)
+    );
+}
+
+.app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--color-surface) 32%, transparent)
+  );
+}
+
+.topbar,
+.main-panel {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.topbar {
+  box-shadow: 0 16px 36px color-mix(in srgb, #000000 38%, transparent);
+}
+
+.main-panel {
+  box-shadow: 0 22px 46px color-mix(in srgb, #000000 42%, transparent);
+}
+
+.topbar::after,
+.main-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--shell-glow) 45%, transparent),
+    transparent 42%
+  );
+  opacity: 0.45;
+}
+
+button {
+  border-radius: 13px;
+  padding: 0.68em 1.3em;
+}
+
+.topbar__button {
+  border-radius: 999px;
+  padding: 0.55em 1.2em;
+  font-weight: 700;
+  transition: all 180ms ease;
+}
+
+.topbar__button:hover {
+  background: color-mix(in srgb, var(--color-surface-strong) 80%, transparent);
+  color: var(--color-text);
+}
+
+.topbar__button--active {
+  background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 50%, transparent),
+    0 8px 20px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.topbar__search,
+.instance-panel__commandbar,
+.instance-menu__section,
+.settings-card,
+.card,
+.list-item,
+.drop-zone {
+  background: color-mix(in srgb, var(--color-surface-strong) 78%, transparent) !important;
+  border-color: color-mix(in srgb, var(--color-border) 70%, transparent) !important;
+}
+
+.home-panel {
+  min-height: 100%;
+  gap: 24px;
+  animation: home-fade-in 340ms ease;
+}
+
+.home-panel__hero {
+  min-height: clamp(240px, 45vh, 460px);
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
+  background:
+    linear-gradient(
+      130deg,
+      color-mix(in srgb, var(--color-accent) 18%, transparent),
+      transparent 55%
+    ),
+    color-mix(in srgb, var(--color-surface-strong) 72%, transparent);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 26px;
+}
+
+.home-panel__kicker {
+  margin: 0;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.75rem;
+}
+
+.home-panel__hero h1 {
+  margin: 0;
+  font-size: clamp(2.1rem, 8vw, 5rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: color-mix(in srgb, var(--color-text) 90%, #ffffff);
+  text-shadow: 0 0 20px color-mix(in srgb, var(--color-accent) 32%, transparent);
+}
+
+.home-panel__hero p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.home-panel__menu {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.home-panel__card {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  min-height: 120px;
+  border-radius: 16px;
+  padding: 18px;
+  background: color-mix(in srgb, var(--color-surface-strong) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+}
+
+.home-panel__card strong {
+  font-size: 1.03rem;
+}
+
+.home-panel__card span {
+  color: var(--color-muted);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.home-panel__card:hover {
+  transform: translateY(-2px) scale(1.01);
+  border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border));
+}
+
+@keyframes home-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

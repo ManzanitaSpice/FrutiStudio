@@ -32,11 +32,11 @@ type UIAction =
   | { type: "go-forward" };
 
 const initialState: UIState = {
-  activeSection: "mis-modpacks",
+  activeSection: "inicio",
   uiScale: 1,
   isFocusMode: false,
   theme: "default",
-  history: ["mis-modpacks"],
+  history: ["inicio"],
   historyIndex: 0,
 };
 
@@ -51,8 +51,7 @@ const reducer = (state: UIState, action: UIAction): UIState => {
       return {
         ...state,
         activeSection: action.payload,
-        isFocusMode:
-          action.payload === "mis-modpacks" ? state.isFocusMode : false,
+        isFocusMode: action.payload === "mis-modpacks" ? state.isFocusMode : false,
         history: nextHistory,
         historyIndex: nextHistory.length - 1,
       };
@@ -74,9 +73,7 @@ const reducer = (state: UIState, action: UIAction): UIState => {
         ...state,
         activeSection: state.history[nextIndex],
         isFocusMode:
-          state.history[nextIndex] === "mis-modpacks"
-            ? state.isFocusMode
-            : false,
+          state.history[nextIndex] === "mis-modpacks" ? state.isFocusMode : false,
         historyIndex: nextIndex,
       };
     }
@@ -89,9 +86,7 @@ const reducer = (state: UIState, action: UIAction): UIState => {
         ...state,
         activeSection: state.history[nextIndex],
         isFocusMode:
-          state.history[nextIndex] === "mis-modpacks"
-            ? state.isFocusMode
-            : false,
+          state.history[nextIndex] === "mis-modpacks" ? state.isFocusMode : false,
         historyIndex: nextIndex,
       };
     }
@@ -127,10 +122,7 @@ export const UIProvider = ({ children }: { children: React.ReactNode }) => {
     [],
   );
 
-  const toggleFocus = useCallback(
-    () => dispatch({ type: "toggle-focus" }),
-    [],
-  );
+  const toggleFocus = useCallback(() => dispatch({ type: "toggle-focus" }), []);
 
   const setFocus = useCallback(
     (value: boolean) => dispatch({ type: "set-focus", payload: value }),
@@ -158,16 +150,7 @@ export const UIProvider = ({ children }: { children: React.ReactNode }) => {
       canGoBack: state.historyIndex > 0,
       canGoForward: state.historyIndex < state.history.length - 1,
     }),
-    [
-      goBack,
-      goForward,
-      setFocus,
-      setScale,
-      setSection,
-      setTheme,
-      state,
-      toggleFocus,
-    ],
+    [goBack, goForward, setFocus, setScale, setSection, setTheme, state, toggleFocus],
   );
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;
