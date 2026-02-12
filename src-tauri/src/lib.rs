@@ -2422,27 +2422,28 @@ fn resolve_loader_profile_json(
 ) -> Option<Value> {
     let loader_version = loader_version.unwrap_or("latest").trim();
 
-    let mut candidates = if loader_version.is_empty() || loader_version.eq_ignore_ascii_case("latest") {
-        if loader == "forge" || loader == "neoforge" {
-            discover_forge_like_profile_id(minecraft_root, loader, version, "")
-                .into_iter()
-                .collect::<Vec<_>>()
+    let mut candidates =
+        if loader_version.is_empty() || loader_version.eq_ignore_ascii_case("latest") {
+            if loader == "forge" || loader == "neoforge" {
+                discover_forge_like_profile_id(minecraft_root, loader, version, "")
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
         } else {
-            Vec::new()
-        }
-    } else {
-        let mut explicit_candidates = Vec::new();
-        explicit_candidates.push(loader_version.to_string());
-        explicit_candidates.push(format!("{version}-{loader}-{loader_version}"));
-        explicit_candidates.push(format!("{version}-{loader_version}"));
-        if loader == "forge" {
-            explicit_candidates.push(format!("{version}-forge-{loader_version}"));
-        }
-        if loader == "neoforge" {
-            explicit_candidates.push(format!("{version}-neoforge-{loader_version}"));
-        }
-        explicit_candidates
-    };
+            let mut explicit_candidates = Vec::new();
+            explicit_candidates.push(loader_version.to_string());
+            explicit_candidates.push(format!("{version}-{loader}-{loader_version}"));
+            explicit_candidates.push(format!("{version}-{loader_version}"));
+            if loader == "forge" {
+                explicit_candidates.push(format!("{version}-forge-{loader_version}"));
+            }
+            if loader == "neoforge" {
+                explicit_candidates.push(format!("{version}-neoforge-{loader_version}"));
+            }
+            explicit_candidates
+        };
 
     if candidates.is_empty() {
         return None;
@@ -3619,6 +3620,28 @@ fn content_type_is_suspicious_for_archive(
         || normalized.contains("xml")
 }
 
+fn classpath_contains_loader_artifact(entries: &[String], needle: &str) -> bool {
+    entries.iter().any(|entry| {
+        entry
+            .to_ascii_lowercase()
+            .contains(&needle.to_ascii_lowercase())
+    })
+}
+
+fn classpath_has_loader_runtime(loader: &str, entries: &[String]) -> bool {
+    match loader {
+        "fabric" => classpath_contains_loader_artifact(entries, "fabric-loader"),
+        "quilt" => classpath_contains_loader_artifact(entries, "quilt-loader"),
+        "forge" | "neoforge" => {
+            classpath_contains_loader_artifact(entries, "bootstraplauncher")
+                && (classpath_contains_loader_artifact(entries, "fmlloader")
+                    || classpath_contains_loader_artifact(entries, "net/minecraftforge/forge")
+                    || classpath_contains_loader_artifact(entries, "net/neoforged/neoforge"))
+        }
+        _ => true,
+    }
+}
+
 async fn download_with_retries(
     urls: &[String],
     path: &Path,
@@ -3669,7 +3692,10 @@ async fn download_with_retries(
             let resume_from = fs::metadata(&partial_path)
                 .map(|meta| meta.len())
                 .unwrap_or(0);
-            let mut request = client.get(url);
+            let mut request = client.get(url).header(
+                reqwest::header::USER_AGENT,
+                "FrutiLauncher/1.0 (+https://github.com/fruti-studio)",
+            );
             if resume_from > 0 {
                 request = request.header(reqwest::header::RANGE, format!("bytes={resume_from}-"));
             }
@@ -5753,6 +5779,11 @@ async fn bootstrap_instance_runtime(
         .iter()
         .map(|path| path.to_string_lossy().to_string())
         .collect::<Vec<_>>();
+    if !classpath_has_loader_runtime(&loader, &classpath_entries_raw) {
+        return Err(format!(
+            "Classpath incompleto para loader {loader}: faltan artefactos runtime obligatorios (BootstrapLauncher/FML). Reinstala el loader o repara la instancia."
+        ));
+    }
     let user = "Player";
     let uuid = default_offline_uuid(user);
 
@@ -6174,17 +6205,8 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let classpath_has_mc_jar = classpath_entries_paths
         .iter()
         .any(|entry| canonical_or_original(entry) == version_jar_canonical);
-    let has_loader_runtime_jar = match plan.loader.as_str() {
-        "fabric" => plan
-            .classpath_entries
-            .iter()
-            .any(|entry| entry.contains("fabric-loader")),
-        "quilt" => plan
-            .classpath_entries
-            .iter()
-            .any(|entry| entry.contains("quilt-loader")),
-        _ => true,
-    };
+    let has_loader_runtime_jar =
+        classpath_has_loader_runtime(plan.loader.as_str(), &plan.classpath_entries);
 
     let main_class_matches_loader = expected_main_class_for_loader(plan.loader.as_str())
         .map(|expected| plan.main_class == expected)
@@ -8327,10 +8349,7 @@ async fn install_mod_file(
 
     let target = mods_dir.join(&effective_name);
     let instance = read_instance_record(&app, id)?;
-    let loader_name = instance
-        .loader_name
-        .as_deref()
-        .unwrap_or("vanilla");
+    let loader_name = instance.loader_name.as_deref().unwrap_or("vanilla");
     crate::core::mods::validate_mod_loader_compatibility(loader_name, mod_loader_hint.as_deref())?;
 
     let tuning = resolve_network_tuning(Some(&load_config(app.clone()).await?));
@@ -8922,7 +8941,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("epoch")
             .as_nanos();
-        let minecraft_root = std::env::temp_dir().join(format!("frutistudio-forge-runtime-{unique}"));
+        let minecraft_root =
+            std::env::temp_dir().join(format!("frutistudio-forge-runtime-{unique}"));
         let versions_dir = minecraft_root.join("versions");
         let base_id = "1.21.1";
         let profile_id = "1.21.1-forge-54.1.8";
@@ -8942,7 +8962,9 @@ mod tests {
         .expect("write base json");
 
         fs::write(
-            versions_dir.join(profile_id).join(format!("{profile_id}.json")),
+            versions_dir
+                .join(profile_id)
+                .join(format!("{profile_id}.json")),
             serde_json::to_string_pretty(&serde_json::json!({
                 "id": profile_id,
                 "inheritsFrom": base_id,
