@@ -9,6 +9,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -684,6 +685,7 @@ fn ensure_launcher_layout(app: &tauri::AppHandle) -> Result<(), String> {
 
 static INSTANCE_LOCKS: Lazy<std::sync::Mutex<HashSet<String>>> =
     Lazy::new(|| std::sync::Mutex::new(HashSet::new()));
+static PREFLIGHT_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[command]
 async fn select_folder(app: tauri::AppHandle) -> Result<SelectFolderResult, String> {
@@ -2641,6 +2643,34 @@ fn launch_plan_matches_persisted_runtime(instance_root: &Path, plan: &LaunchPlan
     true
 }
 
+fn loader_profile_matches(actual: &str, expected: &str, loader: &str) -> bool {
+    let actual = actual.trim().to_ascii_lowercase();
+    let expected = expected.trim().to_ascii_lowercase();
+    let loader = loader.trim().to_ascii_lowercase();
+
+    if actual.is_empty() || expected.is_empty() {
+        return false;
+    }
+
+    if loader == "forge" || loader == "neoforge" {
+        return actual.contains(&loader) && expected.contains(&loader);
+    }
+
+    actual == expected
+}
+
+fn normalize_mc_base(version: &str) -> String {
+    let value = version
+        .split("-forge")
+        .next()
+        .unwrap_or(version)
+        .split("-neoforge")
+        .next()
+        .unwrap_or(version)
+        .trim();
+    value.to_string()
+}
+
 fn ensure_loader_profile_client_jar(
     minecraft_root: &Path,
     profile_id: &str,
@@ -2730,9 +2760,8 @@ fn validate_loader_profile_json(
             ));
         }
     } else if loader == "forge" || loader == "neoforge" {
-        if inherits_from != vanilla_version
-            && !inherits_from.starts_with(&format!("{vanilla_version}-"))
-        {
+        let mc_base = normalize_mc_base(inherits_from);
+        if mc_base != vanilla_version {
             return Err(format!(
                 "Perfil {profile_id} inválido: inheritsFrom ({inherits_from}) no referencia a la base de Minecraft '{vanilla_version}'"
             ));
@@ -2743,7 +2772,8 @@ fn validate_loader_profile_json(
         let jar = jar.trim();
         if !jar.is_empty() {
             let jar_is_valid = if loader == "forge" || loader == "neoforge" {
-                jar == vanilla_version || jar == profile_id
+                let base_jar = normalize_mc_base(jar);
+                jar == profile_id || base_jar == vanilla_version
             } else {
                 jar == vanilla_version
             };
@@ -4792,22 +4822,32 @@ fn loader_profile_chain_is_valid(plan: &LaunchPlan) -> bool {
         return false;
     };
 
+    let launch_profile_id = launch_profile_json
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if !launch_profile_id.is_empty()
+        && !loader_profile_matches(&launch_version, launch_profile_id, &plan.loader)
+    {
+        return false;
+    }
+
+    let main_class = launch_profile_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if (plan.loader == "forge" || plan.loader == "neoforge") && main_class.contains("modlauncher") {
+        return true;
+    }
+
     let vanilla_version = launch_profile_json
         .get("inheritsFrom")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| {
-            if plan.loader == "forge" || plan.loader == "neoforge" {
-                value
-                    .split_once('-')
-                    .map(|(prefix, _)| prefix)
-                    .unwrap_or(value)
-                    .to_string()
-            } else {
-                value.to_string()
-            }
-        })
+        .map(|value| normalize_mc_base(value))
         .unwrap_or_default();
 
     if vanilla_version.is_empty() {
@@ -5152,7 +5192,7 @@ async fn bootstrap_instance_runtime(
     if let Some(detected) = detected_loader {
         if detected != "vanilla" {
             let runtime_ok = instance_runtime_exists(instance_root, detected);
-            if runtime_ok && loader != detected {
+            if loader == "vanilla" && runtime_ok {
                 write_instance_state(
                     instance_root,
                     "loader_auto_corrected",
@@ -5164,7 +5204,7 @@ async fn bootstrap_instance_runtime(
                     }),
                 );
                 loader = detected.to_string();
-            } else if !runtime_ok {
+            } else if !runtime_ok && loader == "vanilla" {
                 write_instance_state(
                     instance_root,
                     "loader_detection_skipped",
@@ -5180,35 +5220,57 @@ async fn bootstrap_instance_runtime(
     }
     let mut launch_version_name = version.to_string();
     if loader == "forge" || loader == "neoforge" {
-        write_instance_state(
-            instance_root,
-            "installing_loader",
-            serde_json::json!({"loader": loader, "version": instance.loader_version, "step": "forge_like"}),
-        );
-        let installed_profile_id = install_forge_like_loader(
-            app,
-            instance_root,
-            &minecraft_root,
-            version,
-            &loader,
-            Some(launch_config.modloader_version.as_str()),
-        )
-        .await?;
-        normalize_loader_profile_json_file(
-            &minecraft_root,
-            &installed_profile_id,
-            version,
-            &loader,
-        )?;
-        validate_loader_profile_json(&minecraft_root, &installed_profile_id, version, &loader)?;
-        if let Some(profile_json) = resolve_loader_profile_json(
-            &minecraft_root,
-            version,
-            &loader,
-            Some(&installed_profile_id),
-            &base_version_json,
-        ) {
-            effective_version_json = profile_json;
+        let loader_runtime_available = instance_runtime_exists(instance_root, &loader);
+        if loader_runtime_available {
+            write_instance_state(
+                instance_root,
+                "installing_loader",
+                serde_json::json!({"loader": loader, "version": instance.loader_version, "step": "forge_like_skip_existing"}),
+            );
+            if let Some(profile_json) = resolve_loader_profile_json(
+                &minecraft_root,
+                version,
+                &loader,
+                None,
+                &base_version_json,
+            ) {
+                if let Some(profile_id) = profile_json.get("id").and_then(Value::as_str) {
+                    launch_version_name = profile_id.to_string();
+                }
+                effective_version_json = profile_json;
+            }
+        } else {
+            write_instance_state(
+                instance_root,
+                "installing_loader",
+                serde_json::json!({"loader": loader, "version": instance.loader_version, "step": "forge_like"}),
+            );
+            let installed_profile_id = install_forge_like_loader(
+                app,
+                instance_root,
+                &minecraft_root,
+                version,
+                &loader,
+                Some(launch_config.modloader_version.as_str()),
+            )
+            .await?;
+            normalize_loader_profile_json_file(
+                &minecraft_root,
+                &installed_profile_id,
+                version,
+                &loader,
+            )?;
+            validate_loader_profile_json(&minecraft_root, &installed_profile_id, version, &loader)?;
+            if let Some(profile_json) = resolve_loader_profile_json(
+                &minecraft_root,
+                version,
+                &loader,
+                Some(&installed_profile_id),
+                &base_version_json,
+            ) {
+                effective_version_json = profile_json;
+            }
+            launch_version_name = installed_profile_id;
         }
     }
 
@@ -7362,6 +7424,25 @@ async fn preflight_instance(
     app: tauri::AppHandle,
     args: InstanceCommandArgs,
 ) -> Result<ValidationReport, String> {
+    if PREFLIGHT_RUNNING.swap(true, Ordering::SeqCst) {
+        return Ok(ValidationReport {
+            ok: true,
+            errors: Vec::new(),
+            warnings: vec![
+                "Ya hay un preflight en ejecución; se omite la ejecución duplicada.".to_string(),
+            ],
+            checks: HashMap::new(),
+        });
+    }
+
+    struct PreflightGuard;
+    impl Drop for PreflightGuard {
+        fn drop(&mut self) {
+            PREFLIGHT_RUNNING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _preflight_guard = PreflightGuard;
+
     let instance_id = args.instance_id.unwrap_or_default().trim().to_string();
     if instance_id.is_empty() {
         return Err("No hay una instancia válida seleccionada para validar.".to_string());
