@@ -74,7 +74,15 @@ pub async fn repair_instance(
         wipe_runtime_dirs(minecraft_root, &mut report.issues_detected)?;
     }
 
-    if mode == RepairMode::SoloMods {
+    if mode == RepairMode::Inteligente {
+        run_intelligent_repair(
+            instance_root,
+            minecraft_root,
+            version_id,
+            loader_name,
+            &mut report,
+        )?;
+    } else if mode == RepairMode::SoloMods {
         let mods = repair_mods(minecraft_root, true, &mut report.issues_detected)?;
         report.mods_fixed += mods;
     } else if mode == RepairMode::ReinstalarLoader {
@@ -151,6 +159,64 @@ pub async fn repair_instance(
         report,
         user_message,
     })
+}
+
+fn run_intelligent_repair(
+    instance_root: &Path,
+    minecraft_root: &Path,
+    version_id: &str,
+    loader_name: Option<&str>,
+    report: &mut RepairReport,
+) -> Result<(), RepairError> {
+    let mut precheck_issues = Vec::new();
+    report.version_fixed = repair_version(minecraft_root, version_id, false, &mut precheck_issues)?;
+    report.libraries_fixed += repair_libraries(minecraft_root, false, &mut precheck_issues)?;
+    report.assets_fixed += repair_assets(minecraft_root, false, &mut precheck_issues)?;
+    report.mods_fixed += repair_mods(minecraft_root, false, &mut precheck_issues)?;
+
+    let joined = precheck_issues.join(" | ").to_ascii_lowercase();
+    let should_repair_base = joined.contains("version")
+        || joined.contains("libraries")
+        || joined.contains("asset")
+        || joined.contains("hash")
+        || joined.contains("corrupt");
+    let should_repair_mods = joined.contains("mod") || joined.contains("incompat");
+    let should_repair_loader = joined.contains("loader")
+        || joined.contains("forge")
+        || joined.contains("fabric")
+        || joined.contains("quilt")
+        || joined.contains("neoforge");
+
+    if should_repair_base {
+        report.version_fixed = repair_version(
+            minecraft_root,
+            version_id,
+            true,
+            &mut report.issues_detected,
+        )? || report.version_fixed;
+        report.libraries_fixed +=
+            repair_libraries(minecraft_root, true, &mut report.issues_detected)?;
+        report.assets_fixed += repair_assets(minecraft_root, true, &mut report.issues_detected)?;
+    }
+
+    if should_repair_loader {
+        report.loader_reinstalled = repair_loader(
+            minecraft_root,
+            loader_name,
+            true,
+            &mut report.issues_detected,
+        )? || report.loader_reinstalled;
+    }
+
+    if should_repair_mods {
+        report.mods_fixed += repair_mods(minecraft_root, true, &mut report.issues_detected)?;
+    }
+
+    report.config_regenerated =
+        repair_config_files(instance_root, true, &mut report.issues_detected)?;
+    report.world_backed_up = inspect_world(instance_root, true, &mut report.issues_detected)?;
+    report.issues_detected.extend(precheck_issues);
+    Ok(())
 }
 
 fn wipe_runtime_dirs(minecraft_root: &Path, issues: &mut Vec<String>) -> Result<(), RepairError> {
