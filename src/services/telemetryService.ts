@@ -5,7 +5,7 @@ export const sendTelemetry = async (event: string, payload: object) => {
   if (!config.telemetryOptIn) {
     return;
   }
-  await fetch("https://telemetry.frutistudio.local/event", {
+  await fetch("https://telemetry.interface.local/event", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ event, payload }),
