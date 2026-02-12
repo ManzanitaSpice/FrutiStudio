@@ -32,6 +32,7 @@ use crate::core::config::{
     AppConfig, BaseDirValidationResult, LauncherFactoryResetArgs, LauncherFactoryResetResult,
     StartupFileEntry,
 };
+use crate::core::download_routes;
 use crate::core::external_discovery::{
     detect_external_instances, launcher_from_hint, read_external_discovery_cache,
     write_external_discovery_cache,
@@ -2818,33 +2819,29 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
     let user_agent = "FrutiLauncher/1.0 (+https://github.com/fruti-studio)";
 
     if loader == "forge" {
-        let promotions_url =
-            "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
-        if let Ok(resp) = client
-            .get(promotions_url)
-            .header(reqwest::header::USER_AGENT, user_agent)
-            .send()
-            .await
-        {
-            if let Ok(json) = resp.json::<Value>().await {
-                let key_recommended = format!("{minecraft_version}-recommended");
-                let key_latest = format!("{minecraft_version}-latest");
-                if let Some(version) = json
-                    .get("promos")
-                    .and_then(|v| v.get(&key_recommended).or_else(|| v.get(&key_latest)))
-                    .and_then(|v| v.as_str())
-                {
-                    return Some(format!("{minecraft_version}-{version}"));
+        for promotions_url in download_routes::forge_promotions_urls() {
+            if let Ok(resp) = client
+                .get(&promotions_url)
+                .header(reqwest::header::USER_AGENT, user_agent)
+                .send()
+                .await
+            {
+                if let Ok(json) = resp.json::<Value>().await {
+                    let key_recommended = format!("{minecraft_version}-recommended");
+                    let key_latest = format!("{minecraft_version}-latest");
+                    if let Some(version) = json
+                        .get("promos")
+                        .and_then(|v| v.get(&key_recommended).or_else(|| v.get(&key_latest)))
+                        .and_then(|v| v.as_str())
+                    {
+                        return Some(format!("{minecraft_version}-{version}"));
+                    }
                 }
             }
         }
     }
 
-    let metadata_urls = if loader == "neoforge" {
-        vec!["https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"]
-    } else {
-        vec!["https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"]
-    };
+    let metadata_urls = download_routes::forge_like_metadata_urls(loader);
 
     let neoforge_channel = neoforge_channel_for_minecraft(minecraft_version);
 
@@ -3009,28 +3006,15 @@ async fn install_forge_like_loader(
         requested
     };
 
-    let (base_url, artifact_name) = if loader == "neoforge" {
-        (
-            "https://maven.neoforged.net/releases/net/neoforged/neoforge",
-            "neoforge",
-        )
+    let artifact_name = if loader == "neoforge" {
+        "neoforge"
     } else {
-        (
-            "https://maven.minecraftforge.net/net/minecraftforge/forge",
-            "forge",
-        )
+        "forge"
     };
     let expected_id_candidates =
         expected_forge_like_profile_ids(loader, minecraft_version, &resolved_version);
 
-    let installer_url =
-        format!("{base_url}/{resolved_version}/{artifact_name}-{resolved_version}-installer.jar");
-    let mut installer_urls = vec![installer_url];
-    if loader == "forge" {
-        installer_urls.push(format!(
-            "https://files.minecraftforge.net/maven/net/minecraftforge/forge/{resolved_version}/forge-{resolved_version}-installer.jar"
-        ));
-    }
+    let installer_urls = download_routes::forge_like_installer_urls(loader, &resolved_version);
     let launcher_cache_dir = launcher_root(app)?
         .join("cache")
         .join("loaders")
@@ -3346,33 +3330,7 @@ async fn download_to(url: &str, path: &Path) -> Result<(), String> {
 }
 
 fn mirror_candidates_for_url(url: &str) -> Vec<String> {
-    let mut urls = vec![url.to_string()];
-    let mirrors = [
-        (
-            "https://libraries.minecraft.net",
-            [
-                "https://bmclapi2.bangbang93.com/maven",
-                "https://download.mcbbs.net/maven",
-            ],
-        ),
-        (
-            "https://maven.minecraftforge.net",
-            ["https://files.minecraftforge.net/maven", ""],
-        ),
-    ];
-
-    for (origin, replacements) in mirrors {
-        if let Some(rest) = url.strip_prefix(origin) {
-            for replacement in replacements {
-                if replacement.is_empty() {
-                    continue;
-                }
-                urls.push(format!("{replacement}{rest}"));
-            }
-        }
-    }
-
-    urls
+    download_routes::mirror_candidates_for_url(url)
 }
 
 fn should_validate_zip_from_path(path: &Path) -> bool {
@@ -4917,10 +4875,10 @@ async fn bootstrap_instance_runtime(
         );
     }
 
-    let manifest_urls = vec![
-        "https://launchermeta.mojang.com/mc/game/version_manifest.json".to_string(),
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json".to_string(),
-    ];
+    let manifest_urls = download_routes::MINECRAFT_MANIFEST_URLS
+        .iter()
+        .map(|url| (*url).to_string())
+        .collect::<Vec<_>>();
     write_instance_state(
         instance_root,
         "downloading_manifest",
@@ -4940,12 +4898,7 @@ async fn bootstrap_instance_runtime(
         ));
     };
 
-    let version_json_urls = vec![
-        version_entry.url.clone(),
-        version_entry
-            .url
-            .replace("piston-meta.mojang.com", "launchermeta.mojang.com"),
-    ];
+    let version_json_urls = download_routes::version_metadata_urls(&version_entry.url);
     write_instance_state(
         instance_root,
         "downloading_version_metadata",
@@ -5059,11 +5012,7 @@ async fn bootstrap_instance_runtime(
         "downloading_asset_index",
         serde_json::json!({"step": "asset_index", "url": asset_index_url}),
     );
-    let asset_index_urls = vec![
-        asset_index_url.to_string(),
-        asset_index_url.replace("piston-meta.mojang.com", "launchermeta.mojang.com"),
-        asset_index_url.replace("launchermeta.mojang.com", "piston-meta.mojang.com"),
-    ];
+    let asset_index_urls = download_routes::asset_index_urls(asset_index_url);
     let asset_index_json = fetch_json_with_fallback(&asset_index_urls, "asset index").await?;
     let indexes_dir = minecraft_root.join("assets").join("indexes");
     fs::create_dir_all(&indexes_dir)
@@ -5327,29 +5276,8 @@ async fn bootstrap_instance_runtime(
         } else {
             requested_loader_version.to_string()
         };
-        let profile_urls = if loader == "quilt" {
-            vec![
-                format!(
-                    "https://meta.quiltmc.org/v3/versions/loader/{}/{}/profile/json",
-                    version, loader_version
-                ),
-                format!(
-                    "https://meta.quiltmc.org/v3/versions/loader/{}/latest/profile/json",
-                    version
-                ),
-            ]
-        } else {
-            vec![
-                format!(
-                    "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
-                    version, loader_version
-                ),
-                format!(
-                    "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
-                    version, "stable"
-                ),
-            ]
-        };
+        let profile_urls =
+            download_routes::fabric_like_profile_urls(&loader, version, &loader_version);
         write_instance_state(
             instance_root,
             "installing_loader",
@@ -8150,8 +8078,45 @@ async fn install_mod_file(
     fs::create_dir_all(&mods_dir)
         .map_err(|error| format!("No se pudo crear carpeta mods: {error}"))?;
 
-    let target = mods_dir.join(safe_name);
-    download_to(url.trim(), &target).await?;
+    let mut effective_name = safe_name.to_string();
+    if !effective_name.contains('.') {
+        let from_url = url
+            .split('?')
+            .next()
+            .and_then(|value| value.rsplit('/').next())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("mod.jar");
+        effective_name = from_url.to_string();
+    }
+
+    let target = mods_dir.join(&effective_name);
+    download_to(url.trim(), &target).await.map_err(|error| {
+        format!(
+            "No se pudo instalar el mod {} desde {}: {error}",
+            effective_name,
+            url.trim()
+        )
+    })?;
+
+    if !is_valid_zip_stream(&target) {
+        let _ = fs::remove_file(&target);
+        return Err(format!(
+            "El archivo descargado para {} no es un JAR/ZIP válido. URL: {}",
+            effective_name,
+            url.trim()
+        ));
+    }
+
+    write_instance_state(
+        &instance_root,
+        "mod_installed",
+        serde_json::json!({
+            "instanceId": id,
+            "file": effective_name,
+            "target": target.to_string_lossy().to_string()
+        }),
+    );
 
     Ok(target.to_string_lossy().to_string())
 }

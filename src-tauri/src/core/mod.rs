@@ -1,6 +1,7 @@
 pub mod asset_downloader;
 pub mod auth;
 pub mod config;
+pub mod download_routes;
 pub mod downloader;
 pub mod external_discovery;
 pub mod instance;
