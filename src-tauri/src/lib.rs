@@ -2517,6 +2517,130 @@ fn normalize_loader_profile_json_file(
     Ok(())
 }
 
+fn runtime_version_json_path(instance_root: &Path) -> PathBuf {
+    instance_root.join(".runtime").join("version.json")
+}
+
+fn instance_runtime_exists(instance_root: &Path, loader: &str) -> bool {
+    if loader.trim().eq_ignore_ascii_case("vanilla") {
+        return false;
+    }
+
+    let runtime_path = runtime_version_json_path(instance_root);
+    if !runtime_path.is_file() {
+        return false;
+    }
+
+    let Ok(raw) = fs::read_to_string(&runtime_path) else {
+        return false;
+    };
+    let Ok(runtime_json) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+
+    let detected = detect_loader_from_version_json(&runtime_json).unwrap_or("vanilla");
+    if detected != loader {
+        return false;
+    }
+
+    let has_required_loader_lib = match loader {
+        "fabric" => runtime_json
+            .get("libraries")
+            .and_then(Value::as_array)
+            .map(|libraries| {
+                libraries.iter().any(|lib| {
+                    lib.get("name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|name| name.contains("net.fabricmc:fabric-loader"))
+                })
+            })
+            .unwrap_or(false),
+        "quilt" => runtime_json
+            .get("libraries")
+            .and_then(Value::as_array)
+            .map(|libraries| {
+                libraries.iter().any(|lib| {
+                    lib.get("name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|name| name.contains("org.quiltmc:quilt-loader"))
+                })
+            })
+            .unwrap_or(false),
+        "forge" => runtime_json
+            .get("libraries")
+            .and_then(Value::as_array)
+            .map(|libraries| {
+                libraries.iter().any(|lib| {
+                    lib.get("name").and_then(Value::as_str).is_some_and(|name| {
+                        name.contains("net.minecraftforge:forge")
+                            || name.contains("net.minecraftforge:fmlloader")
+                    })
+                })
+            })
+            .unwrap_or(false),
+        "neoforge" => runtime_json
+            .get("libraries")
+            .and_then(Value::as_array)
+            .map(|libraries| {
+                libraries.iter().any(|lib| {
+                    lib.get("name").and_then(Value::as_str).is_some_and(|name| {
+                        name.contains("net.neoforged:neoforge")
+                            || name.contains("net.neoforged:fml")
+                    })
+                })
+            })
+            .unwrap_or(false),
+        _ => true,
+    };
+
+    if !has_required_loader_lib {
+        return false;
+    }
+
+    expected_main_class_for_loader(loader)
+        .map(|expected| {
+            runtime_json
+                .get("mainClass")
+                .and_then(Value::as_str)
+                .is_some_and(|main_class| main_class.trim() == expected)
+        })
+        .unwrap_or(true)
+}
+
+fn launch_plan_matches_persisted_runtime(instance_root: &Path, plan: &LaunchPlan) -> bool {
+    let runtime_path = runtime_version_json_path(instance_root);
+    if !runtime_path.is_file() {
+        return false;
+    }
+
+    let Ok(raw) = fs::read_to_string(&runtime_path) else {
+        return false;
+    };
+    let Ok(runtime_json) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+
+    let runtime_main_class = runtime_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if runtime_main_class.is_empty() || runtime_main_class != plan.main_class.trim() {
+        return false;
+    }
+
+    let runtime_loader = detect_loader_from_version_json(&runtime_json).unwrap_or("vanilla");
+    if runtime_loader != plan.loader {
+        return false;
+    }
+
+    if runtime_loader != "vanilla" && !instance_runtime_exists(instance_root, runtime_loader) {
+        return false;
+    }
+
+    true
+}
+
 fn ensure_loader_profile_client_jar(
     minecraft_root: &Path,
     profile_id: &str,
@@ -4863,18 +4987,34 @@ async fn bootstrap_instance_runtime(
     }
 
     let mut effective_version_json = base_version_json.clone();
-    if let Some(detected_loader) = detect_loader_from_version_json(&effective_version_json) {
-        if detected_loader != "vanilla" && loader != detected_loader {
-            write_instance_state(
-                instance_root,
-                "loader_detected_from_version_json",
-                serde_json::json!({
-                    "requested": loader,
-                    "detected": detected_loader,
-                    "version": version,
-                }),
-            );
-            loader = detected_loader.to_string();
+    let detected_loader = detect_loader_from_version_json(&effective_version_json);
+    if let Some(detected) = detected_loader {
+        if detected != "vanilla" {
+            let runtime_ok = instance_runtime_exists(instance_root, detected);
+            if runtime_ok && loader != detected {
+                write_instance_state(
+                    instance_root,
+                    "loader_auto_corrected",
+                    serde_json::json!({
+                        "requested": loader,
+                        "detected": detected,
+                        "version": version,
+                        "reason": "version_json_detected_loader"
+                    }),
+                );
+                loader = detected.to_string();
+            } else if !runtime_ok {
+                write_instance_state(
+                    instance_root,
+                    "loader_detection_skipped",
+                    serde_json::json!({
+                        "requested": loader,
+                        "detected": detected,
+                        "version": version,
+                        "reason": "runtime_missing_or_invalid"
+                    }),
+                );
+            }
         }
     }
     let mut launch_version_name = version.to_string();
@@ -5934,7 +6074,11 @@ fn read_launch_plan(instance_root: &Path) -> Result<LaunchPlan, String> {
         })
 }
 
-fn launch_plan_matches_instance(plan: &LaunchPlan, instance: &InstanceRecord) -> bool {
+fn launch_plan_matches_instance(
+    instance_root: &Path,
+    plan: &LaunchPlan,
+    instance: &InstanceRecord,
+) -> bool {
     let requested_loader = instance
         .loader_name
         .as_deref()
@@ -5954,7 +6098,13 @@ fn launch_plan_matches_instance(plan: &LaunchPlan, instance: &InstanceRecord) ->
             || plan_version.contains(&requested_version)
     };
 
-    version_matches && plan.loader == requested_loader
+    let loader_matches = if plan.loader == requested_loader {
+        true
+    } else {
+        plan.loader != "vanilla" && instance_runtime_exists(instance_root, &plan.loader)
+    };
+
+    version_matches && loader_matches
 }
 
 fn build_launch_command(
@@ -6963,7 +7113,8 @@ async fn prepare_instance_runtime(
     let cached_is_usable = cached_plan
         .as_ref()
         .map(|plan| {
-            launch_plan_matches_instance(plan, &instance)
+            launch_plan_matches_instance(&instance_root, plan, &instance)
+                && launch_plan_matches_persisted_runtime(&instance_root, plan)
                 && validate_launch_plan(&instance_root, plan).ok
                 && validate_persisted_runtime_version(&instance_root, plan).is_ok()
                 && integrity_report.ok()
@@ -8920,6 +9071,8 @@ mandatory=true
             java_path: None,
         };
 
+        let instance_root = std::env::temp_dir().join("frutistudio-launch-plan-matches");
+
         let plan = LaunchPlan {
             java_path: "java".to_string(),
             java_args: vec![],
@@ -8949,8 +9102,88 @@ mandatory=true
             env: HashMap::new(),
         };
 
-        assert!(launch_plan_matches_instance(&plan, &instance));
+        assert!(launch_plan_matches_instance(
+            &instance_root,
+            &plan,
+            &instance
+        ));
     }
+    #[test]
+    fn instance_runtime_exists_rejects_corrupt_runtime_json() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let instance_root =
+            std::env::temp_dir().join(format!("frutistudio-runtime-exists-corrupt-{unique}"));
+        let runtime_dir = instance_root.join(".runtime");
+        fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        fs::write(runtime_dir.join("version.json"), "{not-json").expect("write corrupt");
+
+        assert!(!instance_runtime_exists(&instance_root, "fabric"));
+
+        let _ = fs::remove_dir_all(&instance_root);
+    }
+
+    #[test]
+    fn launch_plan_matches_persisted_runtime_detects_loader_mismatch() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let instance_root =
+            std::env::temp_dir().join(format!("frutistudio-runtime-loader-mismatch-{unique}"));
+        let runtime_dir = instance_root.join(".runtime");
+        fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let runtime_version = serde_json::json!({
+            "id": "fabric-loader-0.16.9-1.21.1",
+            "mainClass": "net.fabricmc.loader.launch.knot.KnotClient",
+            "libraries": [{"name": "net.fabricmc:fabric-loader:0.16.9"}]
+        });
+        fs::write(
+            runtime_dir.join("version.json"),
+            serde_json::to_string_pretty(&runtime_version).expect("serialize runtime"),
+        )
+        .expect("write runtime version");
+
+        let plan = LaunchPlan {
+            java_path: "java".to_string(),
+            java_args: vec![],
+            game_args: vec!["--version".to_string(), "1.21.1".to_string()],
+            main_class: "net.minecraft.client.main.Main".to_string(),
+            classpath_entries: vec![],
+            classpath_separator: ":".to_string(),
+            game_dir: "/tmp/game".to_string(),
+            assets_dir: "/tmp/game/assets".to_string(),
+            libraries_dir: "/tmp/game/libraries".to_string(),
+            natives_dir: "/tmp/game/natives".to_string(),
+            version_json: runtime_dir
+                .join("version.json")
+                .to_string_lossy()
+                .to_string(),
+            asset_index: "1.21".to_string(),
+            required_java_major: 17,
+            resolved_java_major: 17,
+            loader: "vanilla".to_string(),
+            loader_profile_resolved: true,
+            auth: LaunchAuth {
+                username: "Player".to_string(),
+                uuid: "uuid".to_string(),
+                access_token: "0".to_string(),
+                user_type: "offline".to_string(),
+            },
+            env: HashMap::new(),
+        };
+
+        assert!(!launch_plan_matches_persisted_runtime(
+            &instance_root,
+            &plan
+        ));
+
+        let _ = fs::remove_dir_all(&instance_root);
+    }
+
     #[test]
     fn validate_persisted_runtime_version_detects_corruption() {
         let unique = SystemTime::now()
