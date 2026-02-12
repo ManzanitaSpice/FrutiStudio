@@ -41,6 +41,10 @@ Se documentó e implementó una base para fingerprints + resolución de descarga
 
 Documento técnico con APIs recomendadas (Fabric/Forge/NeoForge/Quilt/CurseForge), estrategia de versionado e instalación, y estructura de variables de entorno: `docs/apis-loaders-research.md`.
 
+## Roadmap de innovación (AI Repair, compatibilidad predictiva, sandbox, sync)
+
+Plan incremental para integrar funciones avanzadas sin romper la base actual: `docs/innovacion-launcher-roadmap.md`.
+
 ## Diagnóstico de arranque (código 1 / loaders)
 
 Guía operativa y plan de hardening para fallos de arranque de Minecraft (Fabric/Forge/Quilt): `docs/fabric-startup-diagnostics-plan.md`.
