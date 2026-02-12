@@ -3036,7 +3036,7 @@ async fn install_forge_like_loader(
 ) -> Result<String, String> {
     crate::core::loaders::validate_loader_request(loader, minecraft_version)?;
     ensure_forge_preflight_files(minecraft_root, minecraft_version)?;
-    let config = load_config(app)?;
+    let config = load_config(app.clone()).await?;
     let tuning = resolve_network_tuning(Some(&config));
 
     let requested = requested_loader_version
@@ -5142,7 +5142,7 @@ async fn bootstrap_instance_runtime(
             "sha1": client_sha1
         }),
     );
-    let network_tuning = resolve_network_tuning(Some(&load_config(app)?));
+    let network_tuning = resolve_network_tuning(Some(&load_config(app.clone()).await?));
     download_with_retries(
         &[client_url.to_string()],
         &client_jar,
@@ -8320,7 +8320,7 @@ async fn install_mod_file(
         .unwrap_or("vanilla");
     crate::core::mods::validate_mod_loader_compatibility(loader_name, mod_loader_hint.as_deref())?;
 
-    let tuning = resolve_network_tuning(Some(&load_config(&app)?));
+    let tuning = resolve_network_tuning(Some(&load_config(app.clone()).await?));
     write_instance_state(
         &instance_root,
         "preflight",
