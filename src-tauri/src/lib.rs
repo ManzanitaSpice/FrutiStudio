@@ -515,6 +515,13 @@ fn launcher_persistent_cache_root(app: &tauri::AppHandle) -> Result<PathBuf, Str
     Ok(launcher_root(app)?.join(".fruti_cache"))
 }
 
+fn launcher_global_download_cache_dir() -> PathBuf {
+    std::env::temp_dir()
+        .join("fruti-launcher")
+        .join("downloads")
+        .join("sha1")
+}
+
 fn launcher_asset_indexes_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(launcher_persistent_cache_root(app)?
         .join("assets")
@@ -3664,6 +3671,119 @@ fn file_sha1(path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+fn normalized_sha1(expected_sha1: Option<&str>) -> Result<Option<String>, String> {
+    let Some(raw) = expected_sha1 else {
+        return Ok(None);
+    };
+    let normalized = raw.trim().to_ascii_lowercase();
+    if normalized.len() != 40 || !normalized.chars().all(|value| value.is_ascii_hexdigit()) {
+        return Err(format!("Hash SHA1 inválido recibido: {raw}"));
+    }
+    Ok(Some(normalized))
+}
+
+fn remove_file_with_retry(path: &Path, reason: &str) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let mut last_error = None;
+    for attempt in 0..6 {
+        match fs::remove_file(path) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if is_windows_access_denied(&error) {
+                    last_error = Some(access_denied_hint(path, reason, &error));
+                    std::thread::sleep(Duration::from_millis(120 * (attempt + 1) as u64));
+                    continue;
+                }
+                return Err(format!(
+                    "No se pudo eliminar archivo bloqueado {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!(
+            "No se pudo eliminar {} después de varios reintentos",
+            path.display()
+        )
+    }))
+}
+
+fn global_cache_path_for_sha1(cache_root: &Path, sha1: &str) -> PathBuf {
+    let prefix = &sha1[0..2];
+    cache_root.join(prefix).join(sha1)
+}
+
+fn restore_binary_from_global_cache(
+    cache_root: &Path,
+    expected_sha1: &str,
+    target: &Path,
+    validate_zip: bool,
+) -> Result<bool, String> {
+    let cache_file = global_cache_path_for_sha1(cache_root, expected_sha1);
+    if !cache_file.exists() {
+        return Ok(false);
+    }
+
+    if file_sha1(&cache_file)? != expected_sha1 {
+        let _ = fs::remove_file(&cache_file);
+        return Ok(false);
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("No se pudo crear carpeta para cache global: {error}"))?;
+    }
+    fs::copy(&cache_file, target).map_err(|error| {
+        format!(
+            "No se pudo restaurar binario desde cache global {}: {error}",
+            cache_file.display()
+        )
+    })?;
+
+    if validate_zip && !is_valid_zip_stream(target) {
+        let _ = remove_file_with_retry(target, "limpiar zip inválido restaurado de cache global");
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+fn persist_binary_to_global_cache(
+    cache_root: &Path,
+    source: &Path,
+    expected_sha1: &str,
+) -> Result<(), String> {
+    if !source.exists() {
+        return Ok(());
+    }
+    if file_sha1(source)? != expected_sha1 {
+        return Err(format!(
+            "No se puede cachear archivo con hash inválido en cache global: {}",
+            source.display()
+        ));
+    }
+    let cache_file = global_cache_path_for_sha1(cache_root, expected_sha1);
+    if cache_file.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = cache_file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("No se pudo crear directorio de cache global: {error}"))?;
+    }
+    fs::copy(source, &cache_file).map_err(|error| {
+        format!(
+            "No se pudo persistir archivo en cache global {}: {error}",
+            cache_file.display()
+        )
+    })?;
+    Ok(())
+}
+
 fn download_partial_path(path: &Path) -> PathBuf {
     let file_name = path
         .file_name()
@@ -3811,9 +3931,11 @@ async fn download_with_retries(
     tuning: &NetworkTuning,
     stage: &str,
 ) -> Result<(), String> {
+    let normalized_expected_sha1 = normalized_sha1(expected_sha1)?;
+
     if let Ok(meta) = fs::metadata(path) {
         if meta.is_file() && meta.len() > 0 && (!validate_zip || is_valid_zip_stream(path)) {
-            if let Some(expected) = expected_sha1 {
+            if let Some(expected) = normalized_expected_sha1.as_deref() {
                 let existing_hash = file_sha1(path)?;
                 if existing_hash.eq_ignore_ascii_case(expected) {
                     return Ok(());
@@ -3828,15 +3950,40 @@ async fn download_with_retries(
         ensure_writable_dir(parent)?;
     }
 
+    if let Some(expected_sha1) = normalized_expected_sha1.as_deref() {
+        let cache_root = launcher_global_download_cache_dir();
+        if restore_binary_from_global_cache(&cache_root, expected_sha1, path, validate_zip)? {
+            return Ok(());
+        }
+    }
+
     let client = http_client_with_tuning(tuning)?;
     let mut traces: Vec<DownloadTrace> = Vec::new();
 
     let partial_path = download_partial_path(path);
     ensure_writable_file(path)?;
     ensure_writable_file(&partial_path)?;
+    let mut reset_partial = false;
+
     if partial_path.exists() {
-        let _ = ensure_writable_file(&partial_path);
-        let _ = fs::remove_file(&partial_path);
+        if validate_zip && !is_valid_zip_stream(&partial_path) {
+            reset_partial = true;
+        }
+        if let Some(expected) = normalized_expected_sha1.as_deref() {
+            match file_sha1(&partial_path) {
+                Ok(hash) if hash.eq_ignore_ascii_case(expected) => {
+                    let _ = fs::rename(&partial_path, path);
+                    if path.exists() {
+                        return Ok(());
+                    }
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+    }
+
+    if reset_partial {
+        remove_file_with_retry(&partial_path, "limpiar temporal corrupto de descarga")?;
     }
     let max_attempts = attempts.max(1);
     let mut last_error = None;
@@ -3972,7 +4119,8 @@ async fn download_with_retries(
                             }
                             Err(rename_error) => {
                                 if path.exists() {
-                                    match fs::remove_file(path) {
+                                    match remove_file_with_retry(path, "reemplazar archivo destino")
+                                    {
                                         Ok(()) => {
                                             if fs::rename(&partial_path, path).is_ok() {
                                                 moved = true;
@@ -3980,13 +4128,7 @@ async fn download_with_retries(
                                             }
                                         }
                                         Err(remove_error) => {
-                                            if is_windows_access_denied(&remove_error) {
-                                                last_error = Some(access_denied_hint(
-                                                    path,
-                                                    "reemplazar archivo destino",
-                                                    &remove_error,
-                                                ));
-                                            }
+                                            last_error = Some(remove_error);
                                         }
                                     }
                                 }
@@ -4007,10 +4149,17 @@ async fn download_with_retries(
                         let final_exists = path.exists();
                         return Err(format!(
                             "No se pudo mover temporal a destino. sha1={}; temp={}; final={}; finalExiste={final_exists}",
-                            expected_sha1.unwrap_or("sin-sha1"),
+                            normalized_expected_sha1
+                                .as_deref()
+                                .unwrap_or("sin-sha1"),
                             normalized_display_path(&partial_path),
                             normalized_display_path(path),
                         ));
+                    }
+
+                    if let Some(expected_sha1) = normalized_expected_sha1.as_deref() {
+                        let cache_root = launcher_global_download_cache_dir();
+                        let _ = persist_binary_to_global_cache(&cache_root, path, expected_sha1);
                     }
                     return Ok(());
                 }
