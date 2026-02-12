@@ -9,9 +9,10 @@ use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::header::{HeaderMap, HeaderValue};
 
 use fs2::available_space;
@@ -24,6 +25,7 @@ use sha1::{Digest, Sha1};
 use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{oneshot, Semaphore};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
@@ -495,13 +497,60 @@ struct AssetValidationEntry {
 }
 
 fn launcher_assets_cache_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(launcher_root(app)?.join("assets_cache").join("objects"))
+    Ok(launcher_root(app)?
+        .join(".fruti_cache")
+        .join("assets")
+        .join("objects"))
 }
 
 fn launcher_assets_validation_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(launcher_root(app)?
-        .join("assets_cache")
+        .join(".fruti_cache")
+        .join("assets")
         .join("assets_cache.json"))
+}
+
+fn launcher_persistent_cache_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(launcher_root(app)?.join(".fruti_cache"))
+}
+
+fn launcher_asset_indexes_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(launcher_persistent_cache_root(app)?
+        .join("assets")
+        .join("indexes"))
+}
+
+fn load_cached_asset_index_if_valid(
+    app: &tauri::AppHandle,
+    asset_index_id: &str,
+    expected_sha1: Option<&str>,
+) -> Result<Option<Value>, String> {
+    let cache_dir = launcher_asset_indexes_cache_dir(app)?;
+    let cached_path = cache_dir.join(format!("{asset_index_id}.json"));
+    if !cached_path.exists() {
+        return Ok(None);
+    }
+
+    if let Some(expected) = expected_sha1 {
+        let current = file_sha1(&cached_path)?;
+        if !current.eq_ignore_ascii_case(expected) {
+            return Ok(None);
+        }
+    }
+
+    let raw = fs::read_to_string(&cached_path).map_err(|error| {
+        format!(
+            "No se pudo leer asset index cacheado {}: {error}",
+            cached_path.display()
+        )
+    })?;
+    let parsed = serde_json::from_str::<Value>(&raw).map_err(|error| {
+        format!(
+            "Asset index cacheado inválido {}: {error}",
+            cached_path.display()
+        )
+    })?;
+    Ok(Some(parsed))
 }
 
 fn load_asset_validation_cache(app: &tauri::AppHandle) -> AssetValidationCache {
@@ -1281,7 +1330,7 @@ async fn launcher_factory_reset(
         PathBuf::from("versions"),
         PathBuf::from("libraries"),
         PathBuf::from("assets"),
-        PathBuf::from("assets_cache"),
+        PathBuf::from(".fruti_cache"),
         PathBuf::from("downloads"),
         PathBuf::from("logs"),
         PathBuf::from(".cache"),
@@ -3844,64 +3893,50 @@ async fn download_with_retries(
                     let append_mode =
                         resume_from > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
                     let expected_length = response.content_length();
-                    let bytes = response
-                        .bytes()
-                        .await
-                        .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
+                    let mut options = tokio::fs::OpenOptions::new();
+                    options.write(true).create(true);
+                    if append_mode {
+                        options.append(true);
+                    } else {
+                        options.truncate(true);
+                    }
+
+                    let output = options.open(&partial_path).await.map_err(|error| {
+                        access_denied_hint(&partial_path, "abrir temporal de descarga", &error)
+                    })?;
+                    let mut writer = BufWriter::new(output);
+                    let mut stream = response.bytes_stream();
+                    let mut received_bytes = 0_u64;
+
+                    while let Some(chunk_result) = stream.next().await {
+                        let chunk = chunk_result
+                            .map_err(|error| format!("No se pudo leer respuesta {url}: {error}"))?;
+                        received_bytes = received_bytes.saturating_add(chunk.len() as u64);
+                        writer.write_all(&chunk).await.map_err(|error| {
+                            access_denied_hint(
+                                &partial_path,
+                                "escribir temporal de descarga",
+                                &error,
+                            )
+                        })?;
+                    }
+
+                    writer.flush().await.map_err(|error| {
+                        access_denied_hint(
+                            &partial_path,
+                            "vaciar buffer temporal de descarga",
+                            &error,
+                        )
+                    })?;
 
                     if let Some(content_length) = expected_length {
-                        if content_length != bytes.len() as u64 {
+                        if content_length != received_bytes {
                             last_error = Some(format!(
-                                "{url} devolvió Content-Length inválido (esperado {content_length} bytes, recibido {} bytes)",
-                                bytes.len()
+                                "{url} devolvió Content-Length inválido (esperado {content_length} bytes, recibido {received_bytes} bytes)",
                             ));
                             let _ = fs::remove_file(&partial_path);
                             continue;
                         }
-                    }
-
-                    let mut write_error = None;
-                    for _ in 0..3 {
-                        let mut options = fs::OpenOptions::new();
-                        options.write(true).create(true);
-                        if append_mode {
-                            options.append(true);
-                        } else {
-                            options.truncate(true);
-                        }
-
-                        match options.open(&partial_path) {
-                            Ok(mut output) => match output.write_all(&bytes) {
-                                Ok(()) => {
-                                    write_error = None;
-                                    break;
-                                }
-                                Err(error) => {
-                                    write_error = Some(access_denied_hint(
-                                        &partial_path,
-                                        "escribir temporal de descarga",
-                                        &error,
-                                    ));
-                                    let _ = ensure_writable_file(&partial_path);
-                                    let _ = fs::remove_file(&partial_path);
-                                }
-                            },
-                            Err(error) => {
-                                write_error = Some(access_denied_hint(
-                                    &partial_path,
-                                    "abrir temporal de descarga",
-                                    &error,
-                                ));
-                                let _ = ensure_writable_file(&partial_path);
-                                let _ = fs::remove_file(&partial_path);
-                            }
-                        }
-
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    }
-
-                    if let Some(error) = write_error {
-                        return Err(error);
                     }
 
                     if validate_zip && !is_valid_zip_stream(&partial_path) {
@@ -4004,30 +4039,27 @@ async fn download_with_retries(
 async fn download_many_with_limit<F>(
     items: Vec<AssetDownloadTask>,
     concurrency: usize,
-    mut on_item_complete: F,
+    on_item_complete: F,
 ) -> Result<(), String>
 where
-    F: FnMut(usize) -> Result<(), String>,
+    F: Fn(usize) -> Result<(), String> + Send + Sync,
 {
     if items.is_empty() {
         return Ok(());
     }
 
-    let gate = std::sync::Arc::new(Semaphore::new(concurrency.max(1)));
-    let mut tasks = tokio::task::JoinSet::new();
     let tuning = NetworkTuning::default();
+    let completed = std::sync::Arc::new(AtomicUsize::new(0));
+    let on_item_complete = std::sync::Arc::new(on_item_complete);
 
-    for task in items {
-        let permit_gate = gate.clone();
-        let tuning = tuning.clone();
-        tasks.spawn(async move {
-            let _permit = permit_gate
-                .acquire_owned()
-                .await
-                .map_err(|error| format!("No se pudo adquirir cupo de descarga: {error}"))?;
-            let temp_path = download_partial_path(&task.path);
-            tokio::time::timeout(
-                std::time::Duration::from_secs(240),
+    stream::iter(items)
+        .map(Ok::<AssetDownloadTask, String>)
+        .try_for_each_concurrent(concurrency.max(1), |task| {
+            let tuning = tuning.clone();
+            let completed = completed.clone();
+            let on_item_complete = on_item_complete.clone();
+            async move {
+                let temp_path = download_partial_path(&task.path);
                 download_with_retries(
                     &task.urls,
                     &task.path,
@@ -4036,41 +4068,25 @@ where
                     false,
                     &tuning,
                     "asset",
-                ),
-            )
-            .await
-            .map_err(|_| {
-                format!(
-                    "Asset {} ({}) agotó el tiempo máximo de descarga (240s)",
-                    task.object_name, task.sha1
                 )
-            })?
-            .map_err(|error| {
-                format!(
-                    "Asset {} ({}) falló: {} | final={} | temp={}",
-                    task.object_name,
-                    task.sha1,
-                    error,
-                    normalized_display_path(&task.path),
-                    normalized_display_path(&temp_path)
-                )
-            })
-        });
-    }
+                .await
+                .map_err(|error| {
+                    format!(
+                        "Asset {} ({}) falló: {} | final={} | temp={}",
+                        task.object_name,
+                        task.sha1,
+                        error,
+                        normalized_display_path(&task.path),
+                        normalized_display_path(&temp_path)
+                    )
+                })?;
 
-    let mut completed = 0usize;
-    while let Some(joined) = tasks.join_next().await {
-        match joined {
-            Ok(Ok(())) => {
-                completed += 1;
-                on_item_complete(completed)?;
+                let completed_now = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                on_item_complete(completed_now)?;
+                Ok::<(), String>(())
             }
-            Ok(Err(error)) => return Err(error),
-            Err(error) => return Err(format!("Error en tarea de descarga: {error}")),
-        }
-    }
-
-    Ok(())
+        })
+        .await
 }
 
 fn recommended_download_concurrency(multiplier: usize, min: usize, max: usize) -> usize {
@@ -5368,13 +5384,58 @@ async fn bootstrap_instance_runtime(
         .and_then(|v| v.get("id"))
         .and_then(|v| v.as_str())
         .unwrap_or("legacy");
-    write_instance_state(
-        instance_root,
-        "downloading_asset_index",
-        serde_json::json!({"step": "asset_index", "url": asset_index_url}),
-    );
-    let asset_index_urls = download_routes::asset_index_urls(asset_index_url);
-    let asset_index_json = fetch_json_with_fallback(&asset_index_urls, "asset index").await?;
+    let asset_index_sha1 = base_version_json
+        .get("assetIndex")
+        .and_then(|v| v.get("sha1"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let asset_index_json = if let Some(cached) =
+        load_cached_asset_index_if_valid(app, asset_index_id, asset_index_sha1)?
+    {
+        write_instance_state(
+            instance_root,
+            "downloading_asset_index",
+            serde_json::json!({"step": "asset_index_cached", "id": asset_index_id}),
+        );
+        cached
+    } else {
+        write_instance_state(
+            instance_root,
+            "downloading_asset_index",
+            serde_json::json!({"step": "asset_index", "url": asset_index_url}),
+        );
+        let asset_index_urls = download_routes::asset_index_urls(asset_index_url);
+        let downloaded = fetch_json_with_fallback(&asset_index_urls, "asset index").await?;
+
+        let indexes_dir = minecraft_root.join("assets").join("indexes");
+        fs::create_dir_all(&indexes_dir)
+            .map_err(|error| format!("No se pudo crear indexes dir: {error}"))?;
+        let serialized = serde_json::to_string_pretty(&downloaded)
+            .map_err(|error| format!("No se pudo serializar asset index: {error}"))?;
+        fs::write(
+            indexes_dir.join(format!("{asset_index_id}.json")),
+            &serialized,
+        )
+        .map_err(|error| format!("No se pudo guardar asset index: {error}"))?;
+
+        let cache_indexes_dir = launcher_asset_indexes_cache_dir(app)?;
+        fs::create_dir_all(&cache_indexes_dir).map_err(|error| {
+            format!(
+                "No se pudo crear carpeta de cache de asset indexes {}: {error}",
+                cache_indexes_dir.display()
+            )
+        })?;
+        fs::write(
+            cache_indexes_dir.join(format!("{asset_index_id}.json")),
+            serialized,
+        )
+        .map_err(|error| format!("No se pudo persistir asset index cacheado: {error}"))?;
+
+        downloaded
+    };
+
     let indexes_dir = minecraft_root.join("assets").join("indexes");
     fs::create_dir_all(&indexes_dir)
         .map_err(|error| format!("No se pudo crear indexes dir: {error}"))?;
@@ -5383,7 +5444,7 @@ async fn bootstrap_instance_runtime(
         serde_json::to_string_pretty(&asset_index_json)
             .map_err(|error| format!("No se pudo serializar asset index: {error}"))?,
     )
-    .map_err(|error| format!("No se pudo guardar asset index: {error}"))?;
+    .map_err(|error| format!("No se pudo guardar asset index local: {error}"))?;
 
     write_instance_state(
         instance_root,
@@ -8040,8 +8101,14 @@ async fn launch_instance(
                 let debug_files = vec![
                     stderr_path.to_string_lossy().to_string(),
                     stdout_path.to_string_lossy().to_string(),
-                    instance_root.join("instance-state.json").to_string_lossy().to_string(),
-                    instance_root.join("crash-report.txt").to_string_lossy().to_string(),
+                    instance_root
+                        .join("instance-state.json")
+                        .to_string_lossy()
+                        .to_string(),
+                    instance_root
+                        .join("crash-report.txt")
+                        .to_string_lossy()
+                        .to_string(),
                     instance_root.join("logs").to_string_lossy().to_string(),
                 ];
 
@@ -8285,9 +8352,7 @@ async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<
 }
 
 #[command]
-async fn curseforge_scan_fingerprints(
-    mods_dir: String,
-) -> Result<FingerprintScanResult, String> {
+async fn curseforge_scan_fingerprints(mods_dir: String) -> Result<FingerprintScanResult, String> {
     let mods_path = Path::new(&mods_dir);
     if !mods_path.exists() || !mods_path.is_dir() {
         return Err("La carpeta de mods no existe o no es válida.".to_string());

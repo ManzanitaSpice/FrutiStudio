@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(crate) const CANONICAL_LAUNCHER_DIRS: [&str; 8] = [
+pub(crate) const CANONICAL_LAUNCHER_DIRS: [&str; 11] = [
     "runtime",
     "versions",
     "libraries",
@@ -9,7 +9,10 @@ pub(crate) const CANONICAL_LAUNCHER_DIRS: [&str; 8] = [
     "instances",
     "downloads",
     "logs",
-    "assets_cache",
+    ".fruti_cache",
+    ".fruti_cache/assets",
+    ".fruti_cache/libraries",
+    ".fruti_cache/versions",
 ];
 
 #[derive(Debug, Clone)]
@@ -46,7 +49,10 @@ impl LauncherDataLayout {
             &self.instances,
             &self.root.join("downloads"),
             &self.root.join("logs"),
-            &self.root.join("assets_cache"),
+            &self.root.join(".fruti_cache"),
+            &self.root.join(".fruti_cache").join("assets"),
+            &self.root.join(".fruti_cache").join("libraries"),
+            &self.root.join(".fruti_cache").join("versions"),
         ] {
             fs::create_dir_all(path).map_err(|error| {
                 format!(

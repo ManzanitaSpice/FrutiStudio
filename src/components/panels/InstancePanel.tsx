@@ -340,6 +340,7 @@ export const InstancePanel = ({
   const launchChecklistRunRef = useRef(0);
   const launchChecklistSeenLinesRef = useRef<Set<string>>(new Set());
   const launchChecklistLastBackendStateRef = useRef<string>("");
+  const launchChecklistCancelledRef = useRef(false);
   const checklistLogContainerRef = useRef<HTMLDivElement | null>(null);
   const [editorName, setEditorName] = useState("");
   const [editorGroup, setEditorGroup] = useState("");
@@ -528,6 +529,7 @@ export const InstancePanel = ({
     const checklistRetryDelayMs = 400;
     const runId = Date.now();
     launchChecklistRunRef.current = runId;
+    launchChecklistCancelledRef.current = false;
     launchChecklistSeenLinesRef.current = new Set();
     launchChecklistLastBackendStateRef.current = "";
 
@@ -559,26 +561,30 @@ export const InstancePanel = ({
         window.setTimeout(resolve, ms);
       });
 
-    const withTimeout = async <T,>(
-      promise: Promise<T>,
-      timeoutMs: number,
-      timeoutMessage: string,
-    ): Promise<T> => {
-      let timerId: number | null = null;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timerId = window.setTimeout(() => {
-          reject(new Error(timeoutMessage));
-        }, timeoutMs);
+    const runCancelable = async (promise: Promise<unknown>): Promise<unknown> => {
+      const cancelPromise: Promise<{ type: "cancel" }> = new Promise((resolve) => {
+        const check = () => {
+          if (!isCurrentRun() || launchChecklistCancelledRef.current) {
+            resolve({ type: "cancel" });
+            return;
+          }
+          window.setTimeout(check, 150);
+        };
+        check();
       });
 
-      try {
-        return await Promise.race([promise, timeoutPromise]);
-      } finally {
-        if (timerId !== null) {
-          window.clearTimeout(timerId);
-        }
+      const result: { type: "ok"; value: unknown } | { type: "cancel" } =
+        await Promise.race([
+          promise.then((value) => ({ type: "ok" as const, value })),
+          cancelPromise,
+        ]);
+
+      if (result.type === "cancel") {
+        throw new Error("Proceso de verificación cancelado por el usuario.");
       }
+      return result.value;
     };
+
 
     const logBackendState = async () => {
       const statusMap: Record<string, { progress: number; label: string }> = {
@@ -738,11 +744,7 @@ export const InstancePanel = ({
         stage: "Validando estructura y runtime",
       });
       await logBackendState();
-      let latestReport = await withTimeout(
-        preflightInstance(instanceId),
-        4 * 60_000,
-        "La verificación previa superó el tiempo límite de 4 minutos. Revisa red, disco y Java.",
-      );
+      let latestReport = (await runCancelable(preflightInstance(instanceId))) as any;
 
       for (
         let attempt = 1;
@@ -756,11 +758,7 @@ export const InstancePanel = ({
         if (!isCurrentRun()) {
           throw new Error("Proceso de verificación cancelado por el usuario.");
         }
-        latestReport = await withTimeout(
-          preflightInstance(instanceId),
-          4 * 60_000,
-          "La verificación previa superó el tiempo límite de 4 minutos. Revisa red, disco y Java.",
-        );
+        latestReport = (await runCancelable(preflightInstance(instanceId))) as any;
       }
 
       return latestReport;
@@ -801,11 +799,7 @@ export const InstancePanel = ({
           progress: 72,
           stage: "Reparando estructura",
         });
-        await withTimeout(
-          repairInstance(instanceId),
-          12 * 60_000,
-          "La reparación tardó demasiado (más de 12 minutos). Se canceló para evitar un bloqueo del launcher.",
-        );
+        await runCancelable(repairInstance(instanceId));
         appendLog("Reparación completada. Ejecutando validación final...");
 
         report = await runTimedPreflight(
@@ -816,13 +810,13 @@ export const InstancePanel = ({
       }
 
       if (report.warnings.length > 0) {
-        report.warnings.forEach((warning) => {
+        report.warnings.forEach((warning: string) => {
           appendLog(`⚠ Aviso: ${warning}`);
         });
       }
 
       if (!report.ok) {
-        report.errors.forEach((error) => {
+        report.errors.forEach((error: string) => {
           appendLog(`✖ Error: ${error}`);
         });
         throw new Error(
@@ -1015,7 +1009,7 @@ export const InstancePanel = ({
             `${message} Usa "Reparar instancia" para corregirlo.`,
           );
           setLaunchChecklistSummary(`❌ ${message}`);
-          setLaunchChecklistLogs((prev) => [...prev, `✖ Inicio cancelado: ${message}`]);
+          setLaunchChecklistLogs((prev) => [...prev, `✖ Inicio detenido: ${message}`]);
           updateStartupProgress(selectedInstance.id, {
             active: false,
             stage: "Error durante inicio",
@@ -3839,17 +3833,18 @@ ${rows.join("\n")}`;
                 <button
                   type="button"
                   onClick={() => {
+                    launchChecklistCancelledRef.current = true;
                     launchChecklistRunRef.current = 0;
                     setLaunchChecklistRunning(false);
-                    setLaunchChecklistSummary("⚠ Verificación cancelada por el usuario.");
+                    setLaunchChecklistSummary("⚠ Preparación cancelada por el usuario.");
                     setLaunchChecklistLogs((prev) => [
                       ...prev,
-                      "⚠ Verificación cancelada manualmente.",
+                      "⚠ Preparación cancelada manualmente.",
                     ]);
                     if (activeChecklistInstanceId) {
                       updateStartupProgress(activeChecklistInstanceId, {
                         active: false,
-                        stage: "Verificación cancelada",
+                        stage: "Preparación cancelada",
                       });
                     }
                     setLaunchChecklistOpen(false);
@@ -3857,7 +3852,7 @@ ${rows.join("\n")}`;
                   }}
                   disabled={!launchChecklistRunning}
                 >
-                  Cancelar verificación
+                  Cancelar
                 </button>
                 <button
                   type="button"
@@ -3866,7 +3861,7 @@ ${rows.join("\n")}`;
                     setActiveChecklistInstanceId(null);
                   }}
                 >
-                  Cerrar (seguir en segundo plano)
+                  Seguir esperando
                 </button>
               </div>
             </header>
@@ -3874,7 +3869,7 @@ ${rows.join("\n")}`;
               <div className="product-dialog__checklist-intro">
                 <p>
                   Verificando punto por punto antes de abrir Minecraft. La validación
-                  revisa runtime, assets, librerías y configuración de inicio.
+                  revisa runtime, assets, librerías y configuración de inicio. Si tarda más de lo esperado puedes seguir esperando o cancelar manualmente.
                 </p>
                 <span
                   className={`product-dialog__checklist-badge ${
