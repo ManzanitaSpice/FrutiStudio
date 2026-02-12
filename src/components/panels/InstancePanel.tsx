@@ -3297,6 +3297,12 @@ export const InstancePanel = ({
                     tabIndex={0}
                   >
                     <div className="instance-card__cover">
+                      <img
+                        className="instance-card__cover-logo"
+                        src="/tauri.svg"
+                        alt="Logo del launcher"
+                        loading="lazy"
+                      />
                       <span>{groupName}</span>
                     </div>
                     <div className="instance-card__body">
@@ -3371,7 +3377,9 @@ export const InstancePanel = ({
           <aside className="instance-menu" onClick={(event) => event.stopPropagation()}>
             <>
               <div className="instance-menu__header">
-                <div className="instance-menu__image" />
+                <div className="instance-menu__image" aria-hidden="true">
+                  <img src="/tauri.svg" alt="Logo del launcher" loading="lazy" />
+                </div>
                 <div>
                   <span className="instance-menu__launcher">{selectedInstance.sourceLauncher ? `Importada · ${selectedInstance.sourceLauncher}` : "Interface"}</span>
                   <h3>{selectedInstance.name}</h3>
