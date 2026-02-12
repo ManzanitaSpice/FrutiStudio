@@ -427,11 +427,11 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 const REQUIRED_LAUNCHER_DIRS: [&str; CANONICAL_LAUNCHER_DIRS.len()] = CANONICAL_LAUNCHER_DIRS;
-const ASSET_MIRROR_BASES: [&str; 3] = [
-    "https://bmclapi2.bangbang93.com/assets",
+const ASSET_MIRROR_BASES: [&str; 2] = [
     "https://resources.download.minecraft.net",
-    "https://download.mcbbs.net/assets",
+    "https://bmclapi2.bangbang93.com/assets",
 ];
+const ASSET_MIRROR_MCBBS: &str = "https://download.mcbbs.net/assets";
 const ASSET_VALIDATION_RECHECK_SECS: u64 = 3 * 24 * 60 * 60;
 
 fn env_u64(key: &str, default_value: u64) -> u64 {
@@ -440,6 +440,23 @@ fn env_u64(key: &str, default_value: u64) -> u64 {
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default_value)
+}
+
+fn asset_mirror_bases() -> Vec<&'static str> {
+    let mut mirrors = ASSET_MIRROR_BASES.to_vec();
+    let include_legacy_mcbbs = std::env::var("FRUTI_ENABLE_MCBBS_MIRROR")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
+        .unwrap_or(false);
+    if include_legacy_mcbbs {
+        mirrors.push(ASSET_MIRROR_MCBBS);
+    }
+    mirrors
 }
 
 fn resolve_network_tuning(config: Option<&AppConfig>) -> NetworkTuning {
@@ -3812,7 +3829,7 @@ fn ensure_writable_dir(path: &Path) -> Result<(), String> {
         .open(&probe_path)
         .map_err(|error| {
             format!(
-                "No hay permisos de escritura en {}: {error}. Cierra procesos Java/Minecraft, ejecuta FrutiLauncher como administrador y revisa antivirus/Acceso controlado a carpetas.",
+                "No hay permisos de escritura en {}: {error}. Cierra procesos Java/Minecraft/antivirus que usen la carpeta, ejecuta FrutiLauncher como administrador y revisa antivirus/Acceso controlado a carpetas.",
                 normalized_display_path(path)
             )
         })?;
@@ -4174,9 +4191,17 @@ async fn download_with_retries(
         }
     }
 
+    let mut seen_endpoints = HashSet::new();
     let trace_summary = traces
         .iter()
-        .map(|trace| format!("{}=>{}", trace.endpoint, trace.url))
+        .filter_map(|trace| {
+            let item = format!("{}=>{}", trace.endpoint, trace.url);
+            if seen_endpoints.insert(item.clone()) {
+                Some(item)
+            } else {
+                None
+            }
+        })
         .collect::<Vec<_>>()
         .join("; ");
     Err(format!(
@@ -5636,6 +5661,7 @@ async fn bootstrap_instance_runtime(
         let mut restored_from_cache = 0_u64;
         let mut reused_existing = 0_u64;
         let now_secs = unix_now_secs();
+        let mirrors = asset_mirror_bases();
 
         for value in objects.values() {
             let Some(hash) = value.get("hash").and_then(|v| v.as_str()) else {
@@ -5680,7 +5706,7 @@ async fn bootstrap_instance_runtime(
                 continue;
             }
 
-            let urls = ASSET_MIRROR_BASES
+            let urls = mirrors
                 .iter()
                 .map(|base| format!("{base}/{sub}/{hash}"))
                 .collect::<Vec<_>>();

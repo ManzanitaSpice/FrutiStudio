@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Poppins:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Poppins:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap");
 
 :root {
   --app-font-family: "Inter", system-ui, sans-serif;
@@ -12,6 +12,12 @@
   --color-text: #e6e9f0;
   --color-muted: #9aa3b2;
   --color-accent: #f97316;
+  --shell-glow: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  --shell-backdrop: radial-gradient(
+    120% 100% at 50% 0%,
+    color-mix(in srgb, var(--color-accent) 14%, transparent),
+    transparent 56%
+  );
   font-size: calc(16px * var(--ui-scale));
   line-height: 1.5;
   font-weight: 400;
@@ -196,6 +202,18 @@ select:focus-visible {
   flex-direction: column;
   gap: 16px;
   padding: 18px 20px 20px;
+  background:
+    radial-gradient(
+      circle at 14% 10%,
+      color-mix(in srgb, var(--color-accent) 10%, transparent),
+      transparent 36%
+    ),
+    radial-gradient(
+      circle at 88% 100%,
+      color-mix(in srgb, var(--color-accent) 7%, transparent),
+      transparent 32%
+    ),
+    var(--color-bg);
 }
 
 .app-shell--focus {
@@ -210,8 +228,16 @@ select:focus-visible {
   gap: 8px;
   padding: 8px 14px 12px;
   border-radius: 14px;
-  background: var(--color-surface);
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-surface) 92%, transparent),
+    color-mix(in srgb, var(--color-surface-strong) 88%, transparent)
+  );
+  box-shadow:
+    0 16px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .topbar__row {
@@ -550,15 +576,34 @@ select:focus-visible {
 }
 
 .main-panel {
-  background: var(--color-surface);
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-surface) 92%, transparent),
+    color-mix(in srgb, var(--color-surface-strong) 86%, transparent)
+  );
   border-radius: 16px;
   padding: 22px;
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+  box-shadow:
+    0 16px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 10%, transparent);
   display: flex;
   flex-direction: column;
   gap: 20px;
   min-height: 0;
   overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+.main-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--shell-backdrop);
+  opacity: 0.45;
 }
 
 .panel-view {
@@ -567,6 +612,18 @@ select:focus-visible {
   gap: 20px;
   min-height: 0;
   overflow: auto;
+  animation: panel-soft-fade 280ms ease;
+}
+
+@keyframes panel-soft-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .panel-view__header {
@@ -4628,7 +4685,7 @@ button {
 }
 
 .home-panel__hero {
-  min-height: clamp(240px, 45vh, 460px);
+  min-height: clamp(350px, 72vh, 660px);
   border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
   background:
@@ -4641,8 +4698,8 @@ button {
   display: grid;
   place-content: center;
   text-align: center;
-  gap: 10px;
-  padding: 26px;
+  gap: 14px;
+  padding: 28px;
 }
 
 .home-panel__kicker {
@@ -4653,19 +4710,49 @@ button {
   font-size: 0.75rem;
 }
 
-.home-panel__hero h1 {
-  margin: 0;
-  font-size: clamp(2.1rem, 8vw, 5rem);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.home-panel__flap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.home-panel__flap-cell {
+  width: clamp(36px, 5.9vw, 76px);
+  height: clamp(52px, 8vw, 96px);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: clamp(1.65rem, 5vw, 3.9rem);
   font-weight: 800;
-  color: color-mix(in srgb, var(--color-text) 90%, #ffffff);
-  text-shadow: 0 0 20px color-mix(in srgb, var(--color-accent) 32%, transparent);
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--color-text) 78%, var(--color-accent));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-surface-strong) 82%, transparent) 0 48%,
+    color-mix(in srgb, var(--color-bg) 88%, transparent) 48% 52%,
+    color-mix(in srgb, var(--color-surface-strong) 76%, transparent) 52%
+  );
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  box-shadow:
+    inset 0 -8px 14px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 10%, transparent);
+  transition: all 220ms ease;
+}
+
+.home-panel__flap-cell.is-settled {
+  color: color-mix(in srgb, var(--color-text) 94%, #ffffff);
+  box-shadow:
+    0 8px 20px color-mix(in srgb, var(--color-accent) 22%, transparent),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 15%, transparent);
 }
 
 .home-panel__hero p {
   margin: 0;
   color: var(--color-muted);
+  max-width: 62ch;
 }
 
 .home-panel__menu {
@@ -4679,10 +4766,14 @@ button {
   gap: 8px;
   text-align: left;
   min-height: 120px;
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 18px;
+  padding: 20px;
   background: color-mix(in srgb, var(--color-surface-strong) 85%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 12%, transparent);
+  animation: home-card-in 360ms ease both;
 }
 
 .home-panel__card strong {
@@ -4698,6 +4789,20 @@ button {
 .home-panel__card:hover {
   transform: translateY(-2px) scale(1.01);
   border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border));
+  box-shadow:
+    0 16px 30px color-mix(in srgb, var(--color-accent) 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 18%, transparent);
+}
+
+@keyframes home-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes home-fade-in {

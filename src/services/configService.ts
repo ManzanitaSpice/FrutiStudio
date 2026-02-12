@@ -52,7 +52,7 @@ export interface AppConfig {
   javaMode?: "auto" | "embedded" | "manual";
   minecraftRoot?: string;
   skinsPath?: string;
-  fontFamily?: "inter" | "system" | "poppins" | "jetbrains" | "fira";
+  fontFamily?: "inter" | "system" | "poppins" | "jetbrains" | "fira" | "rajdhani";
   explorerFilters?: {
     query?: string;
     gameVersion?: string;
