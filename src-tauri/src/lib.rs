@@ -3152,6 +3152,33 @@ fn ensure_writable_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn ensure_writable_file(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        ensure_writable_dir(parent)?;
+    }
+
+    if path.exists() {
+        let metadata = fs::metadata(path).map_err(|error| {
+            format!(
+                "No se pudo leer metadata para {}: {error}",
+                normalized_display_path(path)
+            )
+        })?;
+        let mut permissions = metadata.permissions();
+        if permissions.readonly() {
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions).map_err(|error| {
+                format!(
+                    "No se pudo corregir permisos de {}: {error}",
+                    normalized_display_path(path)
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
 fn content_type_is_suspicious_for_archive(
     content_type: Option<&reqwest::header::HeaderValue>,
 ) -> bool {
@@ -3195,7 +3222,10 @@ async fn download_with_retries(
     let client = HTTP_CLIENT.clone();
 
     let partial_path = download_partial_path(path);
+    ensure_writable_file(path)?;
+    ensure_writable_file(&partial_path)?;
     if partial_path.exists() {
+        let _ = ensure_writable_file(&partial_path);
         let _ = fs::remove_file(&partial_path);
     }
     let max_attempts = attempts.max(1);
@@ -3261,25 +3291,47 @@ async fn download_with_retries(
                         }
                     }
 
-                    let mut options = fs::OpenOptions::new();
-                    options.write(true).create(true);
-                    if append_mode {
-                        options.append(true);
-                    } else {
-                        options.truncate(true);
+                    let mut write_error = None;
+                    for _ in 0..3 {
+                        let mut options = fs::OpenOptions::new();
+                        options.write(true).create(true);
+                        if append_mode {
+                            options.append(true);
+                        } else {
+                            options.truncate(true);
+                        }
+
+                        match options.open(&partial_path) {
+                            Ok(mut output) => match output.write_all(&bytes) {
+                                Ok(()) => {
+                                    write_error = None;
+                                    break;
+                                }
+                                Err(error) => {
+                                    write_error = Some(format!(
+                                        "No se pudo escribir temporal de descarga {}: {error}",
+                                        partial_path.display()
+                                    ));
+                                    let _ = ensure_writable_file(&partial_path);
+                                    let _ = fs::remove_file(&partial_path);
+                                }
+                            },
+                            Err(error) => {
+                                write_error = Some(format!(
+                                    "No se pudo abrir temporal de descarga {}: {error}",
+                                    partial_path.display()
+                                ));
+                                let _ = ensure_writable_file(&partial_path);
+                                let _ = fs::remove_file(&partial_path);
+                            }
+                        }
+
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                     }
-                    let mut output = options.open(&partial_path).map_err(|error| {
-                        format!(
-                            "No se pudo abrir temporal de descarga {}: {error}",
-                            partial_path.display()
-                        )
-                    })?;
-                    output.write_all(&bytes).map_err(|error| {
-                        format!(
-                            "No se pudo escribir temporal de descarga {}: {error}",
-                            partial_path.display()
-                        )
-                    })?;
+
+                    if let Some(error) = write_error {
+                        return Err(error);
+                    }
 
                     if validate_zip && !is_valid_zip_stream(&partial_path) {
                         last_error = Some(format!("{url} devolvió un archivo zip/jar inválido"));
