@@ -2223,6 +2223,74 @@ select:focus-visible {
   border-radius: 12px;
 }
 
+.instance-import__server-blueprint {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(125, 143, 255, 0.26);
+  background: linear-gradient(140deg, rgba(79, 93, 201, 0.22), rgba(13, 16, 35, 0.72));
+}
+
+.instance-import__server-blueprint .instance-import__header span {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(220, 225, 255, 0.78);
+}
+
+.instance-import__flow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.instance-import__flow-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(9, 11, 21, 0.62);
+}
+
+.instance-import__flow-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.instance-import__flow-card header span {
+  font-size: 0.7rem;
+  color: #d9dfff;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(128, 141, 255, 0.28);
+}
+
+.instance-import__flow-card p {
+  margin: 0 0 10px;
+  font-size: 0.83rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.instance-import__flow-card button {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+  cursor: pointer;
+}
+
+.instance-import__server-blueprint ul {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.82rem;
+}
+
 .instance-import__row label {
   display: block;
   font-weight: 600;
