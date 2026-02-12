@@ -102,7 +102,7 @@ Aunque no es “loader API”, para instalar correctamente cualquier loader se n
 Se creó `.env` y `.env.example` con variables para separar claves y endpoints:
 
 - `VITE_MSA_CLIENT_ID`
-- `VITE_CURSEFORGE_API_KEY`
+- `CURSEFORGE_API_KEY`
 - `VITE_CURSEFORGE_API_BASE`
 - `VITE_CURSEFORGE_PROXY_BASES`
 - `VITE_FABRIC_META_BASE`
@@ -125,14 +125,12 @@ Con esto podemos:
 1. Se centralizó configuración de APIs en `src/config/api.ts`.
 2. Los clientes de CurseForge ahora leen base/proxies desde entorno.
 3. La resolución de versiones de loader (Fabric/Quilt/Forge/NeoForge) ahora usa endpoints configurables vía `.env`.
-4. La key de CurseForge puede venir de:
-   - `localStorage` (si usuario la define en UI), o
-   - `VITE_CURSEFORGE_API_KEY` como fallback.
+4. La key de CurseForge se resuelve únicamente en backend mediante `CURSEFORGE_API_KEY` (no se expone al frontend).
 
 ---
 
 ## 6) Recomendación operativa final
 
-- Para builds internas: configurar `VITE_CURSEFORGE_API_KEY` y deshabilitar proxies no oficiales.
+- Para builds internas: configurar `CURSEFORGE_API_KEY` y deshabilitar proxies no oficiales.
 - Para desarrollo: mantener proxies como fallback, con logs explícitos cuando se usen.
 - Agregar validación de startup que bloquee instalaciones loader si falta runtime base o si hay mismatch de versión.

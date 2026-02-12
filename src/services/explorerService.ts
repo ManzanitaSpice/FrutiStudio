@@ -1,5 +1,4 @@
 import { apiFetch } from "./apiClients/client";
-import { getCurseforgeApiKey } from "./curseforgeKeyService";
 import { invokeWithHandling } from "./tauriClient";
 import { API_CONFIG } from "../config/api";
 
@@ -228,11 +227,10 @@ const requestCurseforgeV1 = async <T>(
 ): Promise<T> => {
   const params = query ? `?${new URLSearchParams(query).toString()}` : "";
 
-  if (apiKey && isTauriRuntime()) {
+  if (isTauriRuntime()) {
     return invokeWithHandling<T>("curseforge_v1_get", {
       path,
       query,
-      apiKey,
     });
   }
 
@@ -412,8 +410,6 @@ const fetchModrinthPage = async (filters: ExplorerFilters): Promise<ExplorerResu
 };
 
 const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerResult> => {
-  const apiKey = getCurseforgeApiKey();
-
   const classId = curseforgeClassIds[filters.category];
 
   const pageSize = normalizePageSize(filters.pageSize);
@@ -421,7 +417,7 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
 
   const response = await requestCurseforgeV1<CurseforgeSearchResponse>(
     "/mods/search",
-    apiKey,
+    undefined,
     Object.entries({
       gameId: String(CURSE_MINECRAFT_GAME_ID),
       searchFilter:
@@ -647,8 +643,6 @@ export const fetchExplorerItemDetails = async (
     return details;
   }
 
-  const apiKey = getCurseforgeApiKey();
-
   const fallback: ExplorerItemDetails = {
     id: item.id,
     source: "CurseForge",
@@ -673,7 +667,7 @@ export const fetchExplorerItemDetails = async (
 
   const data = await requestCurseforgeV1<CurseforgeModResponse>(
     `/mods/${item.projectId}`,
-    apiKey,
+    undefined,
   ).catch((error) => {
     console.warn("[explorer] curseforge detail fallback", {
       projectId: item.projectId,
@@ -730,7 +724,7 @@ export const fetchExplorerItemDetails = async (
 
   const descriptionResponse = await requestCurseforgeV1<CurseforgeDescriptionResponse>(
     `/mods/${item.projectId}/description`,
-    apiKey,
+    undefined,
   ).catch(() => ({ data: data.data.summary ?? item.description }));
 
   const detailBody = extractDescription(

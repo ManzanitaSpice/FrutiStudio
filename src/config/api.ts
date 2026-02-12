@@ -44,5 +44,4 @@ export const API_CONFIG = {
     env.VITE_NEOFORGE_MAVEN_METADATA_URL,
     "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
   ),
-  curseforgeApiKey: (env.VITE_CURSEFORGE_API_KEY as string | undefined)?.trim() ?? "",
 } as const;

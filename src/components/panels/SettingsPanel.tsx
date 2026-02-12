@@ -4,10 +4,6 @@ import { useUI } from "../../hooks/useUI";
 import { useBaseDir } from "../../hooks/useBaseDir";
 import { useI18n } from "../../i18n/useI18n";
 import { loadConfig, saveConfig, type AppConfig } from "../../services/configService";
-import {
-  getCurseforgeApiKey,
-  saveCurseforgeApiKey,
-} from "../../services/curseforgeKeyService";
 import { detectJavaProfiles } from "../../services/javaConfig";
 import type { JavaProfile } from "../../types/models";
 import { SelectFolderButton } from "../SelectFolderButton";
@@ -34,7 +30,6 @@ export const SettingsPanel = () => {
   const { theme, setTheme, uiScale, setScale } = useUI();
   const [telemetryOptIn, setTelemetryOptIn] = useState(false);
   const [backgroundDownloads, setBackgroundDownloads] = useState(true);
-  const [curseforgeKey, setCurseforgeKey] = useState("");
   const [customTheme, setCustomTheme] = useState(customDefaults);
   const [neverRenameFolder, setNeverRenameFolder] = useState(false);
   const [replaceToolbarByMenu, setReplaceToolbarByMenu] = useState(false);
@@ -82,7 +77,6 @@ export const SettingsPanel = () => {
       setJavaMode(config.javaMode ?? "embedded");
       setMinecraftRoot(config.minecraftRoot ?? "");
       setSkinsPath(config.skinsPath ?? "skins");
-      setCurseforgeKey(getCurseforgeApiKey());
       setFontFamily(config.fontFamily ?? "inter");
       if (config.customTheme) {
         setCustomTheme(config.customTheme);
@@ -604,18 +598,10 @@ export const SettingsPanel = () => {
               <div className="settings-card__header">
                 <h3>Red y descargas</h3>
               </div>
-              <label className="settings-card__field">
-                <span>API key de CurseForge</span>
-                <input
-                  type="password"
-                  placeholder="Pega tu key para conectar CurseForge"
-                  value={curseforgeKey}
-                  onChange={(event) => {
-                    setCurseforgeKey(event.target.value);
-                    saveCurseforgeApiKey(event.target.value);
-                  }}
-                />
-              </label>
+              <p className="panel-view__status">
+                La integración de CurseForge usa una API key privada en backend (Tauri)
+                para que no se exponga en la interfaz.
+              </p>
               <label className="panel-view__toggle">
                 <input
                   type="checkbox"
