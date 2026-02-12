@@ -3899,6 +3899,42 @@ fn classpath_entries_complete(plan: &LaunchPlan) -> bool {
         })
 }
 
+fn canonical_or_original(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn resolve_minecraft_client_jar_path(plan: &LaunchPlan) -> PathBuf {
+    let default_path = Path::new(&plan.version_json).with_extension("jar");
+    if default_path.is_file() {
+        return default_path;
+    }
+
+    let launch_version = extract_or_fallback_arg(&plan.game_args, "--version", "");
+    if !launch_version.trim().is_empty() {
+        let from_version_arg = Path::new(&plan.game_dir)
+            .join("versions")
+            .join(&launch_version)
+            .join(format!("{launch_version}.jar"));
+        if from_version_arg.is_file() {
+            return from_version_arg;
+        }
+    }
+
+    plan.classpath_entries
+        .iter()
+        .map(PathBuf::from)
+        .find(|entry| {
+            entry.is_file()
+                && entry
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("jar"))
+                    .unwrap_or(false)
+                && looks_like_minecraft_version_jar(entry)
+        })
+        .unwrap_or(default_path)
+}
+
 fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
     inspect_mod_jar(mod_jar).loader
 }
@@ -5556,7 +5592,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let launch_command_path = instance_root.join("launch-command.txt");
     let logs_dir = instance_root.join("logs");
     let crash_reports_dir = Path::new(&plan.game_dir).join("crash-reports");
-    let version_jar_path = Path::new(&plan.version_json).with_extension("jar");
+    let version_jar_path = resolve_minecraft_client_jar_path(plan);
     let minecraft_jar_size_ok = fs::metadata(&version_jar_path)
         .map(|meta| meta.is_file() && meta.len() >= MIN_MINECRAFT_JAR_SIZE_BYTES)
         .unwrap_or(false);
@@ -5584,9 +5620,10 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         .collect();
     let classpath_complete = !plan.classpath_entries.is_empty();
     let classpath_libraries_ok = classpath_entries_complete(plan);
+    let version_jar_canonical = canonical_or_original(&version_jar_path);
     let classpath_has_mc_jar = classpath_entries_paths
         .iter()
-        .any(|entry| *entry == version_jar_path.as_path());
+        .any(|entry| canonical_or_original(entry) == version_jar_canonical);
     let has_loader_runtime_jar = match plan.loader.as_str() {
         "fabric" => plan
             .classpath_entries
@@ -7995,6 +8032,63 @@ mod tests {
                 "final-cp".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn resolve_minecraft_client_jar_path_falls_back_to_game_version_jar() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("frutistudio-test-jar-path-{unique}"));
+        let game_dir = base.join("game");
+        let version_dir = game_dir.join("versions").join("1.21.4");
+        let version_json = version_dir.join("runtime-profile.json");
+        let version_jar = version_dir.join("1.21.4.jar");
+
+        fs::create_dir_all(&version_dir).expect("version dir");
+        fs::write(&version_json, "{}\n").expect("version json");
+        fs::write(&version_jar, b"fake-jar").expect("version jar");
+
+        let plan = LaunchPlan {
+            java_path: "java".to_string(),
+            java_args: vec!["-Xms1G".to_string(), "-Xmx2G".to_string()],
+            game_args: vec![
+                "--username".to_string(),
+                "Steve".to_string(),
+                "--version".to_string(),
+                "1.21.4".to_string(),
+            ],
+            main_class: "net.minecraft.client.main.Main".to_string(),
+            classpath_entries: vec![],
+            classpath_separator: if cfg!(target_os = "windows") {
+                ";".to_string()
+            } else {
+                ":".to_string()
+            },
+            game_dir: game_dir.to_string_lossy().to_string(),
+            assets_dir: game_dir.join("assets").to_string_lossy().to_string(),
+            libraries_dir: game_dir.join("libraries").to_string_lossy().to_string(),
+            natives_dir: game_dir.join("natives").to_string_lossy().to_string(),
+            version_json: version_json.to_string_lossy().to_string(),
+            asset_index: "19".to_string(),
+            required_java_major: 17,
+            resolved_java_major: 17,
+            loader: "fabric".to_string(),
+            loader_profile_resolved: true,
+            auth: LaunchAuth {
+                username: "Steve".to_string(),
+                uuid: "uuid".to_string(),
+                access_token: "token".to_string(),
+                user_type: "offline".to_string(),
+            },
+            env: HashMap::new(),
+        };
+
+        let resolved = resolve_minecraft_client_jar_path(&plan);
+        assert_eq!(resolved, version_jar);
+
+        fs::remove_dir_all(base).expect("cleanup");
     }
 
     #[test]
