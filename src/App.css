@@ -4464,3 +4464,62 @@ input[type="text"] {
 .boot-screen__subtitle {
   font-size: 1rem;
 }
+
+.instance-menu__repair-split {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.instance-menu__primary-action--mini {
+  padding-inline: 10px;
+}
+
+.instance-menu__repair-quick {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.instance-menu__repair-quick button {
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  color: inherit;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.instance-repair-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 10, 18, 0.7);
+  display: grid;
+  place-items: center;
+  z-index: 35;
+}
+
+.instance-repair-modal {
+  width: min(520px, 92vw);
+  background: #111a2a;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.instance-repair-modal__modes {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.instance-repair-modal__modes label {
+  display: flex;
+  gap: 8px;
+}
+
+.instance-repair-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
