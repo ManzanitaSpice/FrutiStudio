@@ -7923,7 +7923,6 @@ pub fn run() {
         .setup(|app| {
             if let Err(error) = ensure_persistent_admin_mode(app.handle()) {
                 eprintln!("No se pudo activar modo admin persistente: {error}");
-                return Err(error.into());
             }
             if let Err(error) = init_database(app.handle()) {
                 eprintln!("Error al inicializar la base de datos: {error}");
