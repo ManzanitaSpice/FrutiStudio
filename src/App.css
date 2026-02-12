@@ -4943,3 +4943,129 @@ button {
 .home-panel__menu {
   display: none !important;
 }
+
+
+/* 2026 visual hardening: solid colors, deep dark, elegant professional menu */
+:root {
+  --color-accent: #d97a2b;
+}
+
+:root[data-theme="default"],
+:root[data-theme="dark"] {
+  --color-bg: #04060b;
+  --color-surface: #0b0f16;
+  --color-surface-strong: #131a24;
+  --color-border: #263140;
+  --color-text: #ffffff;
+  --color-muted: #a2aec0;
+  --color-accent: #d97a2b;
+}
+
+.app-shell,
+.topbar,
+.main-panel,
+.sidebar,
+.settings-card,
+.home-panel__hero,
+.home-panel__card,
+.instance-menu,
+.section-context-menu,
+.topbar__search-suggestions,
+.topbar__account-menu,
+.instance-context-menu {
+  background-image: none !important;
+}
+
+.app-shell {
+  background-color: var(--color-bg) !important;
+}
+
+.topbar {
+  position: relative;
+  z-index: 40;
+  overflow: visible;
+  border-radius: 18px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface) !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
+}
+
+.main-panel {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface) !important;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.45);
+}
+
+.topbar__nav {
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 6px;
+  gap: 6px;
+}
+
+.topbar__button {
+  border-radius: 10px;
+  padding: 0.42em 0.9em;
+  border: 1px solid transparent;
+}
+
+.topbar__button:hover,
+.topbar__button--active {
+  color: var(--color-accent) !important;
+  background: #0f1520 !important;
+  border-color: var(--color-border) !important;
+}
+
+.topbar__search,
+.topbar__account-trigger,
+.topbar__account-menu,
+.topbar__account-item,
+.topbar__search-suggestions,
+.instance-context-menu,
+.section-context-menu {
+  background: var(--color-surface-strong) !important;
+  border-color: var(--color-border) !important;
+}
+
+.topbar__account {
+  position: relative;
+  z-index: 120;
+}
+
+.topbar__account-menu {
+  z-index: 140 !important;
+  min-width: 320px;
+  max-width: min(420px, 92vw);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+}
+
+.topbar__account-name {
+  max-width: 170px;
+}
+
+.settings-card,
+.settings-card button,
+.settings-card input,
+.settings-card select,
+.settings-card__actions button,
+.panel-view--settings button {
+  max-width: 100%;
+}
+
+.settings-card__actions,
+.instance-config__inline-actions,
+.topbar__search {
+  flex-wrap: wrap;
+}
+
+.settings-card button,
+.instance-config__inline-actions button,
+.topbar__search button {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.home-panel__menu {
+  display: grid !important;
+}

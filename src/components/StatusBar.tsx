@@ -88,7 +88,7 @@ export const StatusBar = ({ selectedInstance, instances }: StatusBarProps) => {
           >
             <header>
               <div>
-                <h3>Novedades del launcher</h3>
+                <h3>Novedades de Interface</h3>
               </div>
               <button type="button" onClick={() => setNewsOpen(false)}>
                 Cerrar

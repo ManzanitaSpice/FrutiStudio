@@ -2,8 +2,8 @@ import { loginWithMicrosoftDeviceCode } from "./minecraftAuthService";
 import { refreshAccountSkin } from "./skinService";
 import type { AccountStore, LauncherAccount } from "../types/account";
 
-const STORE_KEY = "frutilauncher.accounts.v1";
-const ACCOUNT_EVENT = "fruti:accounts-updated";
+const STORE_KEY = "interface.accounts.v1";
+const ACCOUNT_EVENT = "interface:accounts-updated";
 
 const defaultStore: AccountStore = { activeAccountId: null, accounts: [] };
 

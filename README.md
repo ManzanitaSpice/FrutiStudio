@@ -1,6 +1,6 @@
-# Fruti Launcher
+# Interface
 
-Fruti Launcher es una app de escritorio construida con Tauri, React y TypeScript
+Interface es una app de escritorio construida con Tauri, React y TypeScript
 para gestionar instancias, modpacks, mods y versiones con una UX moderna y
 extensible.
 

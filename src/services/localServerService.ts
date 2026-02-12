@@ -6,7 +6,7 @@ export interface LocalServerEntry {
   icon?: string;
 }
 
-const LOCAL_SERVERS_KEY = "frutilauncher.local-servers.v1";
+const LOCAL_SERVERS_KEY = "interface.local-servers.v1";
 
 export const loadLocalServers = (): LocalServerEntry[] => {
   if (typeof window === "undefined") {
