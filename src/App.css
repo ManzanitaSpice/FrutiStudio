@@ -2903,15 +2903,17 @@ textarea {
 }
 
 .product-dialog--checklist .product-dialog__install-body {
-  overflow: hidden;
+  overflow: auto;
   max-height: calc(90vh - 84px);
   padding: 18px 20px 20px;
+  scrollbar-gutter: stable;
 }
 
 .product-dialog__checklist-body {
   display: grid;
   gap: 14px;
   min-height: 0;
+  overflow: visible;
 }
 
 .product-dialog__checklist-progress {
@@ -2988,10 +2990,16 @@ textarea {
 
 .product-dialog__checklist-panels {
   display: grid;
-  grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.15fr) minmax(0, 1.2fr);
+  grid-template-columns: repeat(3, minmax(320px, 1fr));
   gap: 14px;
-  min-height: 0;
-  height: min(70vh, 760px);
+  min-height: min(54vh, 420px);
+  max-height: min(70vh, 760px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: stretch;
+  scroll-snap-type: x proximity;
+  scrollbar-gutter: stable;
+  padding-bottom: 6px;
 }
 
 .product-dialog__checklist-panel {
@@ -3000,8 +3008,12 @@ textarea {
   background: color-mix(in srgb, var(--color-surface-strong) 68%, transparent);
   padding: 12px;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  scroll-snap-align: start;
 }
 
 .product-dialog__checklist-panel h4 {
@@ -3067,7 +3079,7 @@ textarea {
 }
 
 .product-dialog__checklist-panel .instance-import__log {
-  min-height: 220px;
+  min-height: 0;
 }
 
 .product-dialog__checklist-copy {
@@ -3079,6 +3091,7 @@ textarea {
 .instance-import__log {
   max-height: none;
   height: 100%;
+  min-height: 0;
   overflow: auto;
   padding: 10px 12px;
   border-radius: 12px;
@@ -3139,11 +3152,7 @@ textarea {
 
 @media (max-width: 1200px) {
   .product-dialog__checklist-panels {
-    grid-template-columns: minmax(220px, 1fr) minmax(0, 1fr);
-  }
-
-  .product-dialog__checklist-panel:last-child {
-    grid-column: span 2;
+    grid-template-columns: repeat(3, minmax(300px, 1fr));
   }
 }
 
@@ -3154,8 +3163,8 @@ textarea {
   }
 
   .product-dialog__checklist-panels {
-    grid-template-columns: 1fr;
-    height: min(62vh, 640px);
+    grid-template-columns: repeat(3, minmax(280px, 1fr));
+    min-height: min(52vh, 420px);
   }
 }
 
@@ -4420,20 +4429,6 @@ input[type="text"] {
   border-radius: 12px;
   padding: 0.8rem;
   background: color-mix(in srgb, var(--color-surface) 96%, transparent);
-}
-
-/* Checklist modal stability */
-.product-dialog--checklist {
-  max-height: 86vh;
-}
-
-.product-dialog--checklist .product-dialog__install-body {
-  min-height: 360px;
-  overflow-y: auto;
-}
-
-.product-dialog__checklist-panels {
-  align-items: stretch;
 }
 
 /* Boot screen refresh: larger layout, single Mojang-like title */
