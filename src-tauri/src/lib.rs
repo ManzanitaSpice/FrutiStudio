@@ -2696,6 +2696,7 @@ fn validate_loader_profile_json(
     minecraft_root: &Path,
     profile_id: &str,
     vanilla_version: &str,
+    loader: &str,
 ) -> Result<(), String> {
     let profile_path = minecraft_root
         .join("versions")
@@ -2716,18 +2717,41 @@ fn validate_loader_profile_json(
         .and_then(Value::as_str)
         .map(str::trim)
         .unwrap_or_default();
-    if inherits_from != vanilla_version {
+    if inherits_from.is_empty() {
         return Err(format!(
-            "Perfil {profile_id} inválido: inheritsFrom debe ser '{vanilla_version}' y se encontró '{inherits_from}'"
+            "Perfil {profile_id} inválido: inheritsFrom está vacío; se esperaba al menos '{vanilla_version}'"
         ));
+    }
+
+    if loader == "fabric" || loader == "quilt" {
+        if inherits_from != vanilla_version {
+            return Err(format!(
+                "Perfil {profile_id} inválido: inheritsFrom debe ser '{vanilla_version}' y se encontró '{inherits_from}'"
+            ));
+        }
+    } else if loader == "forge" || loader == "neoforge" {
+        if inherits_from != vanilla_version
+            && !inherits_from.starts_with(&format!("{vanilla_version}-"))
+        {
+            return Err(format!(
+                "Perfil {profile_id} inválido: inheritsFrom ({inherits_from}) no referencia a la base de Minecraft '{vanilla_version}'"
+            ));
+        }
     }
 
     if let Some(jar) = json.get("jar").and_then(Value::as_str) {
         let jar = jar.trim();
-        if !jar.is_empty() && jar != vanilla_version {
-            return Err(format!(
-                "Perfil {profile_id} intenta usar jar '{jar}' en lugar de '{vanilla_version}'"
-            ));
+        if !jar.is_empty() {
+            let jar_is_valid = if loader == "forge" || loader == "neoforge" {
+                jar == vanilla_version || jar == profile_id
+            } else {
+                jar == vanilla_version
+            };
+            if !jar_is_valid {
+                return Err(format!(
+                    "Perfil {profile_id} intenta usar jar '{jar}' en lugar de '{vanilla_version}'"
+                ));
+            }
         }
     }
 
@@ -2740,11 +2764,17 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
         .timeout(Duration::from_secs(25))
         .build()
         .ok()?;
+    let user_agent = "FrutiLauncher/1.0 (+https://github.com/fruti-studio)";
 
     if loader == "forge" {
         let promotions_url =
             "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
-        if let Ok(resp) = client.get(promotions_url).send().await {
+        if let Ok(resp) = client
+            .get(promotions_url)
+            .header(reqwest::header::USER_AGENT, user_agent)
+            .send()
+            .await
+        {
             if let Ok(json) = resp.json::<Value>().await {
                 let key_recommended = format!("{minecraft_version}-recommended");
                 let key_latest = format!("{minecraft_version}-latest");
@@ -2768,7 +2798,12 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
     let neoforge_channel = neoforge_channel_for_minecraft(minecraft_version);
 
     for url in metadata_urls {
-        let Ok(resp) = client.get(url).send().await else {
+        let Ok(resp) = client
+            .get(url)
+            .header(reqwest::header::USER_AGENT, user_agent)
+            .send()
+            .await
+        else {
             continue;
         };
         let Ok(xml) = resp.text().await else {
@@ -2846,19 +2881,57 @@ async fn resolve_latest_fabric_like_loader_version(
         .build()
         .ok()?;
 
-    let Ok(resp) = client.get(&endpoint).send().await else {
+    let Ok(resp) = client
+        .get(&endpoint)
+        .header(
+            reqwest::header::USER_AGENT,
+            "FrutiLauncher/1.0 (+https://github.com/fruti-studio)",
+        )
+        .send()
+        .await
+    else {
         return None;
     };
     let Ok(json) = resp.json::<Value>().await else {
         return None;
     };
-    json.as_array()
-        .and_then(|values| values.first())
+    let entries = json.as_array()?;
+    let preferred = entries.iter().find(|entry| {
+        entry
+            .get("loader")
+            .and_then(|loader| loader.get("stable"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    });
+
+    preferred
+        .or_else(|| entries.first())
         .and_then(|entry| entry.get("loader"))
         .and_then(|loader| loader.get("version"))
         .and_then(|value| value.as_str())
         .map(|value| value.to_string())
 }
+
+fn read_log_tail(path: &Path, max_lines: usize) -> String {
+    if max_lines == 0 {
+        return String::new();
+    }
+
+    let Ok(content) = fs::read_to_string(path) else {
+        return String::new();
+    };
+
+    content
+        .lines()
+        .rev()
+        .take(max_lines)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 async fn install_forge_like_loader(
     app: &tauri::AppHandle,
     instance_root: &Path,
@@ -2990,8 +3063,20 @@ async fn install_forge_like_loader(
         {
             if !status.success() {
                 let exit_code = status.code().unwrap_or(-1);
+                let stderr_tail = read_log_tail(&installer_stderr, 20);
+                let stdout_tail = read_log_tail(&installer_stdout, 20);
+                let mut detail = String::new();
+                if !stderr_tail.trim().is_empty() {
+                    detail.push_str(&format!("\n\nÚltimas líneas stderr:\n{stderr_tail}"));
+                }
+                if !stdout_tail.trim().is_empty() {
+                    detail.push_str(&format!("\n\nÚltimas líneas stdout:\n{stdout_tail}"));
+                }
                 return Err(format!(
-                    "Falló la instalación de {loader} {resolved_version} (código {exit_code})."
+                    "Falló la instalación de {loader} {resolved_version} (código {exit_code}). Logs: {}, {}.{}",
+                    installer_stdout.display(),
+                    installer_stderr.display(),
+                    detail
                 ));
             }
             break;
@@ -4700,17 +4785,42 @@ fn loader_profile_chain_is_valid(plan: &LaunchPlan) -> bool {
         return false;
     }
 
-    let vanilla_version = Path::new(&plan.version_json)
-        .file_stem()
-        .and_then(|v| v.to_str())
-        .unwrap_or_default()
-        .to_string();
+    let Ok(raw_launch_json) = fs::read_to_string(&launch_json) else {
+        return false;
+    };
+    let Ok(launch_profile_json) = serde_json::from_str::<Value>(&raw_launch_json) else {
+        return false;
+    };
+
+    let vanilla_version = launch_profile_json
+        .get("inheritsFrom")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if plan.loader == "forge" || plan.loader == "neoforge" {
+                value
+                    .split_once('-')
+                    .map(|(prefix, _)| prefix)
+                    .unwrap_or(value)
+                    .to_string()
+            } else {
+                value.to_string()
+            }
+        })
+        .unwrap_or_default();
+
     if vanilla_version.is_empty() {
         return false;
     }
 
-    validate_loader_profile_json(Path::new(&plan.game_dir), &launch_version, &vanilla_version)
-        .is_ok()
+    validate_loader_profile_json(
+        Path::new(&plan.game_dir),
+        &launch_version,
+        &vanilla_version,
+        &plan.loader,
+    )
+    .is_ok()
 }
 
 async fn bootstrap_instance_runtime(
@@ -5090,7 +5200,7 @@ async fn bootstrap_instance_runtime(
             version,
             &loader,
         )?;
-        validate_loader_profile_json(&minecraft_root, &installed_profile_id, version)?;
+        validate_loader_profile_json(&minecraft_root, &installed_profile_id, version, &loader)?;
         if let Some(profile_json) = resolve_loader_profile_json(
             &minecraft_root,
             version,
@@ -5195,7 +5305,7 @@ async fn bootstrap_instance_runtime(
                 }),
             );
         }
-        validate_loader_profile_json(&minecraft_root, &persisted_profile_id, version)?;
+        validate_loader_profile_json(&minecraft_root, &persisted_profile_id, version, &loader)?;
         launch_version_name = persisted_profile_id;
         effective_version_json = merge_version_json(&effective_version_json, &profile);
         libraries = effective_version_json
