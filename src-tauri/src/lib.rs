@@ -8312,7 +8312,7 @@ async fn install_mod_file(
     }
 
     let target = mods_dir.join(&effective_name);
-    let instance = get_instance(&app, id)?;
+    let instance = read_instance_record(&app, id)?;
     let loader_name = instance
         .loader_name
         .as_deref()

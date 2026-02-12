@@ -5,6 +5,7 @@ use flate2::read::GzDecoder;
 use serde_json::Value;
 use tar::Archive;
 
+use crate::core::config::NetworkTuning;
 use crate::{download_with_retries, java_bin_name, launcher_root};
 
 const ADOPTIUM_RELEASES: &str = "https://api.adoptium.net/v3/assets/latest";
@@ -50,6 +51,7 @@ impl RuntimeManager {
                 .map_err(|error| format!("No se pudo crear carpeta de caché runtime: {error}"))?;
         }
 
+        let tuning = NetworkTuning::default();
         download_with_retries(
             &[package_url],
             &cache_path,
@@ -59,6 +61,8 @@ impl RuntimeManager {
                 .extension()
                 .and_then(|ext| ext.to_str())
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("zip")),
+            &tuning,
+            "runtime_download",
         )
         .await?;
 
