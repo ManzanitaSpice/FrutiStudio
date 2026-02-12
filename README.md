@@ -49,3 +49,8 @@ Guía operativa y plan de hardening para fallos de arranque de Minecraft (Fabric
 
 Documento operativo para implementar y reparar el flujo end-to-end (Vanilla/Fabric/Forge/NeoForge/Quilt + modpacks): `docs/prompt-maestro-backend-instances.md`.
 
+
+## Roadmap de innovación (diagnóstico, sandbox, nube, compatibilidad)
+
+Plan incremental para integrar funciones avanzadas sin romper flujos actuales: `docs/innovacion-launcher-roadmap.md`.
+
