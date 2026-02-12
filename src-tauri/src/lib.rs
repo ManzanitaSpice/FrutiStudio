@@ -9045,7 +9045,7 @@ async fn create_instance_shortcut(
 }
 
 pub fn run() {
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
     if let Err(error) = ensure_launcher_elevation() {
         panic!("{error}");
     }
