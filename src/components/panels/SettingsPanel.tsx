@@ -70,6 +70,7 @@ export const SettingsPanel = () => {
     y: number;
     card: string;
   } | null>(null);
+  const [activeTab, setActiveTab] = useState<"general" | "appearance" | "network">("general");
 
   useEffect(() => {
     const run = async () => {
@@ -119,11 +120,18 @@ export const SettingsPanel = () => {
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close();
+      }
+    };
     window.addEventListener("click", close);
     window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onEscape);
     return () => {
       window.removeEventListener("click", close);
       window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onEscape);
     };
   }, [contextMenu]);
 
@@ -209,6 +217,30 @@ export const SettingsPanel = () => {
   return (
     <section className="panel-view panel-view--settings">
       <div className="panel-view__body settings-layout">
+        <nav className="settings-tabs" aria-label="Pestañas de configuración">
+          <button
+            type="button"
+            className={activeTab === "general" ? "settings-tabs__button is-active" : "settings-tabs__button"}
+            onClick={() => setActiveTab("general")}
+          >
+            General
+          </button>
+          <button
+            type="button"
+            className={activeTab === "appearance" ? "settings-tabs__button is-active" : "settings-tabs__button"}
+            onClick={() => setActiveTab("appearance")}
+          >
+            Apariencia y Java
+          </button>
+          <button
+            type="button"
+            className={activeTab === "network" ? "settings-tabs__button is-active" : "settings-tabs__button"}
+            onClick={() => setActiveTab("network")}
+          >
+            Red y actualizaciones
+          </button>
+        </nav>
+        {activeTab === "general" ? (
         <section className="settings-section">
           <header className="settings-section__header">
             <h3>General</h3>
@@ -376,7 +408,9 @@ export const SettingsPanel = () => {
             </article>
           </div>
         </section>
+        ) : null}
 
+        {activeTab === "appearance" ? (
         <section className="settings-section">
           <header className="settings-section__header">
             <h3>Apariencia, Java y mods</h3>
@@ -662,7 +696,9 @@ export const SettingsPanel = () => {
             </article>
           </div>
         </section>
+        ) : null}
 
+        {activeTab === "network" ? (
         <section className="settings-section">
           <header className="settings-section__header">
             <h3>Red y actualizaciones</h3>
@@ -694,6 +730,7 @@ export const SettingsPanel = () => {
             </article>
           </div>
         </section>
+        ) : null}
       </div>
 
       {contextMenu ? (

@@ -5524,3 +5524,145 @@ button:hover,
     width: 100%;
   }
 }
+
+/* --- 2026 UX refresh --- */
+.topbar {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
+  box-shadow: none;
+  backdrop-filter: blur(8px);
+}
+
+.topbar__nav,
+.topbar__nav-controls,
+.topbar__search,
+.topbar__account-trigger {
+  background: color-mix(in srgb, var(--color-surface) 56%, transparent);
+  border-radius: 12px;
+}
+
+.topbar__button {
+  border-radius: 10px;
+  padding: 0.52em 0.88em;
+}
+
+.topbar__button--active {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  border-bottom-color: transparent;
+}
+
+button,
+input,
+select {
+  border-radius: 12px;
+}
+
+button {
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-surface-strong) 92%, white 8%),
+    color-mix(in srgb, var(--color-surface-strong) 96%, black 4%)
+  );
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 80%, white 20%);
+  outline-offset: 2px;
+}
+
+.topbar__search-suggestions button {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar__suggestion-icon img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+}
+
+.topbar__suggestion-content {
+  display: grid;
+  text-align: left;
+}
+
+.topbar__suggestion-content em {
+  font-size: 0.72rem;
+  color: var(--color-accent);
+  font-style: normal;
+}
+
+.topbar__suggestion-targets {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+}
+
+.instance-card__cover-logo,
+.instance-menu__image img,
+.explorer-item__icon:empty {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.instance-card__cover {
+  min-height: 118px;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 2px;
+}
+
+.settings-tabs__button {
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  box-shadow: none;
+}
+
+.settings-tabs__button.is-active {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 60%, var(--color-border));
+}
+
+.settings-card__actions button,
+.settings-card button {
+  border-radius: 999px;
+  padding-inline: 1.2rem;
+}
+
+.explorer-layout__cards {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-items: stretch;
+}
+
+.explorer-item--card {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+}
+
+.explorer-item--card .explorer-item__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+}
+
+.explorer-item__actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}

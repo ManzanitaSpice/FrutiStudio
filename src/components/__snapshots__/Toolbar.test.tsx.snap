@@ -12,20 +12,6 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
         class="topbar__utility-left"
       >
         <div
-          aria-label="Interface"
-          class="topbar__brand"
-        >
-          <span
-            aria-hidden="true"
-            class="topbar__brand-icon"
-          />
-          <span
-            class="topbar__brand-name"
-          >
-            Interface
-          </span>
-        </div>
-        <div
           aria-label="Historial"
           class="topbar__nav-controls"
           role="group"
@@ -45,6 +31,21 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
             →
           </button>
         </div>
+      </div>
+      <div
+        aria-label="Marca Interface"
+        class="topbar__brand"
+      >
+        <span
+          aria-hidden="true"
+          class="topbar__brand-logo"
+        />
+        <h1
+          aria-label="Interface"
+          class="topbar__title"
+        >
+          Interface
+        </h1>
       </div>
     </div>
     <div

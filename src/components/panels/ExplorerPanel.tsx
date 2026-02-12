@@ -193,6 +193,28 @@ export const ExplorerPanel = ({
   };
 
   useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (contextMenu) {
+        setContextMenu(null);
+        return;
+      }
+      if (installState) {
+        setInstallState(null);
+        return;
+      }
+      if (selectedItem) {
+        setSelectedItem(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [contextMenu, installState, selectedItem]);
+
+  useEffect(() => {
     if (!contextMenu) {
       return;
     }
@@ -376,7 +398,11 @@ export const ExplorerPanel = ({
                             alt={item.name}
                           />
                         ) : (
-                          <div className="explorer-item__icon" />
+                          <img
+                            className="explorer-item__icon explorer-item__icon--fallback"
+                            src="/tauri.svg"
+                            alt="Logo Interface"
+                          />
                         )}
                         <div className="explorer-item__info">
                           <h4>{item.name}</h4>
