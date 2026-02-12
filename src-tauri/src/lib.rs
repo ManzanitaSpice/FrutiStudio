@@ -3667,11 +3667,21 @@ fn classpath_has_loader_runtime(loader: &str, entries: &[String]) -> bool {
     match loader {
         "fabric" => classpath_contains_loader_artifact(entries, "fabric-loader"),
         "quilt" => classpath_contains_loader_artifact(entries, "quilt-loader"),
-        "forge" | "neoforge" => {
-            classpath_contains_loader_artifact(entries, "bootstraplauncher")
+        "forge" => {
+            let modern_runtime = classpath_contains_loader_artifact(entries, "bootstraplauncher")
                 && (classpath_contains_loader_artifact(entries, "fmlloader")
-                    || classpath_contains_loader_artifact(entries, "net/minecraftforge/forge")
-                    || classpath_contains_loader_artifact(entries, "net/neoforged/neoforge"))
+                    || classpath_contains_loader_artifact(entries, "net/minecraftforge/forge"));
+
+            let legacy_runtime = classpath_contains_loader_artifact(entries, "launchwrapper")
+                && (classpath_contains_loader_artifact(entries, "net/minecraftforge/forge")
+                    || classpath_contains_loader_artifact(entries, "minecraftforge/fml"));
+
+            modern_runtime || legacy_runtime
+        }
+        "neoforge" => {
+            classpath_contains_loader_artifact(entries, "bootstraplauncher")
+                && (classpath_contains_loader_artifact(entries, "net/neoforged/neoforge")
+                    || classpath_contains_loader_artifact(entries, "net/neoforged/fml"))
         }
         _ => true,
     }
@@ -8791,6 +8801,15 @@ mod tests {
         let entries = vec![
             r"C:\libs\cpw\mods\bootstraplauncher\1.1.2\bootstraplauncher-1.1.2.jar".to_string(),
             r"C:\libs\net\minecraftforge\fmlloader\1.20.1-47.3.0\fmlloader.jar".to_string(),
+        ];
+
+        assert!(classpath_has_loader_runtime("forge", &entries));
+    }
+    #[test]
+    fn classpath_loader_detection_accepts_legacy_forge_runtime() {
+        let entries = vec![
+            "/home/user/.minecraft/libraries/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860.jar".to_string(),
         ];
 
         assert!(classpath_has_loader_runtime("forge", &entries));
