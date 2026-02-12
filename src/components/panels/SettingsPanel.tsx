@@ -4,7 +4,11 @@ import { useUI } from "../../hooks/useUI";
 import { useBaseDir } from "../../hooks/useBaseDir";
 import { useI18n } from "../../i18n/useI18n";
 import { loadConfig, saveConfig, type AppConfig } from "../../services/configService";
-import { fontFamilyMap, type FontFamilyOption } from "../../config/fontFamilies";
+import {
+  fontFamilyMap,
+  normalizeFontFamily,
+  type FontFamilyOption,
+} from "../../config/fontFamilies";
 import { detectJavaProfiles } from "../../services/javaConfig";
 import type { JavaProfile } from "../../types/models";
 import { SelectFolderButton } from "../SelectFolderButton";
@@ -86,7 +90,7 @@ export const SettingsPanel = () => {
       setJavaMode(config.javaMode ?? "embedded");
       setMinecraftRoot(config.minecraftRoot ?? "");
       setSkinsPath(config.skinsPath ?? "skins");
-      setFontFamily(config.fontFamily ?? "inter");
+      setFontFamily(normalizeFontFamily(config.fontFamily));
       setPterodactylUrl(config.pterodactylUrl ?? "");
       setPterodactylApiKey(config.pterodactylApiKey ?? "");
       if (config.customTheme) {
@@ -109,6 +113,7 @@ export const SettingsPanel = () => {
       "--app-font-family",
       fontFamilyMap[fontFamily],
     );
+    void document.fonts.load(`1rem ${fontFamilyMap[fontFamily]}`).catch(() => undefined);
   }, [fontFamily]);
 
   useEffect(() => {
@@ -426,6 +431,7 @@ export const SettingsPanel = () => {
                   <option value="poppins">Poppins</option>
                   <option value="fira">Fira Sans</option>
                   <option value="jetbrains">JetBrains Mono</option>
+                  <option value="rajdhani">Rajdhani</option>
                 </select>
               </label>
 

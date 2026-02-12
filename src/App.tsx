@@ -13,7 +13,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { useUI } from "./hooks/useUI";
 import { featureFlags } from "./config/featureFlags";
-import { fontFamilyMap } from "./config/fontFamilies";
+import { fontFamilyMap, normalizeFontFamily } from "./config/fontFamilies";
 import {
   fetchInstances,
   updateInstance as persistInstanceUpdate,
@@ -208,9 +208,10 @@ const AppShell = () => {
           setSection((normalizedSection ?? "inicio") as Parameters<typeof setSection>[0]);
         }
         if (config.fontFamily) {
+          const safeFont = normalizeFontFamily(config.fontFamily);
           document.documentElement.style.setProperty(
             "--app-font-family",
-            fontFamilyMap[config.fontFamily],
+            fontFamilyMap[safeFont],
           );
         }
         if (typeof config.focusMode === "boolean") {
