@@ -2743,7 +2743,7 @@ async fn install_forge_like_loader(
     let required_java_major = JavaManager::required_major_for_minecraft(minecraft_version);
     let runtimes = manager.detect_installed();
     let runtime_manager = RuntimeManager::new(app)?;
-    let java_bin = runtimes
+    let java_bin = if let Some(runtime_path) = runtimes
         .iter()
         .find(|runtime| runtime.major == required_java_major)
         .or_else(|| {
@@ -2752,23 +2752,24 @@ async fn install_forge_like_loader(
                 .find(|runtime| runtime.major > required_java_major)
         })
         .map(|runtime| runtime.path.clone())
-        .or_else(|| {
-            runtime_manager
-                .ensure_runtime_for_java_major(required_java_major)
-                .await
-                .ok()
-                .map(|path| path.to_string_lossy().to_string())
-        })
-        .ok_or_else(|| {
-            let loader_name = if loader == "neoforge" {
-                "NeoForge"
-            } else {
-                "Forge"
-            };
-            format!(
-                "No se encontró Java compatible para instalar {loader_name} (requerido Java {required_java_major})."
-            )
-        })?;
+    {
+        runtime_path
+    } else {
+        runtime_manager
+            .ensure_runtime_for_java_major(required_java_major)
+            .await
+            .map(|path| path.to_string_lossy().to_string())
+            .map_err(|_| {
+                let loader_name = if loader == "neoforge" {
+                    "NeoForge"
+                } else {
+                    "Forge"
+                };
+                format!(
+                    "No se encontró Java compatible para instalar {loader_name} (requerido Java {required_java_major})."
+                )
+            })?
+    };
 
     let install_flag = if loader == "neoforge" {
         "--install-client"
