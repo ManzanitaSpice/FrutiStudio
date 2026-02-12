@@ -3920,24 +3920,47 @@ fn detect_mod_loader_kind(mod_jar: &Path) -> ModLoaderKind {
 }
 
 fn parse_quilt_dependencies(value: &Value) -> Vec<String> {
-    value
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|entry| {
-            entry
-                .get("id")
-                .and_then(Value::as_str)
-                .map(|dep| dep.trim().to_string())
-        })
-        .filter(|dep| !dep.is_empty())
-        .collect()
+    let mut dependencies = Vec::new();
+
+    let mut push_dep = |candidate: &str| {
+        let dep = candidate.trim();
+        if !dep.is_empty() {
+            dependencies.push(dep.to_string());
+        }
+    };
+
+    if let Some(entries) = value.as_array() {
+        for entry in entries {
+            if let Some(dep) = entry.as_str() {
+                push_dep(dep);
+            } else if let Some(dep) = entry.get("id").and_then(Value::as_str) {
+                push_dep(dep);
+            }
+        }
+    } else if let Some(entries) = value.as_object() {
+        for (dep, _) in entries {
+            push_dep(dep);
+        }
+    }
+
+    dependencies
 }
 
 fn parse_forge_dependencies_from_toml(raw: &str) -> Vec<String> {
     let mut dependencies = Vec::new();
-    let mut in_dependencies_section = false;
+    let mut current_mod_id: Option<String> = None;
+    let mut current_is_mandatory = true;
+
+    let mut flush_dependency = |mod_id: &mut Option<String>, mandatory: bool| {
+        if mandatory {
+            if let Some(dep) = mod_id.take() {
+                if !dep.trim().is_empty() {
+                    dependencies.push(dep);
+                }
+            }
+        }
+        *mod_id = None;
+    };
 
     for line in raw.lines() {
         let trimmed = line.trim();
@@ -3946,24 +3969,26 @@ fn parse_forge_dependencies_from_toml(raw: &str) -> Vec<String> {
         }
 
         if trimmed.starts_with("[[") && trimmed.ends_with("]]") {
-            in_dependencies_section = trimmed.contains("dependencies");
-            continue;
-        }
-
-        if !in_dependencies_section {
+            flush_dependency(&mut current_mod_id, current_is_mandatory);
+            current_is_mandatory = true;
+            if !trimmed.contains("dependencies") {
+                continue;
+            }
             continue;
         }
 
         if let Some((key, value)) = trimmed.split_once('=') {
-            if key.trim() != "modId" {
-                continue;
-            }
-            let dep = value.trim().trim_matches('"').trim_matches('\'').trim();
-            if !dep.is_empty() {
-                dependencies.push(dep.to_string());
+            let key = key.trim();
+            let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+            if key == "modId" {
+                current_mod_id = Some(value.to_string());
+            } else if key == "mandatory" {
+                current_is_mandatory = !value.eq_ignore_ascii_case("false");
             }
         }
     }
+
+    flush_dependency(&mut current_mod_id, current_is_mandatory);
 
     dependencies
 }
@@ -4839,7 +4864,7 @@ async fn bootstrap_instance_runtime(
 
     let mut effective_version_json = base_version_json.clone();
     if let Some(detected_loader) = detect_loader_from_version_json(&effective_version_json) {
-        if loader != detected_loader {
+        if detected_loader != "vanilla" && loader != detected_loader {
             write_instance_state(
                 instance_root,
                 "loader_detected_from_version_json",
@@ -7921,9 +7946,6 @@ pub fn run() {
             curseforge_v1_get
         ])
         .setup(|app| {
-            if let Err(error) = ensure_persistent_admin_mode(app.handle()) {
-                eprintln!("No se pudo activar modo admin persistente: {error}");
-            }
             if let Err(error) = init_database(app.handle()) {
                 eprintln!("Error al inicializar la base de datos: {error}");
             }
@@ -8841,6 +8863,45 @@ modId = "cloth_config"
         assert_eq!(
             parse_forge_dependencies_from_toml(toml),
             vec!["forge".to_string(), "cloth_config".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_forge_toml_ignores_optional_dependencies() {
+        let toml = r#"
+[[dependencies.examplemod]]
+modId="jei"
+mandatory=false
+
+[[dependencies.examplemod]]
+modId="architectury"
+mandatory=true
+"#;
+
+        assert_eq!(
+            parse_forge_dependencies_from_toml(toml),
+            vec!["architectury".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_quilt_dependencies_supports_objects_and_map_forms() {
+        let as_array = serde_json::json!([
+            {"id": "fabric-api"},
+            "modmenu"
+        ]);
+        let as_map = serde_json::json!({
+            "qsl": "*",
+            "owo": ">=0.11"
+        });
+
+        assert_eq!(
+            parse_quilt_dependencies(&as_array),
+            vec!["fabric-api".to_string(), "modmenu".to_string()]
+        );
+        assert_eq!(
+            parse_quilt_dependencies(&as_map),
+            vec!["qsl".to_string(), "owo".to_string()]
         );
     }
 
