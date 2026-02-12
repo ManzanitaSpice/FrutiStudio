@@ -177,10 +177,6 @@ export const Toolbar = ({
     <header className="topbar">
       <div className="topbar__row topbar__row--utility">
         <div className="topbar__utility-left">
-          <div className="topbar__brand" aria-label="Interface">
-            <span className="topbar__brand-icon" aria-hidden="true" />
-            <span className="topbar__brand-name">Interface</span>
-          </div>
           <div className="topbar__nav-controls" role="group" aria-label="Historial">
             <button
               type="button"
@@ -200,6 +196,7 @@ export const Toolbar = ({
             </button>
           </div>
         </div>
+        <h1 className="topbar__title" aria-label="Interface">Interface</h1>
       </div>
       {!isFocusMode && (
         <div className="topbar__row topbar__row--main">
