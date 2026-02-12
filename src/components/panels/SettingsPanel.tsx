@@ -208,12 +208,6 @@ export const SettingsPanel = () => {
 
   return (
     <section className="panel-view panel-view--settings">
-      <div className="panel-view__header">
-        <div>
-          <h2>Configuración</h2>
-        </div>
-      </div>
-
       <div className="panel-view__body settings-layout">
         <section className="settings-section">
           <header className="settings-section__header">
@@ -370,7 +364,9 @@ export const SettingsPanel = () => {
               </label>
               <div className="settings-card__actions">
                 <button type="button" onClick={() => void handleFactoryReset()}>
-                  {isFactoryResetting ? "Reinstalando..." : "Reinstalar Interface desde 0"}
+                  {isFactoryResetting
+                    ? "Reinstalando..."
+                    : "Reinstalar Interface desde 0"}
                 </button>
               </div>
               <small>

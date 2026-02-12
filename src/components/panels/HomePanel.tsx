@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { SectionKey } from "../Toolbar";
 
@@ -24,9 +24,18 @@ const buildInitialGlyphs = () =>
 
 export const HomePanel = ({ onSelectSection: _onSelectSection }: HomePanelProps) => {
   const [glyphs, setGlyphs] = useState<HeroGlyph[]>(() => buildInitialGlyphs());
+  const [animationFinished, setAnimationFinished] = useState(false);
+  const intervalsRef = useRef<number[]>([]);
 
-  useEffect(() => {
-    const intervals: number[] = [];
+  const clearAnimationIntervals = useCallback(() => {
+    intervalsRef.current.forEach((interval) => window.clearInterval(interval));
+    intervalsRef.current = [];
+  }, []);
+
+  const runFlapAnimation = useCallback(() => {
+    clearAnimationIntervals();
+    setAnimationFinished(false);
+    setGlyphs(buildInitialGlyphs());
 
     targetTitle.split("").forEach((char, index) => {
       if (char === " ") {
@@ -34,7 +43,7 @@ export const HomePanel = ({ onSelectSection: _onSelectSection }: HomePanelProps)
       }
 
       let ticks = 0;
-      const settleAfter = 8 + index * 2;
+      const settleAfter = 12 + index * 3;
       const interval = window.setInterval(() => {
         ticks += 1;
         setGlyphs((prev) =>
@@ -55,22 +64,37 @@ export const HomePanel = ({ onSelectSection: _onSelectSection }: HomePanelProps)
 
         if (ticks >= settleAfter) {
           window.clearInterval(interval);
+          intervalsRef.current = intervalsRef.current.filter((item) => item !== interval);
+          if (index === targetTitle.length - 1) {
+            setAnimationFinished(true);
+          }
         }
-      }, 62);
+      }, 82);
 
-      intervals.push(interval);
+      intervalsRef.current.push(interval);
     });
+  }, [clearAnimationIntervals]);
+
+  useEffect(() => {
+    runFlapAnimation();
 
     return () => {
-      intervals.forEach((interval) => window.clearInterval(interval));
+      clearAnimationIntervals();
     };
-  }, []);
-
+  }, [clearAnimationIntervals, runFlapAnimation]);
 
   return (
     <section className="panel-view home-panel">
       <div className="home-panel__hero">
-        <div className="home-panel__flap" aria-label="Interface">
+        <div
+          className={
+            animationFinished
+              ? "home-panel__flap is-animation-finished"
+              : "home-panel__flap"
+          }
+          aria-label="Interface"
+          onMouseEnter={runFlapAnimation}
+        >
           {glyphs.map((glyph) => (
             <span
               key={glyph.id}

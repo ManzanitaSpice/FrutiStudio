@@ -4901,7 +4901,9 @@ button {
   min-height: clamp(360px, 76vh, 700px);
   background: var(--color-surface-strong) !important;
   border: 1px solid var(--color-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 44px rgba(0, 0, 0, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 44px rgba(0, 0, 0, 0.45);
 }
 
 .home-panel__kicker {
@@ -4918,19 +4920,22 @@ button {
   border: 1px solid var(--color-border);
   color: var(--color-text);
   border-radius: 0;
-  box-shadow: inset 0 -12px 0 rgba(0, 0, 0, 0.22), 0 10px 20px rgba(0, 0, 0, 0.32);
+  box-shadow:
+    inset 0 -12px 0 rgba(0, 0, 0, 0.22),
+    0 10px 20px rgba(0, 0, 0, 0.32);
 }
 
 .home-panel__flap-cell.is-settled {
   color: #ffffff;
   border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
-  box-shadow: inset 0 -12px 0 rgba(0, 0, 0, 0.26), 0 12px 22px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    inset 0 -12px 0 rgba(0, 0, 0, 0.26),
+    0 12px 22px rgba(0, 0, 0, 0.4);
 }
 
 .home-panel__menu {
   display: none !important;
 }
-
 
 /* 2026 visual hardening: solid colors, deep dark, elegant professional menu */
 :root {
@@ -5001,7 +5006,11 @@ button {
 .topbar__button:hover,
 .topbar__button--active {
   color: var(--color-accent) !important;
-  background: color-mix(in srgb, var(--color-accent) 16%, var(--color-surface)) !important;
+  background: color-mix(
+    in srgb,
+    var(--color-accent) 16%,
+    var(--color-surface)
+  ) !important;
   border-color: var(--color-border) !important;
 }
 
@@ -5282,4 +5291,38 @@ button,
     grid-column: 1 / -1;
     justify-content: flex-start;
   }
+}
+
+/* Tunning launcher UX: faster boot, slimmer Interface title, richer flap board animation */
+.topbar__title {
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  transform: scaleX(1.08);
+  transform-origin: center;
+}
+
+.home-panel__flap-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.home-panel__flap-cell::after {
+  content: "";
+  position: absolute;
+  inset: 18% 10% 14%;
+  border-radius: 2px;
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--color-accent) 30%, transparent) 0%,
+    transparent 72%
+  );
+  opacity: 0;
+  filter: blur(8px);
+  transition: opacity 260ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.home-panel__flap.is-animation-finished .home-panel__flap-cell.is-settled::after {
+  opacity: 0.42;
 }

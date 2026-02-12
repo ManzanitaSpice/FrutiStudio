@@ -31,7 +31,10 @@ interface ExplorerPanelProps {
   externalQueryToken?: number;
 }
 
-export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPanelProps) => {
+export const ExplorerPanel = ({
+  externalQuery,
+  externalQueryToken,
+}: ExplorerPanelProps) => {
   const [filters, setFilters] = useState<ExplorerFilters>({
     category: "Modpacks",
     sort: "popular",
@@ -50,9 +53,16 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
   const [selectedItem, setSelectedItem] = useState<ExplorerItem | null>(null);
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
-  const [installState, setInstallState] = useState<{ item: ExplorerItem; version?: ExplorerItemFileVersion } | null>(null);
+  const [installState, setInstallState] = useState<{
+    item: ExplorerItem;
+    version?: ExplorerItemFileVersion;
+  } | null>(null);
   const [minecraftVersions, setMinecraftVersions] = useState<string[]>([""]);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: ExplorerItem } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: ExplorerItem;
+  } | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -195,7 +205,10 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
     };
   }, [contextMenu]);
 
-  const handleItemContextMenu = (event: ReactMouseEvent<HTMLElement>, item: ExplorerItem) => {
+  const handleItemContextMenu = (
+    event: ReactMouseEvent<HTMLElement>,
+    item: ExplorerItem,
+  ) => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, item });
   };
@@ -225,21 +238,28 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
     filters.sort,
   ]);
 
-
   return (
     <section className="panel-view panel-view--explorer">
-      <div className="panel-view__header">
-        <div>
-          <h2>Explorar</h2>
-        </div>
-      </div>
-
       <div className="explorer-layout">
         <aside className="explorer-layout__sidebar">
           <div className="explorer-layout__filters">
             <div className="explorer-layout__filters-header">
               <h4>Filtro avanzado</h4>
-              <button type="button" onClick={() => setFilters({ category: "Modpacks", sort: "popular", platform: "all", query: "", gameVersion: "", loader: "", page: 0, pageSize: 16 })}>
+              <button
+                type="button"
+                onClick={() =>
+                  setFilters({
+                    category: "Modpacks",
+                    sort: "popular",
+                    platform: "all",
+                    query: "",
+                    gameVersion: "",
+                    loader: "",
+                    page: 0,
+                    pageSize: 16,
+                  })
+                }
+              >
                 Restablecer
               </button>
             </div>
@@ -407,13 +427,29 @@ export const ExplorerPanel = ({ externalQuery, externalQueryToken }: ExplorerPan
         </div>
       </div>
 
-
       {contextMenu ? (
-        <div className="section-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+        <div
+          className="section-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
           <span className="section-context-menu__title">{contextMenu.item.name}</span>
-          <button type="button" onClick={() => setSelectedItem(contextMenu.item)}>Ver más</button>
-          <button type="button" onClick={() => setInstallState({ item: contextMenu.item })}>Instalar</button>
-          <button type="button" onClick={() => navigator.clipboard.writeText(contextMenu.item.url ?? contextMenu.item.name)}>Copiar enlace/nombre</button>
+          <button type="button" onClick={() => setSelectedItem(contextMenu.item)}>
+            Ver más
+          </button>
+          <button
+            type="button"
+            onClick={() => setInstallState({ item: contextMenu.item })}
+          >
+            Instalar
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              navigator.clipboard.writeText(contextMenu.item.url ?? contextMenu.item.name)
+            }
+          >
+            Copiar enlace/nombre
+          </button>
         </div>
       ) : null}
 
