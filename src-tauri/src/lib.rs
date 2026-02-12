@@ -4300,23 +4300,45 @@ fn remove_partial_files(root: &Path) -> Result<u64, String> {
     let mut cleaned = 0_u64;
     let mut stack = vec![root.to_path_buf()];
     while let Some(current) = stack.pop() {
-        let entries = fs::read_dir(&current)
-            .map_err(|error| format!("No se pudo inspeccionar {}: {error}", current.display()))?;
+        let entries = match fs::read_dir(&current) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                continue;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "No se pudo inspeccionar {}: {error}",
+                    current.display()
+                ));
+            }
+        };
 
         for entry in entries {
-            let entry = entry.map_err(|error| {
-                format!(
-                    "No se pudo leer un elemento dentro de {}: {error}",
-                    current.display()
-                )
-            })?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "No se pudo leer un elemento dentro de {}: {error}",
+                        current.display()
+                    ));
+                }
+            };
             let path = entry.path();
-            let file_type = entry.file_type().map_err(|error| {
-                format!(
-                    "No se pudo leer tipo de archivo {}: {error}",
-                    path.display()
-                )
-            })?;
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "No se pudo leer tipo de archivo {}: {error}",
+                        path.display()
+                    ));
+                }
+            };
 
             if file_type.is_dir() {
                 stack.push(path);
