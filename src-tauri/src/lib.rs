@@ -9251,7 +9251,7 @@ mod tests {
         );
         assert_eq!(
             forge_profile.get("mainClass").and_then(Value::as_str),
-            Some("cpw.mods.modlauncher.Launcher")
+            Some("cpw.mods.bootstraplauncher.BootstrapLauncher")
         );
 
         let mut neoforge_profile = serde_json::json!({
@@ -9274,7 +9274,7 @@ mod tests {
         );
         assert_eq!(
             neoforge_profile.get("mainClass").and_then(Value::as_str),
-            Some("net.neoforged.fml.loading.targets.ClientLaunchHandler")
+            Some("cpw.mods.bootstraplauncher.BootstrapLauncher")
         );
     }
 
