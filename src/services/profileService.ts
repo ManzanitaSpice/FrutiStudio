@@ -1,7 +1,7 @@
 import { loadAccountStore } from "./accountService";
 
-const PROFILES_STORE_KEY = "frutilauncher.profiles.v1";
-const PROFILES_EVENT = "fruti:profiles-updated";
+const PROFILES_STORE_KEY = "interface.profiles.v1";
+const PROFILES_EVENT = "interface:profiles-updated";
 
 export interface LauncherProfile {
   id: string;

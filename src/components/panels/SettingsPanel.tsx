@@ -189,7 +189,7 @@ export const SettingsPanel = () => {
       const result = await launcherFactoryReset(factoryResetPhrase);
       const removed = [...result.clearedRoots, ...result.removedEntries].length;
       window.alert(
-        `Reinstalación completada. Se limpiaron ${removed} rutas. El launcher se recargará para iniciar desde cero.`,
+        `Reinstalación completada. Se limpiaron ${removed} rutas. El Interface se recargará para iniciar desde cero.`,
       );
       window.location.reload();
     } catch (error) {
@@ -356,7 +356,7 @@ export const SettingsPanel = () => {
               <div className="settings-card__header">
                 <h3>Reinstalación completa (desde 0)</h3>
                 <p>
-                  Limpia carpeta del launcher, instancias y datos locales para recuperar
+                  Limpia carpeta de Interface, instancias y datos locales para recuperar
                   un estado limpio ante corrupción de archivos o configuraciones dañadas.
                 </p>
               </div>
@@ -370,7 +370,7 @@ export const SettingsPanel = () => {
               </label>
               <div className="settings-card__actions">
                 <button type="button" onClick={() => void handleFactoryReset()}>
-                  {isFactoryResetting ? "Reinstalando..." : "Reinstalar launcher desde 0"}
+                  {isFactoryResetting ? "Reinstalando..." : "Reinstalar Interface desde 0"}
                 </button>
               </div>
               <small>
@@ -505,7 +505,7 @@ export const SettingsPanel = () => {
                   }}
                 >
                   <option value="auto">Auto (detectar/selección automática)</option>
-                  <option value="embedded">Embebido del launcher</option>
+                  <option value="embedded">Embebido de Interface</option>
                   <option value="manual">Manual</option>
                 </select>
               </label>
@@ -720,7 +720,7 @@ export const SettingsPanel = () => {
           <button
             type="button"
             onClick={() =>
-              navigator.clipboard.writeText(`fruti://settings/${contextMenu.card}`)
+              navigator.clipboard.writeText(`interface://settings/${contextMenu.card}`)
             }
           >
             Copiar deep-link

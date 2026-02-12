@@ -1,6 +1,6 @@
 import type { LauncherAccount } from "../types/account";
 
-const SKIN_CACHE_KEY = "frutilauncher.skinCache.v1";
+const SKIN_CACHE_KEY = "interface.skinCache.v1";
 const MAX_CACHE_ITEMS = 80;
 
 interface CachedSkinRecord {

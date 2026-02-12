@@ -1158,7 +1158,7 @@ export const InstancePanel = ({
     const javaPath = selectedConfig.javaExecutable.trim();
     if (!selectedConfig.javaOverrideEnabled || javaPath.length === 0) {
       setJavaAdvisorNotes((prev) => [
-        "Sin override activo: se usará Java embebido del launcher y la configuración es válida.",
+        "Sin override activo: se usará Java embebido de Interface y la configuración es válida.",
         ...prev,
       ]);
       return;
@@ -2286,7 +2286,7 @@ export const InstancePanel = ({
                       updateSelectedConfig("hideLauncherOnGameOpen", event.target.checked)
                     }
                   />{" "}
-                  Ocultar launcher al abrir Minecraft
+                  Ocultar Interface al abrir Minecraft
                 </label>
                 <label>
                   <input
@@ -2299,7 +2299,7 @@ export const InstancePanel = ({
                       )
                     }
                   />{" "}
-                  Cerrar launcher al salir del juego
+                  Cerrar Interface al salir del juego
                 </label>
               </article>
               <article className="instance-config__card">
@@ -2922,7 +2922,7 @@ export const InstancePanel = ({
               }
             >
               <option value="auto">Auto (detectar instalado)</option>
-              <option value="embedded">Embebido del launcher</option>
+              <option value="embedded">Embebido de Interface</option>
               <option value="manual">Manual</option>
             </select>
           </div>
