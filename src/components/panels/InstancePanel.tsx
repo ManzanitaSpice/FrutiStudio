@@ -232,7 +232,7 @@ export const InstancePanel = ({
   const [instanceVersion, setInstanceVersion] = useState("");
   const [instanceLoader, setInstanceLoader] = useState("Vanilla");
   const [instanceLoaderVersion, setInstanceLoaderVersion] = useState("");
-  const [creatorJavaMode, setCreatorJavaMode] = useState<"auto" | "embedded" | "manual">("auto");
+  const [creatorJavaMode, setCreatorJavaMode] = useState<"auto" | "embedded" | "manual">("embedded");
   const [creatorJavaPath, setCreatorJavaPath] = useState("");
   const [versionFilters, setVersionFilters] = useState({
     release: true,
@@ -989,8 +989,8 @@ export const InstancePanel = ({
     updateSelectedConfig("javaOverrideEnabled", false);
     updateSelectedConfig("javaExecutable", "");
     setJavaAdvisorNotes((prev) => [
-      "Se activó la detección automática: FrutiLauncher elegirá el Java más compatible al iniciar.",
-      ...prev.filter((note) => !note.includes("detección automática")),
+      "Se activó el modo automático: FrutiLauncher detectará Java instalado y elegirá el más compatible al iniciar.",
+      ...prev.filter((note) => !note.includes("modo automático")),
     ]);
   };
 
@@ -1029,7 +1029,7 @@ export const InstancePanel = ({
     const javaPath = selectedConfig.javaExecutable.trim();
     if (!selectedConfig.javaOverrideEnabled || javaPath.length === 0) {
       setJavaAdvisorNotes((prev) => [
-        "Sin override activo: se usará Java automático y la configuración es válida.",
+        "Sin override activo: se usará Java embebido del launcher y la configuración es válida.",
         ...prev,
       ]);
       return;
@@ -2466,7 +2466,7 @@ export const InstancePanel = ({
                       memory: editorMemory.trim() || "4 GB",
                       javaMode: selectedConfig.javaOverrideEnabled
                         ? "manual"
-                        : "auto",
+                        : "embedded",
                       javaPath: selectedConfig.javaOverrideEnabled
                         ? selectedConfig.javaExecutable.trim()
                         : "",
