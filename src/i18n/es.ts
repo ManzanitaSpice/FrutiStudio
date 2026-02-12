@@ -1,5 +1,5 @@
 export const esMessages = {
-  appTitle: "Fruti Launcher",
+  appTitle: "Interface",
   sections: {
     home: "Menú",
     modpacks: "Mis modpacks",
@@ -15,7 +15,7 @@ export const esMessages = {
   },
   baseDir: {
     title: "Carpeta base",
-    placeholder: "Selecciona la carpeta base de Fruti Launcher",
+    placeholder: "Selecciona la carpeta base de Interface",
     statusIdle: "Esperando selección de carpeta base.",
     statusLoading: "Validando carpeta base…",
     statusValid: "Carpeta base válida.",

@@ -1118,7 +1118,7 @@ export const InstancePanel = ({
     updateSelectedConfig("javaOverrideEnabled", false);
     updateSelectedConfig("javaExecutable", "");
     setJavaAdvisorNotes((prev) => [
-      "Se activó el modo automático: FrutiLauncher detectará Java instalado y elegirá el más compatible al iniciar.",
+      "Se activó el modo automático: Interface detectará Java instalado y elegirá el más compatible al iniciar.",
       ...prev.filter((note) => !note.includes("modo automático")),
     ]);
   };
@@ -3373,7 +3373,7 @@ export const InstancePanel = ({
               <div className="instance-menu__header">
                 <div className="instance-menu__image" />
                 <div>
-                  <span className="instance-menu__launcher">{selectedInstance.sourceLauncher ? `Importada · ${selectedInstance.sourceLauncher}` : "FrutiLauncher"}</span>
+                  <span className="instance-menu__launcher">{selectedInstance.sourceLauncher ? `Importada · ${selectedInstance.sourceLauncher}` : "Interface"}</span>
                   <h3>{selectedInstance.name}</h3>
                   <p>Minecraft {selectedInstance.version}</p>
                   <span className="instance-menu__playtime">

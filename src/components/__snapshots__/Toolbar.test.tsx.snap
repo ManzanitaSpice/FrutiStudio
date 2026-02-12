@@ -12,7 +12,7 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
         class="topbar__utility-left"
       >
         <div
-          aria-label="FrutiLauncher"
+          aria-label="Interface"
           class="topbar__brand"
         >
           <span
@@ -22,7 +22,7 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
           <span
             class="topbar__brand-name"
           >
-            FrutiLauncher
+            Interface
           </span>
         </div>
         <div

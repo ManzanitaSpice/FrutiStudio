@@ -35,7 +35,7 @@ const initialState: UIState = {
   activeSection: "inicio",
   uiScale: 1,
   isFocusMode: false,
-  theme: "default",
+  theme: "dark",
   history: ["inicio"],
   historyIndex: 0,
 };

@@ -69,7 +69,7 @@ const fetchLegacyPacks = async () => {
 export const fetchATLauncherPacks = async () => {
   try {
     const response = await requestAtlauncherGraphql<ATLauncherGraphqlResponse>(
-      `query FrutiLauncherPacks { packs { id name description versions { id } } }`,
+      `query InterfacePacks { packs { id name description versions { id } } }`,
     );
 
     if (response.errors && response.errors.length > 0) {
@@ -91,7 +91,7 @@ export const fetchATLauncherPacks = async () => {
 export const fetchATLauncherPackDetails = async (packId: number) => {
   try {
     const response = await requestAtlauncherGraphql<ATLauncherGraphqlResponse>(
-      `query FrutiLauncherPack($id: Int!) { pack(id: $id) { id name description versions { id } } }`,
+      `query InterfacePack($id: Int!) { pack(id: $id) { id name description versions { id } } }`,
       { id: packId },
     );
 

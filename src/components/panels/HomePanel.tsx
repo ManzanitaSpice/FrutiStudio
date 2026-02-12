@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { SectionKey } from "../Toolbar";
 
-const targetTitle = "FRUTI LAUNCHER";
+const targetTitle = "INTERFACE";
 const flapGlyphs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 interface HomePanelProps {
@@ -22,7 +22,7 @@ const buildInitialGlyphs = () =>
     settled: char === " ",
   }));
 
-export const HomePanel = ({ onSelectSection }: HomePanelProps) => {
+export const HomePanel = ({ onSelectSection: _onSelectSection }: HomePanelProps) => {
   const [glyphs, setGlyphs] = useState<HeroGlyph[]>(() => buildInitialGlyphs());
 
   useEffect(() => {
@@ -66,48 +66,12 @@ export const HomePanel = ({ onSelectSection }: HomePanelProps) => {
     };
   }, []);
 
-  const menuCards = useMemo(
-    () =>
-      [
-        {
-          key: "mis-modpacks",
-          title: "Instancias / Mis modpacks",
-          text: "Crea, organiza y lanza tus perfiles con un clic.",
-        },
-        {
-          key: "features",
-          title: "Features",
-          text: "Novedades del launcher, mejoras y cambios recientes.",
-        },
-        {
-          key: "explorador",
-          title: "Explorador",
-          text: "Descubre mods, modpacks, recursos y contenido útil.",
-        },
-        {
-          key: "servers",
-          title: "Servidores",
-          text: "Conexión rápida, estado y acceso directo a tus servidores.",
-        },
-        {
-          key: "comunidad",
-          title: "Comunidad",
-          text: "Guías, actividad y contenido compartido por jugadores.",
-        },
-        {
-          key: "configuracion",
-          title: "Configuración",
-          text: "Ajusta tema, fuente, rendimiento y comportamiento general.",
-        },
-      ] as Array<{ key: SectionKey; title: string; text: string }>,
-    [],
-  );
 
   return (
     <section className="panel-view home-panel">
       <div className="home-panel__hero">
         <p className="home-panel__kicker">Menú principal</p>
-        <div className="home-panel__flap" aria-label="Fruti Launcher">
+        <div className="home-panel__flap" aria-label="Interface">
           {glyphs.map((glyph) => (
             <span
               key={glyph.id}
@@ -121,25 +85,7 @@ export const HomePanel = ({ onSelectSection }: HomePanelProps) => {
             </span>
           ))}
         </div>
-        <p>
-          Todo en una sola experiencia visual continua: transiciones suaves, misma
-          atmósfera, secciones conectadas.
-        </p>
-      </div>
-
-      <div className="home-panel__menu">
-        {menuCards.map((card, index) => (
-          <button
-            key={card.key}
-            type="button"
-            className="home-panel__card"
-            style={{ animationDelay: `${index * 0.05}s` }}
-            onClick={() => onSelectSection(card.key)}
-          >
-            <strong>{card.title}</strong>
-            <span>{card.text}</span>
-          </button>
-        ))}
+        <p>Centro de control principal con navegación por categorías en la barra superior.</p>
       </div>
     </section>
   );

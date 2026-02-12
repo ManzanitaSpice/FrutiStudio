@@ -64,7 +64,7 @@ const HomePanel = lazy(() =>
 );
 
 const loadingSteps = [
-  "Inicializando launcher",
+  "Inicializando Interface",
   "Leyendo archivos locales",
   "Cargando catálogos de contenido",
   "Aplicando configuración de usuario",
@@ -378,8 +378,8 @@ const AppShell = () => {
         {!bootReady && (
           <div className="boot-screen" role="status" aria-live="polite">
             <div className="boot-screen__window">
-              <div className="boot-screen__logo" aria-label="FrutiLauncher cargando">
-                <span>Fruti Launcher</span>
+              <div className="boot-screen__logo" aria-label="Interface cargando">
+                <span>Interface</span>
                 <p className="boot-screen__subtitle">Preparando entorno de juego</p>
               </div>
               <div className="boot-screen__progress" aria-hidden="true">
@@ -424,7 +424,7 @@ const AppShell = () => {
                     className="boot-screen__cancel"
                     onClick={() => void handleCancelBoot()}
                   >
-                    Salir del launcher
+                    Salir de Interface
                   </button>
                 </div>
               ) : null}

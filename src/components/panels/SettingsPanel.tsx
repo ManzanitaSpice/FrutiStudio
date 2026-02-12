@@ -178,7 +178,7 @@ export const SettingsPanel = () => {
     }
 
     const accepted = window.confirm(
-      "Esta acción reinstalará Fruti Launcher desde cero y limpiará runtime, versiones, librerías, assets, cachés y base de datos local sin tocar instancias externas. ¿Deseas continuar?",
+      "Esta acción reinstalará Interface desde cero y limpiará runtime, versiones, librerías, assets, cachés y base de datos local sin tocar instancias externas. ¿Deseas continuar?",
     );
     if (!accepted) {
       return;
