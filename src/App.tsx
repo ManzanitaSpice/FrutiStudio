@@ -247,7 +247,7 @@ const AppShell = () => {
         ]);
       } finally {
         const elapsed = Date.now() - bootStartedAt.current;
-        const minimumBootDuration = 5_000;
+        const minimumBootDuration = 1_400;
         if (elapsed > minimumBootDuration) {
           const extraDelay = elapsed - minimumBootDuration;
           const details = bootEvents.length ? ` Detalles: ${bootEvents.join(" | ")}` : "";

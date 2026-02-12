@@ -10,7 +10,11 @@ export const ServersPanel = () => {
   const [mode, setMode] = useState("all");
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; server: ServerListing } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    server: ServerListing;
+  } | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -57,7 +61,10 @@ export const ServersPanel = () => {
     };
   }, [contextMenu]);
 
-  const handleServerContextMenu = (event: ReactMouseEvent<HTMLElement>, server: ServerListing) => {
+  const handleServerContextMenu = (
+    event: ReactMouseEvent<HTMLElement>,
+    server: ServerListing,
+  ) => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, server });
   };
@@ -82,12 +89,6 @@ export const ServersPanel = () => {
 
   return (
     <section className="panel-view panel-view--servers">
-      <div className="panel-view__header">
-        <div>
-          <h2>Servidores</h2>
-        </div>
-      </div>
-
       <div className="servers-toolbar">
         <div className="servers-toolbar__filters">
           <input
@@ -116,7 +117,11 @@ export const ServersPanel = () => {
         {error ? <div className="servers-list__empty">{error}</div> : null}
         {filteredServers.length ? (
           filteredServers.map((server) => (
-            <article key={server.id} className="server-card" onContextMenu={(event) => handleServerContextMenu(event, server)}>
+            <article
+              key={server.id}
+              className="server-card"
+              onContextMenu={(event) => handleServerContextMenu(event, server)}
+            >
               <div className="server-card__info">
                 <img
                   className="server-card__logo"
@@ -161,18 +166,43 @@ export const ServersPanel = () => {
         ) : null}
       </div>
 
-
       {contextMenu ? (
-        <div className="section-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+        <div
+          className="section-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
           <span className="section-context-menu__title">{contextMenu.server.name}</span>
-          <button type="button" onClick={() => navigator.clipboard.writeText(contextMenu.server.ip)}>Copiar IP</button>
-          <button type="button" onClick={() => window.open(contextMenu.server.website, "_blank", "noopener,noreferrer")}>Abrir sitio</button>
-          <button type="button" onClick={() => navigator.clipboard.writeText(`/join ${contextMenu.server.ip}`)}>Copiar comando /join</button>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard.writeText(contextMenu.server.ip)}
+          >
+            Copiar IP
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              window.open(contextMenu.server.website, "_blank", "noopener,noreferrer")
+            }
+          >
+            Abrir sitio
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              navigator.clipboard.writeText(`/join ${contextMenu.server.ip}`)
+            }
+          >
+            Copiar comando /join
+          </button>
         </div>
       ) : null}
 
       {hasMore ? (
-        <button type="button" className="explorer-item__secondary" onClick={() => setPage((prev) => prev + 1)}>
+        <button
+          type="button"
+          className="explorer-item__secondary"
+          onClick={() => setPage((prev) => prev + 1)}
+        >
           Cargar más servidores
         </button>
       ) : null}

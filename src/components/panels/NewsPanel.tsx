@@ -17,7 +17,11 @@ export const NewsPanel = () => {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [installItem, setInstallItem] = useState<ExplorerItem | null>(null);
   const [carouselIndex, setCarouselIndex] = useState(0);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: ExplorerItem } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: ExplorerItem;
+  } | null>(null);
 
   const nextCarousel = () => {
     if (!popularModpacks.length) return;
@@ -26,7 +30,9 @@ export const NewsPanel = () => {
 
   const previousCarousel = () => {
     if (!popularModpacks.length) return;
-    setCarouselIndex((prev) => (prev - 1 + popularModpacks.length) % popularModpacks.length);
+    setCarouselIndex(
+      (prev) => (prev - 1 + popularModpacks.length) % popularModpacks.length,
+    );
   };
 
   useEffect(() => {
@@ -126,7 +132,10 @@ export const NewsPanel = () => {
     };
   }, [contextMenu]);
 
-  const handleItemContextMenu = (event: ReactMouseEvent<HTMLElement>, item: ExplorerItem) => {
+  const handleItemContextMenu = (
+    event: ReactMouseEvent<HTMLElement>,
+    item: ExplorerItem,
+  ) => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, item });
   };
@@ -143,15 +152,6 @@ export const NewsPanel = () => {
 
   return (
     <section className="panel-view panel-view--news">
-      <div className="panel-view__header">
-        <div>
-          <h2>Features</h2>
-          <p>
-            Funciones destacadas, contenidos populares y lanzamientos recientes del ecosistema.
-          </p>
-        </div>
-      </div>
-
       {loading && !news ? (
         <div className="panel-view__hint">Conectando a las fuentes...</div>
       ) : null}
@@ -257,7 +257,11 @@ export const NewsPanel = () => {
             </div>
             <div className="explorer-layout__cards">
               {entry.items.map((item) => (
-                <article key={item.id} className="explorer-item explorer-item--card" onContextMenu={(event) => handleItemContextMenu(event, item)}>
+                <article
+                  key={item.id}
+                  className="explorer-item explorer-item--card"
+                  onContextMenu={(event) => handleItemContextMenu(event, item)}
+                >
                   {item.thumbnail ? (
                     <img
                       className="explorer-item__icon"
@@ -294,13 +298,24 @@ export const NewsPanel = () => {
         ) : null,
       )}
 
-
       {contextMenu ? (
-        <div className="section-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+        <div
+          className="section-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
           <span className="section-context-menu__title">{contextMenu.item.name}</span>
-          <button type="button" onClick={() => setSelectedItem(contextMenu.item)}>Ver detalles</button>
-          <button type="button" onClick={() => setInstallItem(contextMenu.item)}>Instalar</button>
-          <button type="button" onClick={() => navigator.clipboard.writeText(contextMenu.item.name)}>Copiar nombre</button>
+          <button type="button" onClick={() => setSelectedItem(contextMenu.item)}>
+            Ver detalles
+          </button>
+          <button type="button" onClick={() => setInstallItem(contextMenu.item)}>
+            Instalar
+          </button>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard.writeText(contextMenu.item.name)}
+          >
+            Copiar nombre
+          </button>
         </div>
       ) : null}
 
