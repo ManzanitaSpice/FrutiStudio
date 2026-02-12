@@ -2803,7 +2803,7 @@ fn validate_loader_profile_json(
         let expected_target = if loader == "forge" {
             "forge_client"
         } else {
-            "neoforgeclient"
+            "neoforge_client"
         };
         if launch_target.is_empty() {
             return Err(format!(
@@ -5816,7 +5816,7 @@ async fn bootstrap_instance_runtime(
         let fallback_launch_target = if loader == "forge" {
             "forge_client"
         } else {
-            "neoforgeclient"
+            "neoforge_client"
         };
         let launch_target = effective_version_json
             .get("launchTarget")
@@ -9497,7 +9497,7 @@ mod tests {
         );
         assert_eq!(
             neoforge_profile.get("launchTarget").and_then(Value::as_str),
-            Some("neoforgeclient")
+            Some("neoforge_client")
         );
         assert_eq!(
             neoforge_profile.get("mainClass").and_then(Value::as_str),

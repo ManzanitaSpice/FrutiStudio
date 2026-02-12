@@ -18,7 +18,7 @@ pub(crate) fn normalize_loader_profile(profile: &mut Value, minecraft_version: &
         );
     } else {
         let launch_target = if loader == "neoforge" {
-            "neoforgeclient"
+            "neoforge_client"
         } else {
             "forge_client"
         };
