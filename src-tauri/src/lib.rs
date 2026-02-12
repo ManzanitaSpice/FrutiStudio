@@ -8316,7 +8316,6 @@ async fn install_mod_file(
     let loader_name = instance
         .loader_name
         .as_deref()
-        .or(instance.loader.as_deref())
         .unwrap_or("vanilla");
     crate::core::mods::validate_mod_loader_compatibility(loader_name, mod_loader_hint.as_deref())?;
 
