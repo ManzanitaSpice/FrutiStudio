@@ -18,14 +18,26 @@ const splitCsv = (value: string | undefined, fallback: string[]) => {
   return entries.length > 0 ? entries : fallback;
 };
 
+const optionalEnv = (value: string | undefined) => {
+  const candidate = (value ?? "").trim();
+  return candidate.length > 0 ? candidate : undefined;
+};
+
 const env = import.meta.env;
 
 export const API_CONFIG = {
+  curseforgeApiKey: optionalEnv(env.VITE_CURSEFORGE_API_KEY),
   curseforgeBase: normalizeBase(env.VITE_CURSEFORGE_API_BASE, "https://api.curseforge.com/v1"),
   curseforgeProxyBases: splitCsv(env.VITE_CURSEFORGE_PROXY_BASES, [
     "https://api.curse.tools/v1",
     "https://cfproxy.bmpm.workers.dev/v1",
   ]),
+  modrinthApiToken: optionalEnv(env.VITE_MODRINTH_API_TOKEN),
+  atlauncherGraphqlBase: normalizeBase(
+    env.VITE_ATLAUNCHER_GRAPHQL_BASE,
+    "https://api.atlauncher.com/v2/graphql",
+  ),
+  atlauncherApiToken: optionalEnv(env.VITE_ATLAUNCHER_API_TOKEN),
   fabricMetaBase: normalizeBase(env.VITE_FABRIC_META_BASE, "https://meta.fabricmc.net/v2"),
   quiltMetaBase: normalizeBase(env.VITE_QUILT_META_BASE, "https://meta.quiltmc.org/v3"),
   forgePromotionsUrl: normalizeBase(

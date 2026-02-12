@@ -19,9 +19,11 @@ const requestCurseforgeV1 = async <T>(
     });
   }
 
-  if (apiKey) {
+  const effectiveApiKey = apiKey?.trim() || API_CONFIG.curseforgeApiKey;
+
+  if (effectiveApiKey) {
     return apiFetch<T>(`${API_CONFIG.curseforgeBase}${path}${params}`, {
-      init: { headers: { "x-api-key": apiKey } },
+      init: { headers: { "x-api-key": effectiveApiKey } },
     });
   }
 
