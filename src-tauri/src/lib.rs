@@ -3882,6 +3882,55 @@ fn access_denied_hint(path: &Path, action: &str, error: &std::io::Error) -> Stri
     )
 }
 
+#[cfg(target_os = "windows")]
+fn is_running_as_administrator() -> bool {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+        ])
+        .output();
+
+    match output {
+        Ok(result) if result.status.success() => String::from_utf8_lossy(&result.stdout)
+            .trim()
+            .eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_launcher_elevation() -> Result<(), String> {
+    if is_running_as_administrator() {
+        return Ok(());
+    }
+
+    let current_exe = std::env::current_exe()
+        .map_err(|error| format!("No se pudo detectar el ejecutable actual: {error}"))?;
+    let current_dir = std::env::current_dir()
+        .map_err(|error| format!("No se pudo detectar la carpeta actual: {error}"))?;
+    let mut relaunch = Command::new("powershell");
+    relaunch
+        .args(["-NoProfile", "-NonInteractive", "-Command"])
+        .arg("Start-Process")
+        .arg("-FilePath")
+        .arg(&current_exe)
+        .arg("-Verb")
+        .arg("RunAs")
+        .arg("-WorkingDirectory")
+        .arg(&current_dir);
+
+    relaunch.spawn().map_err(|error| {
+        format!(
+            "No se pudo solicitar permisos de administrador para reiniciar FrutiLauncher: {error}"
+        )
+    })?;
+
+    std::process::exit(0);
+}
+
 fn content_type_is_suspicious_for_archive(
     content_type: Option<&reqwest::header::HeaderValue>,
 ) -> bool {
@@ -8996,6 +9045,11 @@ async fn create_instance_shortcut(
 }
 
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if let Err(error) = ensure_launcher_elevation() {
+        panic!("{error}");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
