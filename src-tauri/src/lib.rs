@@ -1475,6 +1475,17 @@ fn read_last_lines(path: &Path, max_lines: usize) -> Vec<String> {
     lines
 }
 
+fn has_forge_bootstrap_classpath_failure(joined: &str) -> bool {
+    let bootstrap_class_signal = joined.contains("cpw.mods.bootstraplauncher.bootstraplauncher")
+        || joined.contains("bootstraplauncher");
+    let class_not_found_signal = joined.contains("classnotfoundexception")
+        || joined.contains("could not find or load main class")
+        || joined.contains("no se ha encontrado o cargado la clase principal")
+        || joined.contains("main class");
+
+    bootstrap_class_signal && class_not_found_signal
+}
+
 fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
     if runtime_lines.is_empty() {
         return None;
@@ -1522,6 +1533,7 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
         && (joined.contains("could not find or load main class")
             || joined.contains("classnotfoundexception")
             || joined.contains("main class"));
+    let has_forge_bootstrap_failure = has_forge_bootstrap_classpath_failure(&joined);
 
     let has_java_too_old = joined.contains("unsupportedclassversionerror")
         || joined.contains("class file version")
@@ -1579,6 +1591,18 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
         );
     }
 
+    if has_forge_bootstrap_failure {
+        return Some(
+            "Diagnóstico Forge/NeoForge: falta BootstrapLauncher en el classpath del arranque. \
+            Esto suele indicar libraries incompletas o -cp mal construido. Pasos sugeridos: 1) \
+            ejecuta \"Reparar runtime\", 2) confirma que exista \
+            libraries/cpw/mods/bootstraplauncher/<versión>/bootstraplauncher-<versión>.jar, 3) \
+            revisa launch-command.txt y valida que -cp enumere jars individuales (con ';' en \
+            Windows), 4) reinstala Forge/NeoForge si persiste."
+                .to_string(),
+        );
+    }
+
     None
 }
 
@@ -1613,6 +1637,7 @@ fn is_loader_runtime_repair_recommended(runtime_lines: &[String]) -> bool {
             && (joined.contains("could not find or load main class")
                 || joined.contains("classnotfoundexception")
                 || joined.contains("main class")))
+        || has_forge_bootstrap_classpath_failure(&joined)
 }
 
 fn normalize_stack_line(line: &str) -> String {
@@ -1661,6 +1686,7 @@ fn classify_loader_failure(
         .unwrap_or(true);
     if !main_class_matches_loader
         || (joined.contains("knotclient") && joined.contains("could not find or load main class"))
+        || has_forge_bootstrap_classpath_failure(&joined)
     {
         return StartupFailureClassification::LoaderProfileMismatch;
     }
