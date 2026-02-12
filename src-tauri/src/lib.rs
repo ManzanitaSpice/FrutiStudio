@@ -207,6 +207,16 @@ fn migrate_config(mut config: AppConfig) -> AppConfig {
     if version < 1 {
         config.version = Some(1);
     }
+
+    if config
+        .java_mode
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|value| value.is_empty())
+    {
+        config.java_mode = Some("embedded".to_string());
+    }
+
     config
 }
 
@@ -5117,7 +5127,7 @@ async fn bootstrap_instance_runtime(
     let preferred_mode = instance_java_mode
         .as_deref()
         .or(global_java_mode.as_deref())
-        .unwrap_or("auto");
+        .unwrap_or("embedded");
 
     let instance_java_path = launch_config
         .java_path
@@ -5172,7 +5182,7 @@ async fn bootstrap_instance_runtime(
             });
     }
 
-    if selected.is_none() {
+    if selected.is_none() && preferred_mode != "embedded" && preferred_mode != "embebido" {
         selected = pick_compatible(&resolution.runtimes);
     }
 
@@ -6248,7 +6258,7 @@ fn write_instance_metadata(instance_root: &Path, instance: &InstanceRecord) -> R
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("auto");
+        .unwrap_or("embedded");
     let java_path = instance
         .java_path
         .as_deref()

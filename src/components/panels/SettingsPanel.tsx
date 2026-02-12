@@ -47,7 +47,7 @@ export const SettingsPanel = () => {
   const [modsPath, setModsPath] = useState("mods");
   const [iconsPath, setIconsPath] = useState("icons");
   const [javaPath, setJavaPath] = useState("java");
-  const [javaMode, setJavaMode] = useState<"auto" | "embedded" | "manual">("auto");
+  const [javaMode, setJavaMode] = useState<"auto" | "embedded" | "manual">("embedded");
   const [minecraftRoot, setMinecraftRoot] = useState("");
   const [skinsPath, setSkinsPath] = useState("skins");
   const [fontFamily, setFontFamily] = useState<
@@ -79,7 +79,7 @@ export const SettingsPanel = () => {
       setModsPath(config.modsPath ?? "mods");
       setIconsPath(config.iconsPath ?? "icons");
       setJavaPath(config.javaPath ?? "java");
-      setJavaMode(config.javaMode ?? "auto");
+      setJavaMode(config.javaMode ?? "embedded");
       setMinecraftRoot(config.minecraftRoot ?? "");
       setSkinsPath(config.skinsPath ?? "skins");
       setCurseforgeKey(getCurseforgeApiKey());
