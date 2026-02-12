@@ -15,6 +15,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 
 use fs2::available_space;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -54,12 +55,9 @@ use crate::core::launcher_discovery::{
 };
 use crate::core::loader_normalizer::normalize_loader_profile as normalize_loader_profile_core;
 use crate::core::network::{
-    CurseforgeDownloadResolution, CurseforgeFileData, CurseforgeFileEnvelope,
-    CurseforgeFingerprintMatch, CurseforgeFingerprintsData, CurseforgeFingerprintsEnvelope,
-    CurseforgeMatchedFile, CurseforgeModData, CurseforgeModEnvelope, CurseforgeModLinks,
-    FingerprintFileResult, FingerprintScanResult, FingerprintsRequestBody, ModpackAction,
-    MojangDownload, MojangVersionDetail, MojangVersionDownloads, MojangVersionEntry,
-    MojangVersionManifest, SelectFolderResult,
+    CurseforgeDownloadResolution, CurseforgeFileEnvelope, CurseforgeFingerprintsEnvelope,
+    CurseforgeModEnvelope, FingerprintFileResult, FingerprintScanResult, FingerprintsRequestBody,
+    ModpackAction, MojangVersionManifest, SelectFolderResult,
 };
 use crate::core::runtime_manager::RuntimeManager;
 
@@ -1021,6 +1019,103 @@ fn request_windows_admin_confirmation() -> Result<(), String> {
 
 #[cfg(not(target_os = "windows"))]
 fn request_windows_admin_confirmation() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn admin_mode_marker_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let local_data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("No se pudo resolver app_local_data_dir: {error}"))?;
+    Ok(local_data_dir.join("admin_mode_enabled.flag"))
+}
+
+#[cfg(target_os = "windows")]
+fn is_windows_process_elevated() -> bool {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    let Ok(output) = output else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .eq_ignore_ascii_case("true")
+}
+
+#[cfg(target_os = "windows")]
+fn relaunch_self_as_admin() -> Result<(), String> {
+    let exe = std::env::current_exe()
+        .map_err(|error| format!("No se pudo obtener el ejecutable actual: {error}"))?;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let escape_ps = |value: &str| value.replace('\'', "''");
+    let quoted_args: Vec<String> = args
+        .iter()
+        .map(|arg| format!("'{}'", escape_ps(arg)))
+        .collect();
+
+    let command = if quoted_args.is_empty() {
+        format!(
+            "Start-Process -FilePath '{}' -Verb RunAs",
+            escape_ps(&exe.display().to_string())
+        )
+    } else {
+        format!(
+            "Start-Process -FilePath '{}' -Verb RunAs -ArgumentList {}",
+            escape_ps(&exe.display().to_string()),
+            quoted_args.join(",")
+        )
+    };
+
+    let status = Command::new("powershell")
+        .args(["-NoProfile", "-Command", &command])
+        .status()
+        .map_err(|error| format!("No se pudo relanzar en modo administrador: {error}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Se canceló la elevación a administrador.".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_persistent_admin_mode(app: &tauri::AppHandle) -> Result<(), String> {
+    let marker = admin_mode_marker_path(app)?;
+    if marker.exists() {
+        return Ok(());
+    }
+
+    if is_windows_process_elevated() {
+        if let Some(parent) = marker.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("No se pudo crear carpeta de estado admin: {error}"))?;
+        }
+        fs::write(&marker, b"enabled")
+            .map_err(|error| format!("No se pudo guardar estado admin: {error}"))?;
+        return Ok(());
+    }
+
+    relaunch_self_as_admin()?;
+    std::process::exit(0);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_persistent_admin_mode(_app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
@@ -7694,6 +7789,10 @@ pub fn run() {
             curseforge_v1_get
         ])
         .setup(|app| {
+            if let Err(error) = ensure_persistent_admin_mode(app.handle()) {
+                eprintln!("No se pudo activar modo admin persistente: {error}");
+                return Err(error.into());
+            }
             if let Err(error) = init_database(app.handle()) {
                 eprintln!("Error al inicializar la base de datos: {error}");
             }
