@@ -20,6 +20,7 @@ extensible.
 ## Comandos útiles
 
 - `npm run dev` inicia Vite para desarrollo.
+- `npm run tauri dev` inicia Tauri + Vite automáticamente (recomendado para desarrollo de escritorio).
 - `npm run build` compila el frontend.
 - `npm run lint` corre ESLint.
 - `npm run format` aplica Prettier.
@@ -53,3 +54,13 @@ Guía operativa y plan de hardening para fallos de arranque de Minecraft (Fabric
 
 Documento operativo para implementar y reparar el flujo end-to-end (Vanilla/Fabric/Forge/NeoForge/Quilt + modpacks): `docs/prompt-maestro-backend-instances.md`.
 
+
+
+## Solución rápida a `ERR_CONNECTION_REFUSED`
+
+Si abres el binario de debug y ves `127.0.0.1 rechazó la conexión`, normalmente faltaba levantar el frontend de Vite.
+
+- Para desarrollo de escritorio, usa `npm run tauri dev` (levanta backend y frontend juntos).
+- Para ejecutar sin servidor dev, primero compila frontend con `npm run build` para generar `dist/`.
+
+En esta configuración, Tauri carga `dist` por defecto y evita depender de `http://127.0.0.1:1420` al ejecutar el binario local.

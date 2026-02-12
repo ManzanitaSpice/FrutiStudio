@@ -17,7 +17,7 @@ fn external_discovery_cache_path(launcher_root: &Path) -> PathBuf {
         .join("external-instance-index.json")
 }
 
-pub fn read_external_discovery_cache(launcher_root: &Path) -> ExternalDiscoveryCache {
+pub(crate) fn read_external_discovery_cache(launcher_root: &Path) -> ExternalDiscoveryCache {
     let path = external_discovery_cache_path(launcher_root);
     let Ok(raw) = fs::read_to_string(path) else {
         return ExternalDiscoveryCache {
@@ -31,7 +31,7 @@ pub fn read_external_discovery_cache(launcher_root: &Path) -> ExternalDiscoveryC
     })
 }
 
-pub fn write_external_discovery_cache(
+pub(crate) fn write_external_discovery_cache(
     launcher_root: &Path,
     cache: &ExternalDiscoveryCache,
 ) -> Result<(), String> {
@@ -336,7 +336,7 @@ fn current_unix_secs() -> u64 {
         .unwrap_or_default()
 }
 
-pub fn detect_external_instances(launcher_root: &Path) -> Vec<ExternalDetectedInstance> {
+pub(crate) fn detect_external_instances(launcher_root: &Path) -> Vec<ExternalDetectedInstance> {
     let scan_roots = collect_external_scan_roots(launcher_root);
     let mut all = Vec::new();
     let mut discovered_roots = Vec::new();
