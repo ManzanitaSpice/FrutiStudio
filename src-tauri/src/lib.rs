@@ -2760,6 +2760,27 @@ fn validate_loader_profile_json(
             ));
         }
     } else if loader == "forge" || loader == "neoforge" {
+        let launch_target = json
+            .get("launchTarget")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        let expected_target = if loader == "forge" {
+            "forge_client"
+        } else {
+            "neoforgeclient"
+        };
+        if launch_target.is_empty() {
+            return Err(format!(
+                "Perfil {profile_id} inválido: launchTarget está vacío; se esperaba '{expected_target}'"
+            ));
+        }
+        if launch_target != expected_target {
+            return Err(format!(
+                "Perfil {profile_id} inválido: launchTarget debe ser '{expected_target}' y se encontró '{launch_target}'"
+            ));
+        }
+
         let mc_base = normalize_mc_base(inherits_from);
         if mc_base != vanilla_version {
             return Err(format!(
@@ -9202,11 +9223,15 @@ mod tests {
         normalize_loader_profile(&mut forge_profile, "1.21.1", "forge");
         assert_eq!(
             forge_profile.get("inheritsFrom").and_then(Value::as_str),
-            Some("1.21.1")
+            Some("forge-loader-1.21.1")
         );
         assert_eq!(
             forge_profile.get("jar").and_then(Value::as_str),
-            Some("1.21.1")
+            Some("forge-loader-1.21.1")
+        );
+        assert_eq!(
+            forge_profile.get("launchTarget").and_then(Value::as_str),
+            Some("forge_client")
         );
         assert_eq!(
             forge_profile.get("mainClass").and_then(Value::as_str),
@@ -9221,11 +9246,15 @@ mod tests {
         normalize_loader_profile(&mut neoforge_profile, "1.21.1", "neoforge");
         assert_eq!(
             neoforge_profile.get("inheritsFrom").and_then(Value::as_str),
-            Some("1.21.1")
+            Some("neoforge-loader-1.21.1")
         );
         assert_eq!(
             neoforge_profile.get("jar").and_then(Value::as_str),
-            Some("1.21.1")
+            Some("neoforge-loader-1.21.1")
+        );
+        assert_eq!(
+            neoforge_profile.get("launchTarget").and_then(Value::as_str),
+            Some("neoforgeclient")
         );
         assert_eq!(
             neoforge_profile.get("mainClass").and_then(Value::as_str),
