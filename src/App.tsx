@@ -447,7 +447,12 @@ const AppShell = () => {
           onSearchSubmit={handleGlobalSearch}
         />
         <div className="app-shell__body app-shell__body--no-sidebar">
-          <main className="main-panel" role="main">
+          <main
+            className={
+              activeSection === "inicio" ? "main-panel main-panel--menu" : "main-panel"
+            }
+            role="main"
+          >
             <Suspense fallback={<div className="panel-loading">Cargando…</div>}>
               {activeSection === "inicio" && <HomePanel onSelectSection={setSection} />}
               {activeSection === "mis-modpacks" && (

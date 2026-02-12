@@ -61,8 +61,24 @@ const synthesizeDescription = (raw: string) => {
     .map((line) => line.trim())
     .filter((line) => line.length > 30);
   const prioritized = sentences.filter((line) => !/changelog|novedades|bugs?|fix|error/i.test(line));
-  const selected = (prioritized.length ? prioritized : sentences).slice(0, 5);
-  return selected.join(" ");
+  const selected = (prioritized.length ? prioritized : sentences).slice(0, 8);
+  const chunks: string[] = [];
+  for (let index = 0; index < selected.length; index += 2) {
+    chunks.push(selected.slice(index, index + 2).join(" "));
+  }
+  return chunks.join("\n\n");
+};
+
+const buildDescriptionHtml = (value: string) => {
+  if (!value.trim()) {
+    return "<p>Sin descripción detallada disponible.</p>";
+  }
+  const paragraphs = value
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join("");
 };
 
 export const ProductDetailsDialog = ({
@@ -84,7 +100,7 @@ export const ProductDetailsDialog = ({
   );
 
   const descriptionHtml = useMemo(
-    () => parseAndSanitizeRichText(filteredDescription),
+    () => parseAndSanitizeRichText(buildDescriptionHtml(filteredDescription)),
     [filteredDescription],
   );
 
@@ -92,8 +108,8 @@ export const ProductDetailsDialog = ({
     const source = details?.changelog ?? details?.body ?? "";
     return source
       .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
+      .map((line) => line.replace(/^[-*•]+\s*/, "").trim())
+      .filter((line) => line.length > 4)
       .slice(0, 40);
   }, [details?.body, details?.changelog]);
 
@@ -257,7 +273,7 @@ Versiones
               {filteredVersions.length ? (
                 filteredVersions.map((version) => (
                   <article key={version.id} className="product-dialog__version-item">
-                    <div>
+                    <div className="product-dialog__version-copy">
                       <strong>{version.name}</strong>
                       <p>
                         {releaseLabel[version.releaseType]} ·{" "}

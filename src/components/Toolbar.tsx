@@ -196,7 +196,10 @@ export const Toolbar = ({
             </button>
           </div>
         </div>
-        <h1 className="topbar__title" aria-label="Interface">Interface</h1>
+        <div className="topbar__brand" aria-label="Marca Interface">
+          <span className="topbar__brand-logo" aria-hidden="true" />
+          <h1 className="topbar__title" aria-label="Interface">Interface</h1>
+        </div>
       </div>
       {!isFocusMode && (
         <div className="topbar__row topbar__row--main">

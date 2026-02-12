@@ -70,7 +70,6 @@ export const HomePanel = ({ onSelectSection: _onSelectSection }: HomePanelProps)
   return (
     <section className="panel-view home-panel">
       <div className="home-panel__hero">
-        <p className="home-panel__kicker">Menú principal</p>
         <div className="home-panel__flap" aria-label="Interface">
           {glyphs.map((glyph) => (
             <span
@@ -85,7 +84,6 @@ export const HomePanel = ({ onSelectSection: _onSelectSection }: HomePanelProps)
             </span>
           ))}
         </div>
-        <p>Centro de control principal con navegación por categorías en la barra superior.</p>
       </div>
     </section>
   );
