@@ -15,6 +15,7 @@ import {
 import { AccountManagerDialog } from "./AccountManagerDialog";
 
 export type SectionKey =
+  | "inicio"
   | "mis-modpacks"
   | "features"
   | "comunidad"
@@ -60,25 +61,27 @@ export const Toolbar = ({
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [showAccountManager, setShowAccountManager] = useState(false);
   const [accounts, setAccounts] = useState(loadAccountStore().accounts);
-  const [activeAccountId, setActiveAccountId] = useState(loadAccountStore().activeAccountId);
+  const [activeAccountId, setActiveAccountId] = useState(
+    loadAccountStore().activeAccountId,
+  );
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const navItems: Array<{ key: SectionKey; label: string; enabled: boolean }> =
-    [
-      { key: "mis-modpacks", label: t("sections").modpacks, enabled: true },
-      { key: "features", label: t("sections").features, enabled: flags.news },
-      {
-        key: "explorador",
-        label: t("sections").explorer,
-        enabled: flags.explorer,
-      },
-      { key: "servers", label: t("sections").servers, enabled: flags.servers },
-      { key: "comunidad", label: t("sections").community, enabled: flags.community },
-      {
-        key: "configuracion",
-        label: t("sections").settings,
-        enabled: flags.settings,
-      },
-    ];
+  const navItems: Array<{ key: SectionKey; label: string; enabled: boolean }> = [
+    { key: "inicio", label: t("sections").home, enabled: true },
+    { key: "mis-modpacks", label: t("sections").modpacks, enabled: true },
+    { key: "features", label: t("sections").features, enabled: flags.news },
+    {
+      key: "explorador",
+      label: t("sections").explorer,
+      enabled: flags.explorer,
+    },
+    { key: "servers", label: t("sections").servers, enabled: flags.servers },
+    { key: "comunidad", label: t("sections").community, enabled: flags.community },
+    {
+      key: "configuracion",
+      label: t("sections").settings,
+      enabled: flags.settings,
+    },
+  ];
   const active = getActiveAccount();
   const accountName = active?.username ?? "Sin cuenta";
   const skinSource = active?.avatarUrl ?? steveSkin;
@@ -133,7 +136,9 @@ export const Toolbar = ({
         const next: SearchSuggestion[] = [];
         if (locals.status === "fulfilled") {
           locals.value
-            .filter((instance) => instance.name.toLowerCase().includes(normalizedQuery.toLowerCase()))
+            .filter((instance) =>
+              instance.name.toLowerCase().includes(normalizedQuery.toLowerCase()),
+            )
             .slice(0, 4)
             .forEach((instance, index) => {
               next.push({
@@ -163,7 +168,10 @@ export const Toolbar = ({
     return () => window.clearTimeout(timeoutId);
   }, [query]);
 
-  const showSuggestions = useMemo(() => showGlobalSearch && query.trim().length >= 2, [query, showGlobalSearch]);
+  const showSuggestions = useMemo(
+    () => showGlobalSearch && query.trim().length >= 2,
+    [query, showGlobalSearch],
+  );
 
   return (
     <header className="topbar">
@@ -241,18 +249,35 @@ export const Toolbar = ({
                 >
                   Buscar
                 </button>
-                <button type="button" aria-label="Limpiar búsqueda" onClick={() => setQuery("")}>
+                <button
+                  type="button"
+                  aria-label="Limpiar búsqueda"
+                  onClick={() => setQuery("")}
+                >
                   ✕
                 </button>
               </label>
               {showSuggestions ? (
                 <div className="topbar__search-suggestions">
-                  {suggestions.length ? suggestions.map((suggestion) => (
-                    <button key={suggestion.id} type="button" onClick={() => { setQuery(suggestion.title); onSearchSubmit(suggestion.title); }}>
-                      <strong>{suggestion.title}</strong>
-                      <small>{suggestion.subtitle}</small>
-                    </button>
-                  )) : <p>Sin sugerencias. Presiona Enter para buscar en todo el catálogo.</p>}
+                  {suggestions.length ? (
+                    suggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.id}
+                        type="button"
+                        onClick={() => {
+                          setQuery(suggestion.title);
+                          onSearchSubmit(suggestion.title);
+                        }}
+                      >
+                        <strong>{suggestion.title}</strong>
+                        <small>{suggestion.subtitle}</small>
+                      </button>
+                    ))
+                  ) : (
+                    <p>
+                      Sin sugerencias. Presiona Enter para buscar en todo el catálogo.
+                    </p>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -275,47 +300,53 @@ export const Toolbar = ({
               <div className="topbar__account-menu" role="menu">
                 <div className="topbar__account-group">
                   <p className="topbar__account-group-title">Cambiar perfil</p>
-                {accounts.slice(0, 4).map((account, index) => (
-                  <button
-                    key={account.id}
-                    type="button"
-                    className={account.id === activeAccountId ? "topbar__account-item topbar__account-item--active" : "topbar__account-item"}
-                    role="menuitem"
-                    onClick={() => {
-                      setActiveAccount(account.id);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <span className="topbar__account-check">{account.id === activeAccountId ? "✓" : ""}</span>
-                    <span>{account.username}</span>
-                    <span className="topbar__account-shortcut">Ctrl + {index + 1}</span>
-                  </button>
-                ))}
+                  {accounts.slice(0, 4).map((account, index) => (
+                    <button
+                      key={account.id}
+                      type="button"
+                      className={
+                        account.id === activeAccountId
+                          ? "topbar__account-item topbar__account-item--active"
+                          : "topbar__account-item"
+                      }
+                      role="menuitem"
+                      onClick={() => {
+                        setActiveAccount(account.id);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <span className="topbar__account-check">
+                        {account.id === activeAccountId ? "✓" : ""}
+                      </span>
+                      <span>{account.username}</span>
+                      <span className="topbar__account-shortcut">Ctrl + {index + 1}</span>
+                    </button>
+                  ))}
                 </div>
                 <div className="topbar__account-group">
                   <p className="topbar__account-group-title">Gestión</p>
-                <button
-                  type="button"
-                  className="topbar__account-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setShowAccountManager(true);
-                    setMenuOpen(false);
-                  }}
-                >
-                  Administrar cuentas
-                </button>
-                <button
-                  type="button"
-                  className="topbar__account-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setShowAccountManager(true);
-                    setMenuOpen(false);
-                  }}
-                >
-                  Administrar skins
-                </button>
+                  <button
+                    type="button"
+                    className="topbar__account-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAccountManager(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    Administrar cuentas
+                  </button>
+                  <button
+                    type="button"
+                    className="topbar__account-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAccountManager(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    Administrar skins
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -333,7 +364,10 @@ export const Toolbar = ({
           </div>
         </div>
       )}
-      <AccountManagerDialog open={showAccountManager} onClose={() => setShowAccountManager(false)} />
+      <AccountManagerDialog
+        open={showAccountManager}
+        onClose={() => setShowAccountManager(false)}
+      />
     </header>
   );
 };

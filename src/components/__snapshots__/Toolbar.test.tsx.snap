@@ -55,6 +55,12 @@ exports[`Toolbar > renderiza con feature flags 1`] = `
         class="topbar__nav"
       >
         <button
+          class="topbar__button"
+          type="button"
+        >
+          Menú
+        </button>
+        <button
           aria-current="page"
           class="topbar__button topbar__button--active"
           type="button"

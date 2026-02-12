@@ -13,7 +13,11 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { useUI } from "./hooks/useUI";
 import { featureFlags } from "./config/featureFlags";
-import { fetchInstances, updateInstance as persistInstanceUpdate } from "./services/instanceService";
+import { fontFamilyMap } from "./config/fontFamilies";
+import {
+  fetchInstances,
+  updateInstance as persistInstanceUpdate,
+} from "./services/instanceService";
 import { fetchNewsOverview } from "./services/newsService";
 import { fetchExplorerItems } from "./services/explorerService";
 import { fetchServerListings } from "./services/serverService";
@@ -51,6 +55,11 @@ const CommunityPanel = lazy(() =>
 const SettingsPanel = lazy(() =>
   import("./components/panels/SettingsPanel").then((module) => ({
     default: module.SettingsPanel,
+  })),
+);
+const HomePanel = lazy(() =>
+  import("./components/panels/HomePanel").then((module) => ({
+    default: module.HomePanel,
   })),
 );
 
@@ -108,7 +117,10 @@ const AppShell = () => {
 
   useEffect(() => {
     const syncViewportHeight = () => {
-      document.documentElement.style.setProperty("--app-height", `${window.innerHeight}px`);
+      document.documentElement.style.setProperty(
+        "--app-height",
+        `${window.innerHeight}px`,
+      );
     };
 
     syncViewportHeight();
@@ -190,8 +202,16 @@ const AppShell = () => {
         }
         if (config.activeSection) {
           const normalizedSection =
-            (config.activeSection as string) === "novedades" ? "features" : config.activeSection;
-          setSection(normalizedSection as Parameters<typeof setSection>[0]);
+            (config.activeSection as string) === "novedades"
+              ? "features"
+              : config.activeSection;
+          setSection((normalizedSection ?? "inicio") as Parameters<typeof setSection>[0]);
+        }
+        if (config.fontFamily) {
+          document.documentElement.style.setProperty(
+            "--app-font-family",
+            fontFamilyMap[config.fontFamily],
+          );
         }
         if (typeof config.focusMode === "boolean") {
           if (config.focusMode !== isFocusMode) {
@@ -359,9 +379,7 @@ const AppShell = () => {
             <div className="boot-screen__window">
               <div className="boot-screen__logo" aria-label="FrutiLauncher cargando">
                 <span>Fruti Launcher</span>
-                <p className="boot-screen__subtitle">
-                  Preparando entorno de juego
-                </p>
+                <p className="boot-screen__subtitle">Preparando entorno de juego</p>
               </div>
               <div className="boot-screen__progress" aria-hidden="true">
                 <div style={{ width: `${bootProgress}%` }} />
@@ -416,7 +434,9 @@ const AppShell = () => {
         <Toolbar
           current={activeSection}
           onSelect={setSection}
-          showGlobalSearch={activeSection !== "mis-modpacks"}
+          showGlobalSearch={
+            activeSection !== "mis-modpacks" && activeSection !== "inicio"
+          }
           flags={featureFlags}
           isFocusMode={isFocusMode}
           onBack={goBack}
@@ -428,6 +448,7 @@ const AppShell = () => {
         <div className="app-shell__body app-shell__body--no-sidebar">
           <main className="main-panel" role="main">
             <Suspense fallback={<div className="panel-loading">Cargando…</div>}>
+              {activeSection === "inicio" && <HomePanel onSelectSection={setSection} />}
               {activeSection === "mis-modpacks" && (
                 <InstancePanel
                   instances={instances}
@@ -442,7 +463,9 @@ const AppShell = () => {
                 />
               )}
               {activeSection === "features" && featureFlags.news && <FeaturesPanel />}
-              {activeSection === "comunidad" && featureFlags.community && <CommunityPanel />}
+              {activeSection === "comunidad" && featureFlags.community && (
+                <CommunityPanel />
+              )}
               {activeSection === "explorador" && featureFlags.explorer && (
                 <ExplorerPanel
                   externalQuery={globalSearchQuery}

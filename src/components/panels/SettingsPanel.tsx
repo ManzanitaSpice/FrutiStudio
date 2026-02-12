@@ -4,11 +4,15 @@ import { useUI } from "../../hooks/useUI";
 import { useBaseDir } from "../../hooks/useBaseDir";
 import { useI18n } from "../../i18n/useI18n";
 import { loadConfig, saveConfig, type AppConfig } from "../../services/configService";
+import { fontFamilyMap, type FontFamilyOption } from "../../config/fontFamilies";
 import { detectJavaProfiles } from "../../services/javaConfig";
 import type { JavaProfile } from "../../types/models";
 import { SelectFolderButton } from "../SelectFolderButton";
 import { launcherFactoryReset } from "../../services/launcherService";
-import { checkPterodactylStatus, type PterodactylStatus } from "../../services/pterodactylService";
+import {
+  checkPterodactylStatus,
+  type PterodactylStatus,
+} from "../../services/pterodactylService";
 
 const customDefaults = {
   bg: "#f7f4ff",
@@ -46,16 +50,16 @@ export const SettingsPanel = () => {
   const [javaMode, setJavaMode] = useState<"auto" | "embedded" | "manual">("embedded");
   const [minecraftRoot, setMinecraftRoot] = useState("");
   const [skinsPath, setSkinsPath] = useState("skins");
-  const [fontFamily, setFontFamily] = useState<
-    "inter" | "system" | "poppins" | "jetbrains" | "fira"
-  >("inter");
+  const [fontFamily, setFontFamily] = useState<FontFamilyOption>("inter");
   const [detectedJavaProfiles, setDetectedJavaProfiles] = useState<JavaProfile[]>([]);
   const [isDetectingJava, setIsDetectingJava] = useState(false);
   const [factoryResetPhrase, setFactoryResetPhrase] = useState("");
   const [isFactoryResetting, setIsFactoryResetting] = useState(false);
   const [pterodactylUrl, setPterodactylUrl] = useState("");
   const [pterodactylApiKey, setPterodactylApiKey] = useState("");
-  const [pterodactylStatus, setPterodactylStatus] = useState<PterodactylStatus | null>(null);
+  const [pterodactylStatus, setPterodactylStatus] = useState<PterodactylStatus | null>(
+    null,
+  );
   const [isCheckingPterodactyl, setIsCheckingPterodactyl] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -101,14 +105,10 @@ export const SettingsPanel = () => {
   }, [customTheme]);
 
   useEffect(() => {
-    const fontMap = {
-      inter: "Inter, system-ui, sans-serif",
-      system: "system-ui, -apple-system, Segoe UI, sans-serif",
-      poppins: "Poppins, Inter, system-ui, sans-serif",
-      jetbrains: "JetBrains Mono, Fira Code, monospace",
-      fira: "Fira Sans, Inter, system-ui, sans-serif",
-    } as const;
-    document.documentElement.style.setProperty("--app-font-family", fontMap[fontFamily]);
+    document.documentElement.style.setProperty(
+      "--app-font-family",
+      fontFamilyMap[fontFamily],
+    );
   }, [fontFamily]);
 
   useEffect(() => {
@@ -416,7 +416,7 @@ export const SettingsPanel = () => {
                 <select
                   value={fontFamily}
                   onChange={(event) => {
-                    const nextFont = event.target.value as typeof fontFamily;
+                    const nextFont = event.target.value as FontFamilyOption;
                     setFontFamily(nextFont);
                     void updateConfig({ fontFamily: nextFont });
                   }}

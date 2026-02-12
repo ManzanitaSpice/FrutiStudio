@@ -22,18 +22,21 @@ export const useKeyboardShortcuts = ({
       if (event.ctrlKey || event.metaKey) {
         switch (event.key) {
           case "1":
-            onSelectSection("mis-modpacks");
+            onSelectSection("inicio");
             break;
           case "2":
-            onSelectSection("features");
+            onSelectSection("mis-modpacks");
             break;
           case "3":
-            onSelectSection("explorador");
+            onSelectSection("features");
             break;
           case "4":
-            onSelectSection("servers");
+            onSelectSection("explorador");
             break;
           case "5":
+            onSelectSection("servers");
+            break;
+          case "6":
             onSelectSection("comunidad");
             break;
           default:

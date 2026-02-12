@@ -28,6 +28,7 @@ export interface AppConfig {
   autoUpdates?: boolean;
   backgroundDownloads?: boolean;
   activeSection?:
+    | "inicio"
     | "mis-modpacks"
     | "features"
     | "comunidad"
