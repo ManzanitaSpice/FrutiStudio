@@ -1,5 +1,13 @@
 use std::borrow::Cow;
 
+#[derive(Debug, Clone)]
+pub(crate) struct LoaderCompatibilityRoute {
+    pub(crate) loader: &'static str,
+    pub(crate) minecraft_prefix: &'static str,
+    pub(crate) metadata_endpoint: &'static str,
+    pub(crate) jar_published: bool,
+}
+
 pub(crate) const MINECRAFT_MANIFEST_URLS: [&str; 2] = [
     "https://launchermeta.mojang.com/mc/game/version_manifest.json",
     "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
@@ -142,4 +150,57 @@ fn dedupe(urls: Vec<String>) -> Vec<String> {
             !normalized.is_empty() && seen.insert(normalized.to_string())
         })
         .collect()
+}
+
+pub(crate) fn loader_compatibility_routes() -> Vec<LoaderCompatibilityRoute> {
+    vec![
+        LoaderCompatibilityRoute {
+            loader: "fabric",
+            minecraft_prefix: "1.",
+            metadata_endpoint: "https://meta.fabricmc.net/v2/versions/loader",
+            jar_published: true,
+        },
+        LoaderCompatibilityRoute {
+            loader: "quilt",
+            minecraft_prefix: "1.",
+            metadata_endpoint: "https://meta.quiltmc.org/v3/versions/loader",
+            jar_published: true,
+        },
+        LoaderCompatibilityRoute {
+            loader: "forge",
+            minecraft_prefix: "1.",
+            metadata_endpoint:
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml",
+            jar_published: true,
+        },
+        LoaderCompatibilityRoute {
+            loader: "neoforge",
+            minecraft_prefix: "1.20",
+            metadata_endpoint:
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+            jar_published: true,
+        },
+    ]
+}
+
+pub(crate) fn endpoint_label(url: &str) -> &'static str {
+    if url.contains("meta.fabricmc.net") {
+        return "fabric-meta";
+    }
+    if url.contains("meta.quiltmc.org") {
+        return "quilt-meta";
+    }
+    if url.contains("maven.minecraftforge.net") || url.contains("files.minecraftforge.net") {
+        return "forge-maven";
+    }
+    if url.contains("maven.neoforged.net") {
+        return "neoforge-maven";
+    }
+    if url.contains("launchermeta.mojang.com") || url.contains("piston-meta.mojang.com") {
+        return "mojang-meta";
+    }
+    if url.contains("libraries.minecraft.net") {
+        return "minecraft-libraries";
+    }
+    "generic"
 }

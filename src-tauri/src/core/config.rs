@@ -1,6 +1,24 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NetworkTuning {
+    pub(crate) connect_timeout_secs: u64,
+    pub(crate) request_timeout_secs: u64,
+    pub(crate) retries: u8,
+}
+
+impl Default for NetworkTuning {
+    fn default() -> Self {
+        Self {
+            connect_timeout_secs: 12,
+            request_timeout_secs: 120,
+            retries: 4,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppConfig {
@@ -31,6 +49,7 @@ pub(crate) struct AppConfig {
     pub(crate) minecraft_root: Option<String>,
     pub(crate) skins_path: Option<String>,
     pub(crate) explorer_filters: Option<Value>,
+    pub(crate) network_tuning: Option<NetworkTuning>,
 }
 
 #[derive(Debug, Serialize)]

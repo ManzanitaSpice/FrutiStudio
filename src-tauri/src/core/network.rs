@@ -137,3 +137,12 @@ pub(crate) struct MojangVersionDownloads {
 pub(crate) struct MojangDownload {
     pub(crate) url: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DownloadTrace {
+    pub(crate) endpoint: String,
+    pub(crate) url: String,
+    pub(crate) sha1: Option<String>,
+    pub(crate) md5: Option<String>,
+}
