@@ -40,6 +40,9 @@ interface SearchSuggestion {
   id: string;
   title: string;
   subtitle: string;
+  route: string;
+  targets: string;
+  image?: string;
   priority: number;
 }
 
@@ -145,6 +148,9 @@ export const Toolbar = ({
                 id: `local-${instance.id}`,
                 title: instance.name,
                 subtitle: `Instancia local · ${instance.loaderName} ${instance.version}`,
+                route: "Mis modpacks / Instancias",
+                targets: `${instance.group || "Sin grupo"} · ${instance.status}`,
+                image: "/tauri.svg",
                 priority: 100 - index,
               });
             });
@@ -155,6 +161,9 @@ export const Toolbar = ({
               id: `remote-${item.id}`,
               title: item.name,
               subtitle: `${item.type} · ${item.source}`,
+              route: `Explorador / ${item.type}`,
+              targets: `${item.author} · ${item.downloads}`,
+              image: item.thumbnail,
               priority: 50 - index,
             });
           });
@@ -269,8 +278,19 @@ export const Toolbar = ({
                           onSearchSubmit(suggestion.title);
                         }}
                       >
-                        <strong>{suggestion.title}</strong>
-                        <small>{suggestion.subtitle}</small>
+                        <span className="topbar__suggestion-icon" aria-hidden="true">
+                          {suggestion.image ? (
+                            <img src={suggestion.image} alt="" />
+                          ) : (
+                            <img src="/tauri.svg" alt="" />
+                          )}
+                        </span>
+                        <span className="topbar__suggestion-content">
+                          <strong>{suggestion.title}</strong>
+                          <small>{suggestion.subtitle}</small>
+                          <em>{suggestion.route}</em>
+                        </span>
+                        <span className="topbar__suggestion-targets">{suggestion.targets}</span>
                       </button>
                     ))
                   ) : (

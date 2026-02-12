@@ -1382,7 +1382,9 @@ export const InstancePanel = ({
     if (!filteredVersions.length) {
       return null;
     }
-    return (
+  
+
+  return (
       filteredVersions.find((version) => version.type === "release") ??
       filteredVersions[0]
     );
@@ -1768,6 +1770,54 @@ export const InstancePanel = ({
     };
   }, [contextMenu]);
 
+
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (launchChecklistOpen) {
+        setLaunchChecklistOpen(false);
+        return;
+      }
+      if (modReviewOpen) {
+        setModReviewOpen(false);
+        return;
+      }
+      if (modDownloadOpen) {
+        setModDownloadOpen(false);
+        return;
+      }
+      if (repairModalOpen) {
+        setRepairModalOpen(false);
+        return;
+      }
+      if (deleteConfirmId) {
+        setDeleteConfirmId(null);
+        return;
+      }
+      if (editorOpen) {
+        setEditorOpen(false);
+        return;
+      }
+      if (creatorOpen) {
+        setCreatorOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [
+    creatorOpen,
+    deleteConfirmId,
+    editorOpen,
+    launchChecklistOpen,
+    modDownloadOpen,
+    modReviewOpen,
+    repairModalOpen,
+  ]);
+
   const normalizeLoader = (value?: string) => {
     const normalized = (value ?? "").trim().toLowerCase();
     if (!normalized) {
@@ -2065,7 +2115,9 @@ export const InstancePanel = ({
   const renderEditorBody = () => {
     if (activeEditorSection === "Registro de Minecraft" && selectedInstance) {
       const logs = runtimeLogByInstance[selectedInstance.id] ?? [];
-      return (
+    
+
+  return (
         <div className="instance-live-log">
           <div className="instance-live-log__toolbar">
             <strong>Registro en tiempo real</strong>
@@ -2092,7 +2144,9 @@ export const InstancePanel = ({
     }
 
     if (activeEditorSection === "Versión") {
-      return (
+    
+
+  return (
         <div className="instance-config__grid">
           <article className="instance-config__card">
             <h6>Versiones de la instancia</h6>
@@ -2183,7 +2237,9 @@ export const InstancePanel = ({
     }
 
     if (activeEditorSection === "Mods" && selectedInstance) {
-      return (
+    
+
+  return (
         <div className="instance-editor__table">
           <div className="instance-editor__table-header">
             <span>Estado · Mod · Versión</span>
@@ -2220,7 +2276,9 @@ export const InstancePanel = ({
     }
 
     if (activeEditorSection === "Configuración" && selectedInstance) {
-      return (
+    
+
+  return (
         <div className="instance-config">
           <div className="instance-config__intro">
             <h5>📦 Configuración de instancia</h5>
@@ -2641,7 +2699,9 @@ export const InstancePanel = ({
       );
     }
 
-    return (
+  
+
+  return (
       <div className="instance-editor__placeholder">
         <p>No hay datos disponibles para {activeEditorSection}.</p>
       </div>
@@ -2766,7 +2826,9 @@ export const InstancePanel = ({
 
   const renderCreatorBody = () => {
     if (activeCreatorSection === "Personalizado") {
-      return (
+    
+
+  return (
         <div className="instance-creator__panel">
           <div className="instance-creator__field">
             <label htmlFor="instance-name">Nombre de la instancia</label>
@@ -2950,7 +3012,9 @@ export const InstancePanel = ({
     }
 
     if (activeCreatorSection === "Importar") {
-      return (
+    
+
+  return (
         <div className="instance-creator__panel">
           <div className="instance-import__hero">
             <img src={importGuide} alt="Guía de importación" />
@@ -3068,7 +3132,9 @@ export const InstancePanel = ({
       activeCreatorSection === "CurseForge" ||
       activeCreatorSection === "ATLauncher"
     ) {
-      return (
+    
+
+  return (
         <div className="instance-creator__panel">
           <div className="instance-creator__hint">
             {creatorStatus === "loading" && "Cargando modpacks..."}
@@ -3198,6 +3264,49 @@ export const InstancePanel = ({
     setCreatorOpen(false);
   };
 
+
+
+
+  const handleQuickLaunch = async (instance: Instance) => {
+    if (startupProgressByInstance[instance.id]?.active || instance.isRunning) {
+      onSelectInstance(instance.id);
+      return;
+    }
+    onSelectInstance(instance.id);
+    openChecklistWithContext(instance.id);
+    updateStartupProgress(instance.id, {
+      active: true,
+      progress: 12,
+      stage: "Inicio rápido",
+    });
+    setInstanceLaunchStatus(instance.id, `Iniciando ${instance.name}...`);
+    try {
+      const result = await launchInstance(instance.id);
+      onUpdateInstance(instance.id, {
+        isRunning: true,
+        processId: result.pid,
+        status: "ready",
+      });
+      updateStartupProgress(instance.id, {
+        active: false,
+        progress: 100,
+        stage: "Instancia iniciada",
+      });
+    } catch (error) {
+      updateStartupProgress(instance.id, {
+        active: false,
+        progress: 0,
+        stage: "Error al iniciar",
+      });
+      setInstanceLaunchStatus(
+        instance.id,
+        error instanceof Error
+          ? `No se pudo iniciar ${instance.name}: ${error.message}`
+          : `No se pudo iniciar ${instance.name}.`,
+      );
+    }
+  };
+
   return (
     <section
       className="panel-view panel-view--instances"
@@ -3230,7 +3339,12 @@ export const InstancePanel = ({
           <button
             type="button"
             className="panel-view__focus-toggle"
-            onClick={onToggleFocusMode}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setContextMenu(null);
+              onToggleFocusMode();
+            }}
             aria-label={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
             title={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
           >
@@ -3287,6 +3401,9 @@ export const InstancePanel = ({
                       onSelectInstance(instance.id);
                     }}
                     onContextMenu={(event) => handleContextMenu(event, instance)}
+                    onDoubleClick={() => {
+                      void handleQuickLaunch(instance);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
@@ -4166,7 +4283,9 @@ ${rows.join("\n")}`;
                   const alreadySelected = selectedCatalogMods.some(
                     (item) => item.id === mod.id && item.provider === mod.provider,
                   );
-                  return (
+                
+
+  return (
                     <div
                       key={`${mod.provider}-${mod.id}`}
                       className="instance-editor__table-row"
