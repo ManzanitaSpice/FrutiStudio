@@ -26,10 +26,21 @@ const explorerCategories: ExplorerCategory[] = [
 
 const loaders = ["", "forge", "fabric", "quilt", "neoforge"];
 
+type ExplorerViewMode = "cards" | "list" | "table";
+type SortDirection = "desc" | "asc";
+
 interface ExplorerPanelProps {
   externalQuery?: string;
   externalQueryToken?: number;
 }
+
+const oneLine = (text: string) => {
+  const sanitized = text.replace(/\s+/g, " ").trim();
+  if (sanitized.length <= 110) {
+    return sanitized;
+  }
+  return `${sanitized.slice(0, 107)}...`;
+};
 
 export const ExplorerPanel = ({
   externalQuery,
@@ -63,6 +74,9 @@ export const ExplorerPanel = ({
     y: number;
     item: ExplorerItem;
   } | null>(null);
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [viewMode, setViewMode] = useState<ExplorerViewMode>("cards");
 
   useEffect(() => {
     let isActive = true;
@@ -177,12 +191,30 @@ export const ExplorerPanel = ({
   }, [selectedItem]);
 
   const grouped = useMemo(() => {
-    const bySource = {
-      Modrinth: items.filter((item) => item.source === "Modrinth"),
-      CurseForge: items.filter((item) => item.source === "CurseForge"),
+    const sortedItems = [...items].sort((a, b) => {
+      if (filters.sort === "updated") {
+        const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return sortDirection === "asc" ? aTime - bTime : bTime - aTime;
+      }
+      if (filters.sort === "relevance") {
+        return sortDirection === "asc"
+          ? a.name.localeCompare(b.name)
+          : b.name.localeCompare(a.name);
+      }
+      return sortDirection === "asc"
+        ? a.rawDownloads - b.rawDownloads
+        : b.rawDownloads - a.rawDownloads;
+    });
+
+    return {
+      Modrinth: sortedItems.filter((item) => item.source === "Modrinth"),
+      CurseForge: sortedItems.filter((item) => item.source === "CurseForge"),
+      Otros: sortedItems.filter(
+        (item) => item.source !== "Modrinth" && item.source !== "CurseForge",
+      ),
     };
-    return bySource;
-  }, [items]);
+  }, [filters.sort, items, sortDirection]);
 
   const updateFilter = <K extends keyof ExplorerFilters>(
     key: K,
@@ -262,124 +294,153 @@ export const ExplorerPanel = ({
 
   return (
     <section className="panel-view panel-view--explorer">
-      <div className="explorer-layout">
-        <aside className="explorer-layout__sidebar">
-          <div className="explorer-layout__filters">
-            <div className="explorer-layout__filters-header">
-              <h4>Filtro avanzado</h4>
-              <button
-                type="button"
-                onClick={() =>
-                  setFilters({
-                    category: "Modpacks",
-                    sort: "popular",
-                    platform: "all",
-                    query: "",
-                    gameVersion: "",
-                    loader: "",
-                    page: 0,
-                    pageSize: 16,
-                  })
-                }
-              >
-                Restablecer
-              </button>
-            </div>
-            <input
-              type="search"
-              placeholder="Buscar por nombre..."
-              value={filters.query}
-              onChange={(event) => updateFilter("query", event.target.value)}
-            />
-            <label className="explorer-layout__field">
-              Minecraft
-              <select
-                value={filters.gameVersion}
-                onChange={(event) => updateFilter("gameVersion", event.target.value)}
-              >
-                {minecraftVersions.map((version) => (
-                  <option key={version || "all"} value={version}>
-                    {version || "Todas"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="explorer-layout__field">
-              Loader
-              <select
-                value={filters.loader}
-                onChange={(event) => updateFilter("loader", event.target.value)}
-              >
-                {loaders.map((loader) => (
-                  <option key={loader || "all"} value={loader}>
-                    {loader || "Todos"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="explorer-layout__field">
-              Plataforma
-              <select
-                value={filters.platform}
-                onChange={(event) =>
-                  updateFilter(
-                    "platform",
-                    event.target.value as "all" | "modrinth" | "curseforge",
-                  )
-                }
-              >
-                <option value="all">Todas</option>
-                <option value="modrinth">Modrinth</option>
-                <option value="curseforge">CurseForge</option>
-              </select>
-            </label>
-          </div>
-          <h3>Categorías</h3>
-          <div className="explorer-layout__categories">
-            {explorerCategories.map((category) => (
-              <button
-                key={category}
-                type="button"
-                onClick={() => updateFilter("category", category)}
-                className={
-                  filters.category === category
-                    ? "explorer-layout__category explorer-layout__category--active"
-                    : "explorer-layout__category"
-                }
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-        </aside>
-
+      <div className="explorer-layout explorer-layout--upgraded">
         <div className="explorer-layout__results">
-          <div className="explorer-layout__toolbar">
+          <div className="explorer-layout__toolbar explorer-layout__toolbar--top">
             <div>
               <h3>{filters.category}</h3>
               <p>{total} resultados encontrados</p>
               {loading && <small>Cargando resultados...</small>}
               {error && <small className="explorer-layout__error">{error}</small>}
             </div>
-            <div className="explorer-layout__sort">
-              <span>Ordenar por</span>
-              <select
-                value={filters.sort}
-                onChange={(event) =>
-                  updateFilter(
-                    "sort",
-                    event.target.value as "popular" | "updated" | "relevance",
-                  )
-                }
-              >
-                <option value="popular">Popularidad</option>
-                <option value="updated">Actualizaciones recientes</option>
-                <option value="relevance">Relevancia</option>
-              </select>
+            <div className="explorer-layout__actions">
+              <button type="button" onClick={() => setShowAdvancedFilter((prev) => !prev)}>
+                Filtro avanzado ▾
+              </button>
+              <label className="explorer-layout__sort">
+                Ordenar
+                <select
+                  value={filters.sort}
+                  onChange={(event) =>
+                    updateFilter(
+                      "sort",
+                      event.target.value as "popular" | "updated" | "relevance",
+                    )
+                  }
+                >
+                  <option value="popular">Popularidad</option>
+                  <option value="updated">Actualización</option>
+                  <option value="relevance">Relevancia</option>
+                </select>
+              </label>
+              <button type="button" onClick={() => setSortDirection("asc")}>
+                Ascendente
+              </button>
+              <button type="button" onClick={() => setSortDirection("desc")}>
+                Descendente
+              </button>
+              <label className="explorer-layout__sort">
+                Vista
+                <select
+                  value={viewMode}
+                  onChange={(event) =>
+                    setViewMode(event.target.value as "cards" | "list" | "table")
+                  }
+                >
+                  <option value="cards">Tarjetas</option>
+                  <option value="list">Lista</option>
+                  <option value="table">Tabla</option>
+                </select>
+              </label>
             </div>
           </div>
 
-          <div className="explorer-layout__list">
+          {showAdvancedFilter ? (
+            <div className="explorer-layout__advanced-panel">
+              <div className="explorer-layout__filters-header">
+                <h4>Filtro avanzado</h4>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFilters({
+                      category: "Modpacks",
+                      sort: "popular",
+                      platform: "all",
+                      query: "",
+                      gameVersion: "",
+                      loader: "",
+                      page: 0,
+                      pageSize: 16,
+                    })
+                  }
+                >
+                  Restablecer
+                </button>
+              </div>
+
+              <div className="explorer-layout__filters-grid">
+                <input
+                  type="search"
+                  placeholder="Buscar por nombre..."
+                  value={filters.query}
+                  onChange={(event) => updateFilter("query", event.target.value)}
+                />
+                <label className="explorer-layout__field">
+                  Minecraft
+                  <select
+                    value={filters.gameVersion}
+                    onChange={(event) => updateFilter("gameVersion", event.target.value)}
+                  >
+                    {minecraftVersions.map((version) => (
+                      <option key={version || "all"} value={version}>
+                        {version || "Todas"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="explorer-layout__field">
+                  Loader
+                  <select
+                    value={filters.loader}
+                    onChange={(event) => updateFilter("loader", event.target.value)}
+                  >
+                    {loaders.map((loader) => (
+                      <option key={loader || "all"} value={loader}>
+                        {loader || "Todos"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="explorer-layout__field">
+                  Plataforma
+                  <select
+                    value={filters.platform}
+                    onChange={(event) =>
+                      updateFilter(
+                        "platform",
+                        event.target.value as "all" | "modrinth" | "curseforge",
+                      )
+                    }
+                  >
+                    <option value="all">Todas</option>
+                    <option value="modrinth">Modrinth</option>
+                    <option value="curseforge">CurseForge</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="explorer-layout__categories-inline">
+                {explorerCategories.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => updateFilter("category", category)}
+                    className={
+                      filters.category === category
+                        ? "explorer-layout__category explorer-layout__category--active"
+                        : "explorer-layout__category"
+                    }
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div
+            className={`explorer-layout__list explorer-layout__list--${viewMode}`}
+          >
             {Object.entries(grouped).map(([source, sourceItems]) =>
               sourceItems.length ? (
                 <div key={source} className="explorer-layout__source-block">
@@ -406,10 +467,15 @@ export const ExplorerPanel = ({
                         )}
                         <div className="explorer-item__info">
                           <h4>{item.name}</h4>
-                          <div className="explorer-item__meta">
-                            <span>{item.type}</span>
-                            <span>{item.author}</span>
-                            <span>{item.downloads}</span>
+                          <p>{oneLine(item.description)}</p>
+                          <div className="explorer-item__meta explorer-item__meta--rich">
+                            <span>Autor: {item.author}</span>
+                            <span>Targets: {item.type}</span>
+                            <span>Descargas: {item.downloads}</span>
+                            <span>Última actualización: {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "N/D"}</span>
+                            <span>Peso: N/D</span>
+                            <span>Loader: {item.loaders[0] ?? "N/D"}</span>
+                            <span>Minecraft: {item.versions[0] ?? "N/D"}</span>
                             <span className="explorer-item__source">{item.source}</span>
                           </div>
                         </div>

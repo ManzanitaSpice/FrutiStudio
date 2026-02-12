@@ -119,6 +119,8 @@ export const NewsPanel = () => {
     [catalog, categories],
   );
 
+  const featuredItem = popularModpacks[carouselIndex] ?? null;
+
   useEffect(() => {
     if (!contextMenu) {
       return;
@@ -165,71 +167,80 @@ export const NewsPanel = () => {
       ) : null}
 
       {popularModpacks.length ? (
-        <div className="news-section">
+        <div className="news-section news-section--featured">
           <div className="news-section__header">
-            <h3>Modpacks populares</h3>
-            <span className="news-section__meta">Carrusel automático</span>
+            <h3>Selección destacada</h3>
+            <span className="news-section__meta">Inspirado en catálogo e-commerce</span>
           </div>
-          <div className="news-carousel">
-            <button
-              type="button"
-              className="news-carousel__nav news-carousel__nav--prev"
-              onClick={previousCarousel}
-              aria-label="Anterior"
-            >
-              ‹
-            </button>
-            {popularModpacks.map((item, index) => (
-              <article
-                key={item.id}
-                className={
-                  index === carouselIndex
-                    ? "explorer-item explorer-item--card news-carousel__item is-active"
-                    : "explorer-item explorer-item--card news-carousel__item"
-                }
-                onContextMenu={(event) => handleItemContextMenu(event, item)}
+          {featuredItem ? (
+            <div className="news-carousel news-carousel--featured">
+              <button
+                type="button"
+                className="news-carousel__nav news-carousel__nav--prev"
+                onClick={previousCarousel}
+                aria-label="Anterior"
               >
-                {item.thumbnail ? (
+                ‹
+              </button>
+              <article
+                className="news-featured-card"
+                onContextMenu={(event) => handleItemContextMenu(event, featuredItem)}
+              >
+                {featuredItem.thumbnail ? (
                   <img
-                    className="explorer-item__icon"
-                    src={item.thumbnail}
-                    alt={item.name}
+                    className="news-featured-card__image"
+                    src={featuredItem.thumbnail}
+                    alt={featuredItem.name}
                   />
                 ) : (
-                  <div className="explorer-item__icon" />
+                  <div className="news-featured-card__image" />
                 )}
-                <div className="explorer-item__info">
-                  <h4>{item.name}</h4>
-                  <p>{item.description}</p>
-                  <div className="explorer-item__meta">
-                    <span>{item.source}</span>
-                    <span>{item.author}</span>
-                    <span>{item.downloads}</span>
+                <div className="news-featured-card__content">
+                  <p className="news-featured-card__kicker">Popular</p>
+                  <h4>{featuredItem.name}</h4>
+                  <p>{featuredItem.description}</p>
+                  <div className="news-featured-card__stats">
+                    <span>{featuredItem.source}</span>
+                    <span>{featuredItem.author}</span>
+                    <span>{featuredItem.downloads}</span>
+                  </div>
+                  <div className="news-featured-card__actions">
+                    <button type="button" onClick={() => setSelectedItem(featuredItem)}>
+                      Ver más
+                    </button>
+                    <button
+                      type="button"
+                      className="explorer-item__secondary"
+                      onClick={() => setInstallItem(featuredItem)}
+                    >
+                      Instalar
+                    </button>
                   </div>
                 </div>
-                <div className="explorer-item__actions">
-                  <button type="button" onClick={() => setSelectedItem(item)}>
-                    Ver más
-                  </button>
-                  <button
-                    type="button"
-                    className="explorer-item__secondary"
-                    onClick={() => setInstallItem(item)}
-                  >
-                    Instalar
-                  </button>
+                <div className="news-featured-card__rail">
+                  {popularModpacks.slice(0, 5).map((item, index) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={index === carouselIndex ? "is-active" : ""}
+                      onClick={() => setCarouselIndex(index)}
+                    >
+                      {item.thumbnail ? <img src={item.thumbnail} alt="" /> : <span>•</span>}
+                      <span>{item.name}</span>
+                    </button>
+                  ))}
                 </div>
               </article>
-            ))}
-            <button
-              type="button"
-              className="news-carousel__nav news-carousel__nav--next"
-              onClick={nextCarousel}
-              aria-label="Siguiente"
-            >
-              ›
-            </button>
-          </div>
+              <button
+                type="button"
+                className="news-carousel__nav news-carousel__nav--next"
+                onClick={nextCarousel}
+                aria-label="Siguiente"
+              >
+                ›
+              </button>
+            </div>
+          ) : null}
           <div
             className="news-carousel__dots"
             role="tablist"
