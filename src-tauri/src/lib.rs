@@ -42,6 +42,7 @@ use crate::core::instance::{
 use crate::core::instance_config::{instance_game_dir, resolve_instance_launch_config};
 use crate::core::java::{JavaManager, JavaResolution, JavaRuntime};
 use crate::core::java_resolver::{required_java_major, required_java_major_for_version};
+use crate::core::launch_pipeline::{LauncherDataLayout, CANONICAL_LAUNCHER_DIRS};
 use crate::core::launcher::{
     LaunchAuth, LaunchInstanceResult, LaunchPlan, LoaderCrashDiagnostic, MinecraftJarValidation,
     ModInspection, ModLoaderKind, RuntimeLogSnapshot, RuntimeRepairResult,
@@ -51,6 +52,7 @@ use crate::core::launcher_discovery::{
     detect_loader_from_version_json, detect_minecraft_launcher_installations,
     expected_main_class_for_loader,
 };
+use crate::core::loader_normalizer::normalize_loader_profile as normalize_loader_profile_core;
 use crate::core::network::{
     CurseforgeDownloadResolution, CurseforgeFileData, CurseforgeFileEnvelope,
     CurseforgeFingerprintMatch, CurseforgeFingerprintsData, CurseforgeFingerprintsEnvelope,
@@ -359,7 +361,7 @@ fn init_database(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-const REQUIRED_LAUNCHER_DIRS: [&str; 3] = ["instances", "downloads", "logs"];
+const REQUIRED_LAUNCHER_DIRS: [&str; CANONICAL_LAUNCHER_DIRS.len()] = CANONICAL_LAUNCHER_DIRS;
 const ASSET_MIRROR_BASES: [&str; 3] = [
     "https://bmclapi2.bangbang93.com/assets",
     "https://resources.download.minecraft.net",
@@ -658,13 +660,17 @@ fn normalize_launcher_root_candidate(base_path: &Path) -> PathBuf {
 
 fn ensure_launcher_layout(app: &tauri::AppHandle) -> Result<(), String> {
     let root = launcher_root(app)?;
-    fs::create_dir_all(&root)
-        .map_err(|error| format!("No se pudo crear carpeta raíz del launcher: {error}"))?;
+    let layout = LauncherDataLayout::from_root(&root);
+    layout.ensure()?;
+
     for directory in REQUIRED_LAUNCHER_DIRS {
-        fs::create_dir_all(root.join(directory)).map_err(|error| {
-            format!("No se pudo crear carpeta requerida ({directory}): {error}")
-        })?;
+        if !root.join(directory).exists() {
+            return Err(format!(
+                "No se pudo validar carpeta requerida del launcher_data: {directory}"
+            ));
+        }
     }
+
     Ok(())
 }
 
@@ -2366,25 +2372,7 @@ fn resolve_loader_profile_json(
 }
 
 fn normalize_loader_profile(profile: &mut Value, minecraft_version: &str, loader: &str) {
-    let Some(profile_obj) = profile.as_object_mut() else {
-        return;
-    };
-
-    profile_obj.insert(
-        "inheritsFrom".to_string(),
-        Value::String(minecraft_version.to_string()),
-    );
-    profile_obj.insert(
-        "jar".to_string(),
-        Value::String(minecraft_version.to_string()),
-    );
-
-    if let Some(main_class) = expected_main_class_for_loader(loader) {
-        profile_obj.insert(
-            "mainClass".to_string(),
-            Value::String(main_class.to_string()),
-        );
-    }
+    normalize_loader_profile_core(profile, minecraft_version, loader);
 }
 
 fn persist_loader_profile_json(

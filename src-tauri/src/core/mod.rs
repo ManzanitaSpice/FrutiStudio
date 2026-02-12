@@ -1,3 +1,4 @@
+pub mod asset_downloader;
 pub mod auth;
 pub mod config;
 pub mod downloader;
@@ -8,8 +9,10 @@ pub mod instance_runner;
 pub mod java;
 pub mod java_manager;
 pub mod java_resolver;
+pub mod launch_pipeline;
 pub mod launcher;
 pub mod launcher_discovery;
+pub mod loader_normalizer;
 pub mod modloader_resolver;
 pub mod network;
 pub mod runtime_manager;

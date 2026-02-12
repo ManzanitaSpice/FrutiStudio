@@ -5,7 +5,7 @@ use flate2::read::GzDecoder;
 use serde_json::Value;
 use tar::Archive;
 
-use crate::{command_available, download_with_retries, java_bin_name, launcher_root};
+use crate::{download_with_retries, java_bin_name, launcher_root};
 
 const ADOPTIUM_RELEASES: &str = "https://api.adoptium.net/v3/assets/latest";
 
@@ -33,10 +33,6 @@ impl RuntimeManager {
 
         fs::create_dir_all(&self.runtime_root)
             .map_err(|error| format!("No se pudo crear carpeta runtime: {error}"))?;
-
-        if command_available("java") {
-            return Ok(PathBuf::from("java"));
-        }
 
         let package_url = self.resolve_runtime_package(java_major).await?;
         let archive_name = package_url
@@ -95,6 +91,8 @@ impl RuntimeManager {
             })?;
         }
 
+        validate_java_runtime(&java_path)?;
+
         Ok(java_path)
     }
 
@@ -142,6 +140,31 @@ impl RuntimeManager {
             format!("No hay runtime Java {java_major} disponible para esta plataforma")
         })
     }
+}
+
+fn validate_java_runtime(java_path: &Path) -> Result<(), String> {
+    let output = std::process::Command::new(java_path)
+        .arg("-version")
+        .output()
+        .map_err(|error| {
+            format!(
+                "No se pudo ejecutar Java embebido {}: {error}",
+                java_path.display()
+            )
+        })?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Err(format!(
+        "Java embebido inválido ({}). stdout: {} stderr: {}",
+        java_path.display(),
+        stdout.trim(),
+        stderr.trim()
+    ))
 }
 
 fn runtime_folder_name(java_major: u32) -> &'static str {
