@@ -3919,6 +3919,71 @@ fn parse_quilt_dependencies(value: &Value) -> Vec<String> {
         .collect()
 }
 
+fn parse_forge_dependencies_from_toml(raw: &str) -> Vec<String> {
+    let mut dependencies = Vec::new();
+    let mut in_dependencies_section = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if trimmed.starts_with("[[") && trimmed.ends_with("]]") {
+            in_dependencies_section = trimmed.contains("dependencies");
+            continue;
+        }
+
+        if !in_dependencies_section {
+            continue;
+        }
+
+        if let Some((key, value)) = trimmed.split_once('=') {
+            if key.trim() != "modId" {
+                continue;
+            }
+            let dep = value.trim().trim_matches('"').trim_matches('\'').trim();
+            if !dep.is_empty() {
+                dependencies.push(dep.to_string());
+            }
+        }
+    }
+
+    dependencies
+}
+
+fn parse_forge_mod_id_from_toml(raw: &str) -> Option<String> {
+    let mut in_mods_section = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if trimmed.starts_with("[[") && trimmed.ends_with("]]") {
+            in_mods_section = trimmed.contains("mods");
+            continue;
+        }
+
+        if !in_mods_section {
+            continue;
+        }
+
+        if let Some((key, value)) = trimmed.split_once('=') {
+            if key.trim() != "modId" {
+                continue;
+            }
+            let id = value.trim().trim_matches('"').trim_matches('\'').trim();
+            if !id.is_empty() {
+                return Some(id.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 fn inspect_mod_jar(mod_jar: &Path) -> ModInspection {
     let Ok(file) = fs::File::open(mod_jar) else {
         return ModInspection {
@@ -3970,6 +4035,20 @@ fn inspect_mod_jar(mod_jar: &Path) -> ModInspection {
     let has_forge = zip.by_name("META-INF/mods.toml").is_ok() || zip.by_name("mcmod.info").is_ok();
     let has_neoforge = zip.by_name("META-INF/neoforge.mods.toml").is_ok();
 
+    let forge_toml = {
+        match zip.by_name("META-INF/mods.toml") {
+            Ok(mut entry) => {
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    Some(content)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    };
+
     let loader = if has_fabric {
         ModLoaderKind::Fabric
     } else if has_quilt {
@@ -4011,6 +4090,11 @@ fn inspect_mod_jar(mod_jar: &Path) -> ModInspection {
                 dependencies.extend(parse_quilt_dependencies(depends));
             }
         }
+    } else if let Some(content) = forge_toml {
+        if id.is_none() {
+            id = parse_forge_mod_id_from_toml(&content);
+        }
+        dependencies.extend(parse_forge_dependencies_from_toml(&content));
     }
 
     ModInspection {
@@ -4061,7 +4145,7 @@ fn evaluate_mod_loader_compatibility(
 
         let inspection = inspect_mod_jar(&path);
         if let Some(id) = inspection.id.clone() {
-            installed_ids.insert(id);
+            installed_ids.insert(id.to_lowercase());
         }
         inspected.push((path, inspection));
     }
@@ -4110,11 +4194,15 @@ fn evaluate_mod_loader_compatibility(
         }
 
         for dependency in inspection.dependencies {
+            let dependency = dependency.trim().to_lowercase();
             if dependency == "minecraft"
                 || dependency == "java"
                 || dependency == "fabricloader"
                 || dependency == "fabric-loader"
                 || dependency == "quilt_loader"
+                || dependency == "forge"
+                || dependency == "neoforge"
+                || dependency == "fml"
             {
                 continue;
             }
@@ -5192,10 +5280,20 @@ async fn bootstrap_instance_runtime(
 
     java_args = normalize_java_launch_args(java_args, classpath_value, &natives_dir);
 
+    let persisted_runtime_version_json = persist_instance_runtime_version_json(
+        instance_root,
+        &version_name,
+        &effective_version_json,
+    )?;
+
     write_instance_state(
         instance_root,
         "building_launch_plan",
-        serde_json::json!({"step": "launch_plan"}),
+        serde_json::json!({
+            "step": "launch_plan",
+            "runtimeVersionJson": persisted_runtime_version_json.to_string_lossy(),
+            "launchVersion": version_name,
+        }),
     );
 
     let launch_plan = LaunchPlan {
@@ -5212,10 +5310,7 @@ async fn bootstrap_instance_runtime(
             .to_string_lossy()
             .to_string(),
         natives_dir: natives_dir.to_string_lossy().to_string(),
-        version_json: version_dir
-            .join(format!("{version}.json"))
-            .to_string_lossy()
-            .to_string(),
+        version_json: persisted_runtime_version_json.to_string_lossy().to_string(),
         asset_index: asset_index_id.to_string(),
         required_java_major: java_major,
         resolved_java_major: selected.major,
@@ -5256,6 +5351,40 @@ async fn bootstrap_instance_runtime(
     .map_err(|error| format!("No se pudo escribir launch-command.txt: {error}"))?;
 
     Ok(())
+}
+
+fn persist_instance_runtime_version_json(
+    instance_root: &Path,
+    launch_version_name: &str,
+    merged_version_json: &Value,
+) -> Result<PathBuf, String> {
+    let runtime_dir = instance_root.join(".runtime");
+    fs::create_dir_all(&runtime_dir)
+        .map_err(|error| format!("No se pudo crear carpeta de runtime persistente: {error}"))?;
+
+    let runtime_version_path = runtime_dir.join("version.json");
+    fs::write(
+        &runtime_version_path,
+        serde_json::to_string_pretty(merged_version_json)
+            .map_err(|error| format!("No se pudo serializar runtime version.json: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo guardar runtime version.json: {error}"))?;
+
+    let runtime_state = serde_json::json!({
+        "launchVersion": launch_version_name,
+        "updatedAt": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default(),
+    });
+    fs::write(
+        runtime_dir.join("runtime_state.json"),
+        serde_json::to_string_pretty(&runtime_state)
+            .map_err(|error| format!("No se pudo serializar runtime_state.json: {error}"))?,
+    )
+    .map_err(|error| format!("No se pudo guardar runtime_state.json: {error}"))?;
+
+    Ok(runtime_version_path)
 }
 
 fn summarize_state_details(details: &Value) -> String {
@@ -5685,9 +5814,20 @@ fn launch_plan_matches_instance(plan: &LaunchPlan, instance: &InstanceRecord) ->
         .unwrap_or("vanilla")
         .trim()
         .to_lowercase();
-    let plan_version = extract_or_fallback_arg(&plan.game_args, "--version", &instance.version);
+    let plan_version = extract_or_fallback_arg(&plan.game_args, "--version", &instance.version)
+        .trim()
+        .to_lowercase();
+    let requested_version = instance.version.trim().to_lowercase();
 
-    plan_version == instance.version && plan.loader == requested_loader
+    let version_matches = if requested_loader == "vanilla" {
+        plan_version == requested_version
+    } else {
+        plan_version == requested_version
+            || plan_version.starts_with(&format!("{requested_version}-"))
+            || plan_version.contains(&requested_version)
+    };
+
+    version_matches && plan.loader == requested_loader
 }
 
 fn build_launch_command(
@@ -8520,5 +8660,75 @@ mod tests {
         assert_eq!(detect_loader_from_version_json(&forge), Some("forge"));
         assert_eq!(detect_loader_from_version_json(&neoforge), Some("neoforge"));
         assert_eq!(detect_loader_from_version_json(&vanilla), Some("vanilla"));
+    }
+
+    #[test]
+    fn parse_forge_toml_extracts_mod_id_and_dependencies() {
+        let toml = r#"
+[[mods]]
+modId = "examplemod"
+
+[[dependencies.examplemod]]
+modId = "forge"
+
+[[dependencies.examplemod]]
+modId = "cloth_config"
+"#;
+
+        assert_eq!(
+            parse_forge_mod_id_from_toml(toml).as_deref(),
+            Some("examplemod")
+        );
+        assert_eq!(
+            parse_forge_dependencies_from_toml(toml),
+            vec!["forge".to_string(), "cloth_config".to_string()]
+        );
+    }
+
+    #[test]
+    fn launch_plan_matches_loader_profile_id_without_forcing_rebuild() {
+        let instance = InstanceRecord {
+            id: "inst-1".to_string(),
+            name: "Instance".to_string(),
+            version: "1.21.1".to_string(),
+            loader_name: Some("fabric".to_string()),
+            loader_version: Some("0.16.9".to_string()),
+            source_launcher: None,
+            source_path: None,
+            source_instance_name: None,
+            java_mode: None,
+            java_path: None,
+        };
+
+        let plan = LaunchPlan {
+            java_path: "java".to_string(),
+            java_args: vec![],
+            game_args: vec![
+                "--version".to_string(),
+                "fabric-loader-0.16.9-1.21.1".to_string(),
+            ],
+            main_class: "net.fabricmc.loader.launch.knot.KnotClient".to_string(),
+            classpath_entries: vec![],
+            classpath_separator: ":".to_string(),
+            game_dir: "/tmp/game".to_string(),
+            assets_dir: "/tmp/game/assets".to_string(),
+            libraries_dir: "/tmp/game/libraries".to_string(),
+            natives_dir: "/tmp/game/natives".to_string(),
+            version_json: "/tmp/game/.runtime/version.json".to_string(),
+            asset_index: "1.21".to_string(),
+            required_java_major: 17,
+            resolved_java_major: 17,
+            loader: "fabric".to_string(),
+            loader_profile_resolved: true,
+            auth: LaunchAuth {
+                username: "Player".to_string(),
+                uuid: "uuid".to_string(),
+                access_token: "0".to_string(),
+                user_type: "offline".to_string(),
+            },
+            env: HashMap::new(),
+        };
+
+        assert!(launch_plan_matches_instance(&plan, &instance));
     }
 }
