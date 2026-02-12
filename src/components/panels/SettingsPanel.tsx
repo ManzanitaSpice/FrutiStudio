@@ -8,6 +8,7 @@ import { detectJavaProfiles } from "../../services/javaConfig";
 import type { JavaProfile } from "../../types/models";
 import { SelectFolderButton } from "../SelectFolderButton";
 import { launcherFactoryReset } from "../../services/launcherService";
+import { checkPterodactylStatus, type PterodactylStatus } from "../../services/pterodactylService";
 
 const customDefaults = {
   bg: "#f7f4ff",
@@ -52,6 +53,10 @@ export const SettingsPanel = () => {
   const [isDetectingJava, setIsDetectingJava] = useState(false);
   const [factoryResetPhrase, setFactoryResetPhrase] = useState("");
   const [isFactoryResetting, setIsFactoryResetting] = useState(false);
+  const [pterodactylUrl, setPterodactylUrl] = useState("");
+  const [pterodactylApiKey, setPterodactylApiKey] = useState("");
+  const [pterodactylStatus, setPterodactylStatus] = useState<PterodactylStatus | null>(null);
+  const [isCheckingPterodactyl, setIsCheckingPterodactyl] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -78,6 +83,8 @@ export const SettingsPanel = () => {
       setMinecraftRoot(config.minecraftRoot ?? "");
       setSkinsPath(config.skinsPath ?? "skins");
       setFontFamily(config.fontFamily ?? "inter");
+      setPterodactylUrl(config.pterodactylUrl ?? "");
+      setPterodactylApiKey(config.pterodactylApiKey ?? "");
       if (config.customTheme) {
         setCustomTheme(config.customTheme);
       }
@@ -137,6 +144,25 @@ export const SettingsPanel = () => {
       }
     } finally {
       setIsDetectingJava(false);
+    }
+  };
+
+  const handleCheckPterodactyl = async () => {
+    setIsCheckingPterodactyl(true);
+    try {
+      const status = await checkPterodactylStatus(pterodactylUrl, pterodactylApiKey);
+      setPterodactylStatus(status);
+    } catch (error) {
+      setPterodactylStatus({
+        ok: false,
+        panelUrl: pterodactylUrl,
+        message:
+          error instanceof Error
+            ? `No se pudo validar Pterodactyl: ${error.message}`
+            : "No se pudo validar Pterodactyl.",
+      });
+    } finally {
+      setIsCheckingPterodactyl(false);
     }
   };
 
@@ -582,6 +608,55 @@ export const SettingsPanel = () => {
                 />
                 Sugerir actualización de instancia en instalación de modpacks
               </label>
+            </article>
+
+            <article
+              className="settings-card settings-card--glow"
+              onContextMenu={(event) => handleCardContextMenu(event, "pterodactyl")}
+            >
+              <div className="settings-card__header">
+                <h3>Pterodactyl</h3>
+                <p>Panel de inicialización remoto para instancias dedicadas.</p>
+              </div>
+              <label className="panel-view__field">
+                URL del panel
+                <input
+                  type="text"
+                  value={pterodactylUrl}
+                  placeholder="https://panel.tu-host.com"
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setPterodactylUrl(next);
+                    void updateConfig({ pterodactylUrl: next });
+                  }}
+                />
+              </label>
+              <label className="panel-view__field">
+                API key (cliente)
+                <input
+                  type="password"
+                  value={pterodactylApiKey}
+                  placeholder="ptlc_..."
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setPterodactylApiKey(next);
+                    void updateConfig({ pterodactylApiKey: next });
+                  }}
+                />
+              </label>
+              <div className="settings-card__actions">
+                <button type="button" onClick={() => void handleCheckPterodactyl()}>
+                  {isCheckingPterodactyl ? "Conectando..." : "Probar conexión"}
+                </button>
+              </div>
+              {pterodactylStatus ? (
+                <p className="settings-card__hint">
+                  {pterodactylStatus.message}
+                  {pterodactylStatus.username
+                    ? ` Usuario: ${pterodactylStatus.username}`
+                    : ""}
+                </p>
+              ) : null}
             </article>
           </div>
         </section>

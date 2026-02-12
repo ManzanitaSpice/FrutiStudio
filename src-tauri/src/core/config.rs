@@ -50,6 +50,8 @@ pub(crate) struct AppConfig {
     pub(crate) skins_path: Option<String>,
     pub(crate) explorer_filters: Option<Value>,
     pub(crate) network_tuning: Option<NetworkTuning>,
+    pub(crate) pterodactyl_url: Option<String>,
+    pub(crate) pterodactyl_api_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
