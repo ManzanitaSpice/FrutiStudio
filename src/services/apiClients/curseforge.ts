@@ -2,8 +2,6 @@ import { apiFetch } from "./client";
 import { invokeWithHandling } from "../tauriClient";
 import { API_CONFIG } from "../../config/api";
 
-const buildHeaders = (apiKey?: string) => (apiKey ? { "x-api-key": apiKey } : undefined);
-
 const isTauriRuntime = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -14,17 +12,16 @@ const requestCurseforgeV1 = async <T>(
 ): Promise<T> => {
   const params = query ? `?${new URLSearchParams(query).toString()}` : "";
 
-  if (isTauriRuntime() && apiKey) {
+  if (isTauriRuntime()) {
     return invokeWithHandling<T>("curseforge_v1_get", {
       path,
       query,
-      apiKey,
     });
   }
 
   if (apiKey) {
     return apiFetch<T>(`${API_CONFIG.curseforgeBase}${path}${params}`, {
-      init: { headers: buildHeaders(apiKey) },
+      init: { headers: { "x-api-key": apiKey } },
     });
   }
 

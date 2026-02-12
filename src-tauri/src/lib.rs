@@ -163,6 +163,20 @@ fn murmurhash2(data: &[u8]) -> u32 {
     h
 }
 
+fn resolve_curseforge_api_key() -> Result<String, String> {
+    let env_keys = ["CURSEFORGE_API_KEY", "TAURI_CURSEFORGE_API_KEY"];
+    for key in env_keys {
+        if let Ok(value) = std::env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+
+    Err("No se encontró CURSEFORGE_API_KEY en el backend. Configúrala en variables de entorno del proceso Tauri.".to_string())
+}
+
 fn curseforge_headers(api_key: &str) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
     let key =
@@ -8210,7 +8224,6 @@ async fn manage_modpack(app: tauri::AppHandle, action: ModpackAction) -> Result<
 #[command]
 async fn curseforge_scan_fingerprints(
     mods_dir: String,
-    api_key: String,
 ) -> Result<FingerprintScanResult, String> {
     let mods_path = Path::new(&mods_dir);
     if !mods_path.exists() || !mods_path.is_dir() {
@@ -8240,6 +8253,7 @@ async fn curseforge_scan_fingerprints(
         fingerprints: local_files.iter().map(|(_, fp)| *fp).collect(),
     };
 
+    let api_key = resolve_curseforge_api_key()?;
     let headers = curseforge_headers(&api_key)?;
     let client = reqwest::Client::new();
     let response = client
@@ -8310,8 +8324,8 @@ async fn curseforge_scan_fingerprints(
 async fn curseforge_resolve_download(
     mod_id: u32,
     file_id: u32,
-    api_key: String,
 ) -> Result<CurseforgeDownloadResolution, String> {
+    let api_key = resolve_curseforge_api_key()?;
     let headers = curseforge_headers(&api_key)?;
     let client = reqwest::Client::new();
 
@@ -8471,7 +8485,6 @@ async fn install_mod_file(
 async fn curseforge_v1_get(
     path: String,
     query: Option<std::collections::HashMap<String, String>>,
-    api_key: String,
 ) -> Result<Value, String> {
     let normalized = path.trim();
     if normalized.is_empty() || !normalized.starts_with('/') {
@@ -8481,6 +8494,7 @@ async fn curseforge_v1_get(
         );
     }
 
+    let api_key = resolve_curseforge_api_key()?;
     let headers = curseforge_headers(&api_key)?;
     let client = reqwest::Client::new();
     let url = format!("https://api.curseforge.com/v1{normalized}");

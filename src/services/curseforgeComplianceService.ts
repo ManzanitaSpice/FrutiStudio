@@ -38,27 +38,20 @@ export type CurseforgeDownloadAction =
 
 export const scanLocalModsWithCurseforgeFingerprints = async (
   modsDir: string,
-  apiKey: string,
 ): Promise<CurseforgeFingerprintScanResult> =>
-  invokeWithHandling<CurseforgeFingerprintScanResult>(
-    "curseforge_scan_fingerprints",
-    {
-      modsDir,
-      apiKey,
-    },
-  );
+  invokeWithHandling<CurseforgeFingerprintScanResult>("curseforge_scan_fingerprints", {
+    modsDir,
+  });
 
 export const resolveCurseforgeDownloadAction = async (
   modId: number,
   fileId: number,
-  apiKey: string,
 ): Promise<CurseforgeDownloadAction> => {
   const resolution = await invokeWithHandling<CurseforgeDownloadResolution>(
     "curseforge_resolve_download",
     {
       modId,
       fileId,
-      apiKey,
     },
   );
 
