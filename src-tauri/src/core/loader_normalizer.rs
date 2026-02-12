@@ -103,7 +103,7 @@ mod tests {
         );
         assert_eq!(
             profile.get("mainClass").and_then(Value::as_str),
-            Some("cpw.mods.modlauncher.Launcher")
+            Some("cpw.mods.bootstraplauncher.BootstrapLauncher")
         );
     }
 }

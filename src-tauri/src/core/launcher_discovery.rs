@@ -236,8 +236,7 @@ pub(crate) fn expected_main_class_for_loader(loader: &str) -> Option<&'static st
     match loader {
         "fabric" => Some("net.fabricmc.loader.launch.knot.KnotClient"),
         "quilt" => Some("org.quiltmc.loader.impl.launch.knot.KnotClient"),
-        "forge" => Some("cpw.mods.modlauncher.Launcher"),
-        "neoforge" => Some("net.neoforged.fml.loading.targets.ClientLaunchHandler"),
+        "forge" | "neoforge" => Some("cpw.mods.bootstraplauncher.BootstrapLauncher"),
         "vanilla" => Some("net.minecraft.client.main.Main"),
         _ => None,
     }
