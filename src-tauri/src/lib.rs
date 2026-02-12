@@ -3749,7 +3749,10 @@ fn looks_like_minecraft_version_jar(path: &Path) -> bool {
     file_stem == version_dir
 }
 
-fn scan_runtime_integrity(game_dir: &Path) -> RuntimeIntegrityReport {
+fn scan_runtime_integrity(
+    game_dir: &Path,
+    minecraft_version: Option<&str>,
+) -> RuntimeIntegrityReport {
     let mut report = RuntimeIntegrityReport::default();
     let mut seen_corrupt = HashSet::new();
 
@@ -3824,8 +3827,8 @@ fn scan_runtime_integrity(game_dir: &Path) -> RuntimeIntegrityReport {
                     continue;
                 };
 
-                let min_size = if scope == "mods" { 1024 } else { 512 };
-                if meta.len() < min_size {
+                let min_size = if scope == "mods" { 0 } else { 512 };
+                if min_size > 0 && meta.len() < min_size {
                     report.issues.push(RuntimeIntegrityIssue {
                         path: path.clone(),
                         reason: format!(
@@ -3852,6 +3855,9 @@ fn scan_runtime_integrity(game_dir: &Path) -> RuntimeIntegrityReport {
                 }
 
                 if scope == "versions"
+                    && minecraft_version
+                        .map(|expected| expected == file_name.trim_end_matches(".jar"))
+                        .unwrap_or(false)
                     && looks_like_minecraft_version_jar(&path)
                     && !has_minecraft_client_marker(&path)
                 {
@@ -5389,7 +5395,12 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         &plan.loader,
         Some(&launch_mc_version),
     );
-    let runtime_integrity = scan_runtime_integrity(Path::new(&plan.game_dir));
+    let runtime_integrity = scan_runtime_integrity(
+        Path::new(&plan.game_dir),
+        Path::new(&plan.version_json)
+            .file_stem()
+            .and_then(|value| value.to_str()),
+    );
 
     let java_major_compatible = if plan.required_java_major == 0 || plan.resolved_java_major == 0 {
         true
@@ -6655,7 +6666,7 @@ async fn prepare_instance_runtime(
     ensure_instance_metadata(&instance_root, &instance)?;
     let minecraft_root = instance_game_dir(&instance_root);
 
-    let integrity_report = scan_runtime_integrity(&minecraft_root);
+    let integrity_report = scan_runtime_integrity(&minecraft_root, Some(&instance.version));
     if !integrity_report.ok() {
         for path in &integrity_report.corrupt_files {
             let _ = fs::remove_file(path);
@@ -8218,7 +8229,7 @@ mod tests {
         fs::write(libraries_dir.join("broken.jar.part"), b"partial").expect("partial");
         fs::write(versions_dir.join("1.21.4.jar"), b"small").expect("tiny jar");
 
-        let report = scan_runtime_integrity(&game_dir);
+        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
         assert!(!report.ok());
         assert!(!report.corrupt_files.is_empty());
 
@@ -8246,7 +8257,7 @@ mod tests {
             .expect("zip write metadata");
         zip.finish().expect("zip finish");
 
-        let report = scan_runtime_integrity(&game_dir);
+        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
         assert!(report.ok());
 
         fs::remove_dir_all(game_dir).expect("cleanup");
@@ -8281,7 +8292,7 @@ mod tests {
         zip.write_all(&payload).expect("zip write class");
         zip.finish().expect("zip finish");
 
-        let report = scan_runtime_integrity(&game_dir);
+        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
         assert!(report.ok());
 
         fs::remove_dir_all(game_dir).expect("cleanup");
@@ -8309,7 +8320,7 @@ mod tests {
             .expect("manifest content");
         writer.finish().expect("finish jar");
 
-        let report = scan_runtime_integrity(&game_dir);
+        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
         assert!(!report.ok());
         assert!(report
             .issues

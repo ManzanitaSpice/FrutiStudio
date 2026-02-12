@@ -152,6 +152,8 @@ interface StartupProgressState {
   progress: number;
   stage: string;
   details?: string;
+  startedAt?: number;
+  etaSeconds?: number;
 }
 
 const transientBackendStatuses = new Set([
@@ -172,6 +174,29 @@ const transientBackendStatuses = new Set([
   "repaired",
   "launching",
 ]);
+
+
+const formatEta = (etaSeconds?: number): string | null => {
+  if (typeof etaSeconds !== "number" || !Number.isFinite(etaSeconds) || etaSeconds <= 0) {
+    return null;
+  }
+
+  const total = Math.max(1, Math.round(etaSeconds));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+
+  if (minutes <= 0) {
+    return `~${seconds}s`;
+  }
+
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const remMinutes = minutes % 60;
+    return remMinutes > 0 ? `~${hours}h ${remMinutes}m` : `~${hours}h`;
+  }
+
+  return seconds > 0 ? `~${minutes}m ${seconds}s` : `~${minutes}m`;
+};
 
 const mapBackendStepDetail = (detail: unknown): string | undefined => {
   if (typeof detail !== "string") {
@@ -358,17 +383,30 @@ export const InstancePanel = ({
     instanceId: string,
     patch: Partial<StartupProgressState>,
   ) => {
-    setStartupProgressByInstance((prev) => ({
-      ...prev,
-      [instanceId]: {
-        ...(prev[instanceId] ?? {
-          active: false,
-          progress: 0,
-          stage: "Preparando...",
-        }),
+    setStartupProgressByInstance((prev) => {
+      const base = prev[instanceId] ?? {
+        active: false,
+        progress: 0,
+        stage: "Preparando...",
+      };
+      const next: StartupProgressState = {
+        ...base,
         ...patch,
-      },
-    }));
+      };
+
+      if ((patch.active ?? next.active) && !next.startedAt) {
+        next.startedAt = Date.now();
+      }
+
+      if (patch.active === false) {
+        next.etaSeconds = undefined;
+      }
+
+      return {
+        ...prev,
+        [instanceId]: next,
+      };
+    });
   };
 
   const clearStartupProgress = (instanceId: string) => {
@@ -568,6 +606,13 @@ export const InstancePanel = ({
             ? statusMap.installing_loader_waiting
             : statusMap[status];
 
+        const progressValue =
+          typeof snapshot.stateDetails?.progress === "number"
+            ? snapshot.stateDetails.progress
+            : undefined;
+        const hasExplicitProgress =
+          typeof progressValue === "number" && Number.isFinite(progressValue);
+
         const unseenLines = snapshot.lines.filter((line) => {
           const lineKey = `${snapshot.status ?? "no-status"}:${line}`;
           if (launchChecklistSeenLinesRef.current.has(lineKey)) {
@@ -590,12 +635,52 @@ export const InstancePanel = ({
           .slice(-2);
         backendErrors.forEach((line) => appendLog(`🔎 Backend: ${line}`));
 
+        if (
+          status === "downloading_assets" &&
+          typeof snapshot.stateDetails?.completed === "number" &&
+          typeof snapshot.stateDetails?.total === "number"
+        ) {
+          appendLog(
+            `ℹ Assets: ${snapshot.stateDetails.completed}/${snapshot.stateDetails.total} (${snapshot.stateDetails.progress ?? 0}%).`,
+          );
+        }
+
+        if (
+          status === "downloading_libraries" &&
+          typeof snapshot.stateDetails?.total === "number"
+        ) {
+          appendLog(
+            `ℹ Librerías: total ${snapshot.stateDetails.total}, concurrencia ${snapshot.stateDetails.concurrency ?? "?"}.`,
+          );
+        }
+
         if (mappedStatus) {
           updateStartupProgress(instanceId, {
             active: mappedStatus.progress < 100,
-            progress: mappedStatus.progress,
+            progress: hasExplicitProgress ? progressValue : mappedStatus.progress,
             stage: mappedStatus.label,
             details: mapBackendStepDetail(snapshot.stateDetails?.step),
+          });
+
+          setStartupProgressByInstance((prev) => {
+            const current = prev[instanceId];
+            if (!current?.active || !current.startedAt) {
+              return prev;
+            }
+            const elapsedSeconds = Math.max(1, Math.floor((Date.now() - current.startedAt) / 1000));
+            const progress = Math.max(1, Math.min(99, Math.round(current.progress)));
+            const estimatedTotalSeconds = Math.round((elapsedSeconds * 100) / progress);
+            const etaSeconds = Math.max(1, estimatedTotalSeconds - elapsedSeconds);
+            if (current.etaSeconds === etaSeconds) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [instanceId]: {
+                ...current,
+                etaSeconds,
+              },
+            };
           });
 
           const backendStateKey = `${status}:${JSON.stringify(snapshot.stateDetails ?? {})}`;
@@ -3788,6 +3873,11 @@ ${rows.join("\n")}`;
                   {startupProgressByInstance[activeChecklistInstanceId].details ? (
                     <small>
                       {startupProgressByInstance[activeChecklistInstanceId].details}
+                    </small>
+                  ) : null}
+                  {formatEta(startupProgressByInstance[activeChecklistInstanceId].etaSeconds) ? (
+                    <small>
+                      Tiempo estimado restante: {formatEta(startupProgressByInstance[activeChecklistInstanceId].etaSeconds)}
                     </small>
                   ) : null}
                 </div>
