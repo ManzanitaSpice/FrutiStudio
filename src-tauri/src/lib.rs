@@ -3333,6 +3333,24 @@ fn ensure_writable_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn is_windows_access_denied(error: &std::io::Error) -> bool {
+    cfg!(target_os = "windows") && error.raw_os_error() == Some(5)
+}
+
+fn access_denied_hint(path: &Path, action: &str, error: &std::io::Error) -> String {
+    if is_windows_access_denied(error) {
+        return format!(
+            "Windows bloqueó {action} en {}: {error}. Cierra Java/Minecraft, ejecuta FrutiLauncher como administrador y revisa antivirus/Acceso controlado a carpetas.",
+            normalized_display_path(path)
+        );
+    }
+
+    format!(
+        "No se pudo {action} en {}: {error}",
+        normalized_display_path(path)
+    )
+}
+
 fn content_type_is_suspicious_for_archive(
     content_type: Option<&reqwest::header::HeaderValue>,
 ) -> bool {
@@ -3462,18 +3480,20 @@ async fn download_with_retries(
                                     break;
                                 }
                                 Err(error) => {
-                                    write_error = Some(format!(
-                                        "No se pudo escribir temporal de descarga {}: {error}",
-                                        partial_path.display()
+                                    write_error = Some(access_denied_hint(
+                                        &partial_path,
+                                        "escribir temporal de descarga",
+                                        &error,
                                     ));
                                     let _ = ensure_writable_file(&partial_path);
                                     let _ = fs::remove_file(&partial_path);
                                 }
                             },
                             Err(error) => {
-                                write_error = Some(format!(
-                                    "No se pudo abrir temporal de descarga {}: {error}",
-                                    partial_path.display()
+                                write_error = Some(access_denied_hint(
+                                    &partial_path,
+                                    "abrir temporal de descarga",
+                                    &error,
                                 ));
                                 let _ = ensure_writable_file(&partial_path);
                                 let _ = fs::remove_file(&partial_path);
@@ -3512,9 +3532,40 @@ async fn download_with_retries(
                         if !partial_path.exists() {
                             break;
                         }
-                        if fs::rename(&partial_path, path).is_ok() {
-                            moved = true;
-                            break;
+                        match fs::rename(&partial_path, path) {
+                            Ok(()) => {
+                                moved = true;
+                                break;
+                            }
+                            Err(rename_error) => {
+                                if path.exists() {
+                                    match fs::remove_file(path) {
+                                        Ok(()) => {
+                                            if fs::rename(&partial_path, path).is_ok() {
+                                                moved = true;
+                                                break;
+                                            }
+                                        }
+                                        Err(remove_error) => {
+                                            if is_windows_access_denied(&remove_error) {
+                                                last_error = Some(access_denied_hint(
+                                                    path,
+                                                    "reemplazar archivo destino",
+                                                    &remove_error,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if is_windows_access_denied(&rename_error) {
+                                    last_error = Some(access_denied_hint(
+                                        path,
+                                        "mover temporal a destino",
+                                        &rename_error,
+                                    ));
+                                }
+                            }
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(120)).await;
                     }
@@ -8109,6 +8160,33 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_windows_access_denied_detects_error_code_5() {
+        let denied = std::io::Error::from_raw_os_error(5);
+        if cfg!(target_os = "windows") {
+            assert!(is_windows_access_denied(&denied));
+        } else {
+            assert!(!is_windows_access_denied(&denied));
+        }
+    }
+
+    #[test]
+    fn access_denied_hint_mentions_windows_block_when_applicable() {
+        let denied = std::io::Error::from_raw_os_error(5);
+        let message = access_denied_hint(
+            Path::new("C:/tmp/demo.jar"),
+            "mover temporal a destino",
+            &denied,
+        );
+
+        if cfg!(target_os = "windows") {
+            assert!(message.contains("Windows bloqueó"));
+            assert!(message.contains("Cierra Java/Minecraft"));
+        } else {
+            assert!(message.contains("No se pudo mover temporal a destino"));
+        }
+    }
 
     #[test]
     fn migrate_config_sets_version() {
