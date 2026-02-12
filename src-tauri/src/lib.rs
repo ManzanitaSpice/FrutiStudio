@@ -2421,20 +2421,34 @@ fn resolve_loader_profile_json(
     base_version_json: &Value,
 ) -> Option<Value> {
     let loader_version = loader_version.unwrap_or("latest").trim();
-    if loader_version.is_empty() || loader_version.eq_ignore_ascii_case("latest") {
+
+    let mut candidates = if loader_version.is_empty() || loader_version.eq_ignore_ascii_case("latest") {
+        if loader == "forge" || loader == "neoforge" {
+            discover_forge_like_profile_id(minecraft_root, loader, version, "")
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        }
+    } else {
+        let mut explicit_candidates = Vec::new();
+        explicit_candidates.push(loader_version.to_string());
+        explicit_candidates.push(format!("{version}-{loader}-{loader_version}"));
+        explicit_candidates.push(format!("{version}-{loader_version}"));
+        if loader == "forge" {
+            explicit_candidates.push(format!("{version}-forge-{loader_version}"));
+        }
+        if loader == "neoforge" {
+            explicit_candidates.push(format!("{version}-neoforge-{loader_version}"));
+        }
+        explicit_candidates
+    };
+
+    if candidates.is_empty() {
         return None;
     }
 
-    let mut candidates = Vec::new();
-    candidates.push(loader_version.to_string());
-    candidates.push(format!("{version}-{loader}-{loader_version}"));
-    candidates.push(format!("{version}-{loader_version}"));
-    if loader == "forge" {
-        candidates.push(format!("{version}-forge-{loader_version}"));
-    }
-    if loader == "neoforge" {
-        candidates.push(format!("{version}-neoforge-{loader_version}"));
-    }
+    candidates = dedupe_non_empty(candidates);
 
     for candidate in candidates {
         let json_path = minecraft_root
@@ -8899,6 +8913,74 @@ mod tests {
         let candidates = expected_forge_like_profile_ids("neoforge", "1.21.1", "21.1.128");
         assert!(candidates.contains(&"21.1.128".to_string()));
         assert!(candidates.contains(&"1.21.1-neoforge-21.1.128".to_string()));
+    }
+
+    #[test]
+    fn resolve_loader_profile_json_falls_back_to_discovered_forge_profile_when_loader_version_is_latest(
+    ) {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let minecraft_root = std::env::temp_dir().join(format!("frutistudio-forge-runtime-{unique}"));
+        let versions_dir = minecraft_root.join("versions");
+        let base_id = "1.21.1";
+        let profile_id = "1.21.1-forge-54.1.8";
+
+        fs::create_dir_all(versions_dir.join(base_id)).expect("base dir");
+        fs::create_dir_all(versions_dir.join(profile_id)).expect("loader dir");
+
+        fs::write(
+            versions_dir.join(base_id).join(format!("{base_id}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": base_id,
+                "mainClass": "net.minecraft.client.main.Main",
+                "libraries": [{"name": "base"}]
+            }))
+            .expect("base json"),
+        )
+        .expect("write base json");
+
+        fs::write(
+            versions_dir.join(profile_id).join(format!("{profile_id}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": profile_id,
+                "inheritsFrom": base_id,
+                "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+                "libraries": [{"name": "net.minecraftforge:forge:1.21.1-54.1.8"}]
+            }))
+            .expect("profile json"),
+        )
+        .expect("write profile json");
+
+        let base_version = serde_json::json!({
+            "id": base_id,
+            "mainClass": "net.minecraft.client.main.Main",
+            "libraries": [{"name": "base"}]
+        });
+
+        let resolved = resolve_loader_profile_json(
+            &minecraft_root,
+            base_id,
+            "forge",
+            Some("latest"),
+            &base_version,
+        )
+        .expect("resolved forge profile");
+
+        assert_eq!(
+            resolved.get("mainClass").and_then(Value::as_str),
+            Some("cpw.mods.bootstraplauncher.BootstrapLauncher")
+        );
+        assert_eq!(
+            resolved
+                .get("libraries")
+                .and_then(Value::as_array)
+                .map(|entries| entries.len()),
+            Some(2)
+        );
+
+        fs::remove_dir_all(minecraft_root).expect("cleanup");
     }
 
     #[test]
