@@ -5370,8 +5370,20 @@ fn persist_instance_runtime_version_json(
     )
     .map_err(|error| format!("No se pudo guardar runtime version.json: {error}"))?;
 
+    let runtime_version_sha1 = file_sha1(&runtime_version_path)?;
+
     let runtime_state = serde_json::json!({
         "launchVersion": launch_version_name,
+        "runtimeVersionSha1": runtime_version_sha1,
+        "librariesCount": merged_version_json
+            .get("libraries")
+            .and_then(Value::as_array)
+            .map(|libraries| libraries.len())
+            .unwrap_or(0),
+        "mainClass": merged_version_json
+            .get("mainClass")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
         "updatedAt": SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -5385,6 +5397,79 @@ fn persist_instance_runtime_version_json(
     .map_err(|error| format!("No se pudo guardar runtime_state.json: {error}"))?;
 
     Ok(runtime_version_path)
+}
+
+fn validate_persisted_runtime_version(
+    instance_root: &Path,
+    launch_plan: &LaunchPlan,
+) -> Result<(), String> {
+    let runtime_version_path = Path::new(&launch_plan.version_json);
+    let raw = fs::read_to_string(runtime_version_path)
+        .map_err(|error| format!("No se pudo leer runtime version.json persistido: {error}"))?;
+    let runtime_json: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("runtime version.json persistido inválido: {error}"))?;
+
+    let runtime_main_class = runtime_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "runtime version.json no contiene mainClass".to_string())?;
+
+    if runtime_main_class.trim() != launch_plan.main_class.trim() {
+        return Err(format!(
+            "runtime version.json y launch plan tienen mainClass distinto (runtime='{}', plan='{}')",
+            runtime_main_class, launch_plan.main_class
+        ));
+    }
+
+    let runtime_libraries_count = runtime_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .map(|libraries| libraries.len())
+        .unwrap_or(0);
+    if runtime_libraries_count == 0 {
+        return Err(
+            "runtime version.json no contiene librerías; se forzará reconstrucción".to_string(),
+        );
+    }
+
+    let runtime_state_path = instance_root.join(".runtime").join("runtime_state.json");
+    if runtime_state_path.is_file() {
+        let state_raw = fs::read_to_string(&runtime_state_path)
+            .map_err(|error| format!("No se pudo leer runtime_state.json: {error}"))?;
+        let runtime_state: Value = serde_json::from_str(&state_raw)
+            .map_err(|error| format!("runtime_state.json inválido: {error}"))?;
+
+        if let Some(expected_sha1) = runtime_state
+            .get("runtimeVersionSha1")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let actual_sha1 = file_sha1(runtime_version_path)?;
+            if !actual_sha1.eq_ignore_ascii_case(expected_sha1) {
+                return Err(format!(
+                    "runtime version.json corrupto (SHA1 esperado {}, obtenido {})",
+                    expected_sha1, actual_sha1
+                ));
+            }
+        }
+
+        if let Some(expected_main_class) = runtime_state
+            .get("mainClass")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if runtime_main_class.trim() != expected_main_class {
+                return Err(format!(
+                    "runtime_state.json tiene mainClass distinto (state='{}', runtime='{}')",
+                    expected_main_class, runtime_main_class
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn summarize_state_details(details: &Value) -> String {
@@ -6838,6 +6923,7 @@ async fn prepare_instance_runtime(
         .map(|plan| {
             launch_plan_matches_instance(plan, &instance)
                 && validate_launch_plan(&instance_root, plan).ok
+                && validate_persisted_runtime_version(&instance_root, plan).is_ok()
                 && integrity_report.ok()
         })
         .unwrap_or(false);
@@ -8730,5 +8816,125 @@ modId = "cloth_config"
         };
 
         assert!(launch_plan_matches_instance(&plan, &instance));
+    }
+    #[test]
+    fn validate_persisted_runtime_version_detects_corruption() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let instance_root =
+            std::env::temp_dir().join(format!("frutistudio-runtime-state-{unique}"));
+        let runtime_dir = instance_root.join(".runtime");
+        fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let runtime_version_path = runtime_dir.join("version.json");
+        let runtime_version = serde_json::json!({
+            "id": "fabric-loader-0.16.9-1.21.1",
+            "mainClass": "net.fabricmc.loader.launch.knot.KnotClient",
+            "libraries": [{"name": "net.fabricmc:fabric-loader:0.16.9"}]
+        });
+        fs::write(
+            &runtime_version_path,
+            serde_json::to_string_pretty(&runtime_version).expect("serialize runtime json"),
+        )
+        .expect("write runtime version");
+
+        let sha1 = file_sha1(&runtime_version_path).expect("sha1");
+        fs::write(
+            runtime_dir.join("runtime_state.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "runtimeVersionSha1": sha1,
+                "mainClass": "net.fabricmc.loader.launch.knot.KnotClient"
+            }))
+            .expect("serialize state"),
+        )
+        .expect("write runtime state");
+
+        let plan = LaunchPlan {
+            java_path: "java".to_string(),
+            java_args: vec![],
+            game_args: vec![
+                "--version".to_string(),
+                "fabric-loader-0.16.9-1.21.1".to_string(),
+            ],
+            main_class: "net.fabricmc.loader.launch.knot.KnotClient".to_string(),
+            classpath_entries: vec![],
+            classpath_separator: ":".to_string(),
+            game_dir: "/tmp/game".to_string(),
+            assets_dir: "/tmp/game/assets".to_string(),
+            libraries_dir: "/tmp/game/libraries".to_string(),
+            natives_dir: "/tmp/game/natives".to_string(),
+            version_json: runtime_version_path.to_string_lossy().to_string(),
+            asset_index: "1.21".to_string(),
+            required_java_major: 17,
+            resolved_java_major: 17,
+            loader: "fabric".to_string(),
+            loader_profile_resolved: true,
+            auth: LaunchAuth {
+                username: "Player".to_string(),
+                uuid: "uuid".to_string(),
+                access_token: "0".to_string(),
+                user_type: "offline".to_string(),
+            },
+            env: HashMap::new(),
+        };
+
+        assert!(validate_persisted_runtime_version(&instance_root, &plan).is_ok());
+
+        fs::write(&runtime_version_path, "{corrupt-json").expect("corrupt runtime version");
+        assert!(validate_persisted_runtime_version(&instance_root, &plan).is_err());
+
+        fs::remove_dir_all(instance_root).expect("cleanup");
+    }
+
+    #[test]
+    fn inspect_mod_jar_reads_fabric_and_quilt_metadata() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("frutistudio-mod-parse-{unique}"));
+        fs::create_dir_all(&root).expect("root");
+
+        let fabric_path = root.join("fabric.jar");
+        {
+            let file = fs::File::create(&fabric_path).expect("fabric jar");
+            let mut zip = ZipWriter::new(file);
+            let options = SimpleFileOptions::default();
+            zip.start_file("fabric.mod.json", options)
+                .expect("fabric start");
+            zip.write_all(
+                br#"{"id":"fabric_example","depends":{"minecraft":">=1.21","cloth-config":"*"}}"#,
+            )
+            .expect("fabric write");
+            zip.finish().expect("fabric finish");
+        }
+
+        let quilt_path = root.join("quilt.jar");
+        {
+            let file = fs::File::create(&quilt_path).expect("quilt jar");
+            let mut zip = ZipWriter::new(file);
+            let options = SimpleFileOptions::default();
+            zip.start_file("quilt.mod.json", options)
+                .expect("quilt start");
+            zip.write_all(
+                br#"{"quilt_loader":{"id":"quilt_example","depends":[{"id":"minecraft"},{"id":"qsl"}]}}"#,
+            )
+            .expect("quilt write");
+            zip.finish().expect("quilt finish");
+        }
+
+        let fabric = inspect_mod_jar(&fabric_path);
+        assert_eq!(fabric.loader, ModLoaderKind::Fabric);
+        assert_eq!(fabric.id.as_deref(), Some("fabric_example"));
+        assert!(fabric.dependencies.contains(&"cloth-config".to_string()));
+
+        let quilt = inspect_mod_jar(&quilt_path);
+        assert_eq!(quilt.loader, ModLoaderKind::Quilt);
+        assert_eq!(quilt.id.as_deref(), Some("quilt_example"));
+        assert!(quilt.dependencies.contains(&"qsl".to_string()));
+
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }
