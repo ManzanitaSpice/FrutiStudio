@@ -1,7 +1,15 @@
+import { API_CONFIG } from "../config/api";
+
 const STORAGE_KEY = "frutilauncher.curseforgeApiKey";
 
-export const getCurseforgeApiKey = () =>
-  typeof window === "undefined" ? "" : window.localStorage.getItem(STORAGE_KEY) ?? "";
+export const getCurseforgeApiKey = () => {
+  if (typeof window === "undefined") {
+    return API_CONFIG.curseforgeApiKey;
+  }
+
+  const fromStorage = window.localStorage.getItem(STORAGE_KEY)?.trim() ?? "";
+  return fromStorage || API_CONFIG.curseforgeApiKey;
+};
 
 export const saveCurseforgeApiKey = (apiKey: string) => {
   if (typeof window === "undefined") {

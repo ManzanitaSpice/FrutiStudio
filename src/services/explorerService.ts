@@ -1,6 +1,7 @@
 import { apiFetch } from "./apiClients/client";
 import { getCurseforgeApiKey } from "./curseforgeKeyService";
 import { invokeWithHandling } from "./tauriClient";
+import { API_CONFIG } from "../config/api";
 
 export type ExplorerCategory =
   | "Modpacks"
@@ -179,11 +180,6 @@ interface CurseforgeDescriptionResponse {
 }
 
 const MODRINTH_BASE = "https://api.modrinth.com/v2";
-const CURSEFORGE_BASE = "https://api.curseforge.com/v1";
-const CURSEFORGE_PROXY_BASES = [
-  "https://api.curse.tools/v1",
-  "https://cfproxy.bmpm.workers.dev/v1",
-];
 const CURSE_MINECRAFT_GAME_ID = 432;
 const CURSE_MAX_PAGE_SIZE = 50;
 const cache = new Map<
@@ -241,14 +237,14 @@ const requestCurseforgeV1 = async <T>(
   }
 
   if (apiKey) {
-    return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
+    return apiFetch<T>(`${API_CONFIG.curseforgeBase}${path}${params}`, {
       init: { headers: { "x-api-key": apiKey } },
       ttl: 45_000,
     });
   }
 
   let lastError: unknown;
-  for (const base of CURSEFORGE_PROXY_BASES) {
+  for (const base of API_CONFIG.curseforgeProxyBases) {
     try {
       return await apiFetch<T>(`${base}${path}${params}`, { ttl: 45_000 });
     } catch (error) {
