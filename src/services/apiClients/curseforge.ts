@@ -1,11 +1,6 @@
 import { apiFetch } from "./client";
 import { invokeWithHandling } from "../tauriClient";
-
-const CURSEFORGE_BASE = "https://api.curseforge.com/v1";
-const CURSEFORGE_PROXY_BASES = [
-  "https://api.curse.tools/v1",
-  "https://cfproxy.bmpm.workers.dev/v1",
-];
+import { API_CONFIG } from "../../config/api";
 
 const buildHeaders = (apiKey?: string) => (apiKey ? { "x-api-key": apiKey } : undefined);
 
@@ -28,13 +23,13 @@ const requestCurseforgeV1 = async <T>(
   }
 
   if (apiKey) {
-    return apiFetch<T>(`${CURSEFORGE_BASE}${path}${params}`, {
+    return apiFetch<T>(`${API_CONFIG.curseforgeBase}${path}${params}`, {
       init: { headers: buildHeaders(apiKey) },
     });
   }
 
   let lastError: unknown;
-  for (const base of CURSEFORGE_PROXY_BASES) {
+  for (const base of API_CONFIG.curseforgeProxyBases) {
     try {
       return await apiFetch<T>(`${base}${path}${params}`);
     } catch (error) {

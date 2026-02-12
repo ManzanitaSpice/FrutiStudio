@@ -1,4 +1,5 @@
 import { apiFetch } from "./apiClients/client";
+import { API_CONFIG } from "../config/api";
 
 type LoaderType = "Vanilla" | "NeoForge" | "Forge" | "Fabric" | "Quilt";
 
@@ -47,13 +48,13 @@ const neoforgeChannelForMinecraft = (mcVersion: string) => {
 };
 
 const loadFabricVersions = async (mcVersion: string) => {
-  const url = `https://meta.fabricmc.net/v2/versions/loader/${mcVersion}`;
+  const url = `${API_CONFIG.fabricMetaBase}/versions/loader/${mcVersion}`;
   const data = await apiFetch<FabricLoaderVersion[]>(url, { ttl: 120_000 });
   return uniqueSorted(data.map((entry) => entry.loader.version));
 };
 
 const loadQuiltVersions = async (mcVersion: string) => {
-  const url = `https://meta.quiltmc.org/v3/versions/loader/${mcVersion}`;
+  const url = `${API_CONFIG.quiltMetaBase}/versions/loader/${mcVersion}`;
   const data = await apiFetch<QuiltLoaderVersion[]>(url, { ttl: 120_000 });
   return uniqueSorted(data.map((entry) => entry.loader.version));
 };
@@ -65,8 +66,8 @@ const parseForgeMetadata = (xml: string) => {
 
 const loadForgeVersions = async (mcVersion: string) => {
   const mirrors = [
-    `https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json`,
-    `https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml`,
+    API_CONFIG.forgePromotionsUrl,
+    API_CONFIG.forgeMavenMetadataUrl,
   ];
 
   for (const url of mirrors) {
@@ -97,8 +98,8 @@ const loadForgeVersions = async (mcVersion: string) => {
 const loadNeoForgeVersions = async (mcVersion: string) => {
   const channelPrefix = neoforgeChannelForMinecraft(mcVersion);
   const mirrors = [
-    `https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge`,
-    `https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml`,
+    API_CONFIG.neoforgeApiUrl,
+    API_CONFIG.neoforgeMavenMetadataUrl,
   ];
 
   for (const url of mirrors) {
