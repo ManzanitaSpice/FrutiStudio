@@ -163,7 +163,40 @@ fn murmurhash2(data: &[u8]) -> u32 {
     h
 }
 
-fn resolve_curseforge_api_key() -> Result<String, String> {
+fn resolve_env_file_value(key: &str) -> Option<String> {
+    let candidates = [PathBuf::from(".env"), PathBuf::from("../.env")];
+    for path in candidates {
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let Some((name, value)) = trimmed.split_once('=') else {
+                continue;
+            };
+            if name.trim() != key {
+                continue;
+            }
+            let cleaned = value.trim().trim_matches('"').trim_matches('\'').trim();
+            if !cleaned.is_empty() {
+                return Some(cleaned.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn resolve_curseforge_api_key(api_key_override: Option<&str>) -> Result<String, String> {
+    if let Some(override_value) = api_key_override {
+        let trimmed = override_value.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+
     let env_keys = ["CURSEFORGE_API_KEY", "TAURI_CURSEFORGE_API_KEY"];
     for key in env_keys {
         if let Ok(value) = std::env::var(key) {
@@ -171,6 +204,10 @@ fn resolve_curseforge_api_key() -> Result<String, String> {
             if !trimmed.is_empty() {
                 return Ok(trimmed.to_string());
             }
+        }
+
+        if let Some(value) = resolve_env_file_value(key) {
+            return Ok(value);
         }
     }
 
@@ -1737,6 +1774,7 @@ fn format_startup_crash_message(
     code: i32,
     stderr_lines: &[String],
     stdout_lines: &[String],
+    error_files: &[String],
 ) -> String {
     let mut excerpt_source = stderr_lines;
     if excerpt_source.is_empty() {
@@ -1758,18 +1796,24 @@ fn format_startup_crash_message(
     diagnostic_lines.extend(stderr_lines.iter().cloned());
     diagnostic_lines.extend(stdout_lines.iter().cloned());
     let hint = startup_crash_hint(&diagnostic_lines);
+    let tracked_files = if error_files.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nArchivos para depuración:\n{}", error_files.join("\n"))
+    };
+
     match (stderr_excerpt.is_empty(), hint) {
         (true, Some(hint)) => format!(
-            "Minecraft cerró durante el arranque (código {code}). {hint} Revisa logs/runtime*.stderr.log"
+            "Minecraft cerró durante el arranque (código {code}). {hint} Revisa logs/runtime*.stderr.log{tracked_files}"
         ),
         (true, None) => {
-            format!("Minecraft cerró durante el arranque (código {code}). Revisa logs/runtime*.stderr.log")
+            format!("Minecraft cerró durante el arranque (código {code}). Revisa logs/runtime*.stderr.log{tracked_files}")
         }
         (false, Some(hint)) => format!(
-            "Minecraft cerró durante el arranque (código {code}). {hint}\n\nÚltimas líneas:\n{stderr_excerpt}"
+            "Minecraft cerró durante el arranque (código {code}). {hint}\n\nÚltimas líneas:\n{stderr_excerpt}{tracked_files}"
         ),
         (false, None) => format!(
-            "Minecraft cerró durante el arranque (código {code}). Últimas líneas:\n{stderr_excerpt}"
+            "Minecraft cerró durante el arranque (código {code}). Últimas líneas:\n{stderr_excerpt}{tracked_files}"
         ),
     }
 }
@@ -4029,6 +4073,14 @@ where
     Ok(())
 }
 
+fn recommended_download_concurrency(multiplier: usize, min: usize, max: usize) -> usize {
+    let workers = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4)
+        .saturating_mul(multiplier.max(1));
+    workers.clamp(min.max(1), max.max(min.max(1)))
+}
+
 async fn download_binaries_with_limit(
     items: Vec<BinaryDownloadTask>,
     concurrency: usize,
@@ -5422,7 +5474,8 @@ async fn bootstrap_instance_runtime(
                 "reusedExisting": reused_existing
             }),
         );
-        download_many_with_limit(downloads.clone(), 32, |completed| {
+        let asset_concurrency = recommended_download_concurrency(16, 48, 128);
+        download_many_with_limit(downloads.clone(), asset_concurrency, |completed| {
             if completed == 1 || completed % 25 == 0 || completed == total_downloads {
                 write_instance_state(
                     instance_root,
@@ -5786,12 +5839,13 @@ async fn bootstrap_instance_runtime(
     }
 
     let total_libraries = library_downloads.len();
+    let library_concurrency = recommended_download_concurrency(8, 16, 64);
     write_instance_state(
         instance_root,
         "downloading_libraries",
-        serde_json::json!({"step": "libraries", "total": total_libraries, "concurrency": 8}),
+        serde_json::json!({"step": "libraries", "total": total_libraries, "concurrency": library_concurrency}),
     );
-    download_binaries_with_limit(library_downloads, 8).await?;
+    download_binaries_with_limit(library_downloads, library_concurrency).await?;
 
     for native_jar in native_archives {
         extract_native_library(&native_jar, &natives_dir)?;
@@ -7983,6 +8037,14 @@ async fn launch_instance(
                     previous_fingerprint = Some(item.fingerprint.clone());
                 }
 
+                let debug_files = vec![
+                    stderr_path.to_string_lossy().to_string(),
+                    stdout_path.to_string_lossy().to_string(),
+                    instance_root.join("instance-state.json").to_string_lossy().to_string(),
+                    instance_root.join("crash-report.txt").to_string_lossy().to_string(),
+                    instance_root.join("logs").to_string_lossy().to_string(),
+                ];
+
                 if is_loader_failure && !launch_repair_attempted {
                     launch_repair_attempted = true;
                     write_instance_state(
@@ -8047,6 +8109,7 @@ async fn launch_instance(
                     code,
                     &stderr_lines,
                     &stdout_lines,
+                    &debug_files,
                 ));
             }
         }
@@ -8253,7 +8316,7 @@ async fn curseforge_scan_fingerprints(
         fingerprints: local_files.iter().map(|(_, fp)| *fp).collect(),
     };
 
-    let api_key = resolve_curseforge_api_key()?;
+    let api_key = resolve_curseforge_api_key(None)?;
     let headers = curseforge_headers(&api_key)?;
     let client = reqwest::Client::new();
     let response = client
@@ -8325,7 +8388,7 @@ async fn curseforge_resolve_download(
     mod_id: u32,
     file_id: u32,
 ) -> Result<CurseforgeDownloadResolution, String> {
-    let api_key = resolve_curseforge_api_key()?;
+    let api_key = resolve_curseforge_api_key(None)?;
     let headers = curseforge_headers(&api_key)?;
     let client = reqwest::Client::new();
 
@@ -8485,6 +8548,7 @@ async fn install_mod_file(
 async fn curseforge_v1_get(
     path: String,
     query: Option<std::collections::HashMap<String, String>>,
+    api_key: Option<String>,
 ) -> Result<Value, String> {
     let normalized = path.trim();
     if normalized.is_empty() || !normalized.starts_with('/') {
@@ -8494,7 +8558,7 @@ async fn curseforge_v1_get(
         );
     }
 
-    let api_key = resolve_curseforge_api_key()?;
+    let api_key = resolve_curseforge_api_key(api_key.as_deref())?;
     let headers = curseforge_headers(&api_key)?;
     let client = reqwest::Client::new();
     let url = format!("https://api.curseforge.com/v1{normalized}");
@@ -9355,7 +9419,7 @@ mod tests {
             "at java.base/java.lang.Thread.run(Thread.java:1583)".to_string(),
         ];
 
-        let message = format_startup_crash_message(1, &stderr_lines, &[]);
+        let message = format_startup_crash_message(1, &stderr_lines, &[], &[]);
         assert!(message.contains("Diagnóstico Fabric"));
         assert!(message.contains("Últimas líneas"));
     }
@@ -9398,7 +9462,7 @@ mod tests {
                 .to_string(),
         ];
 
-        let message = format_startup_crash_message(1, &[], &stdout_lines);
+        let message = format_startup_crash_message(1, &[], &stdout_lines, &[]);
         assert!(message.contains("Diagnóstico loader"));
         assert!(message.contains("Últimas líneas"));
     }

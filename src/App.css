@@ -4435,3 +4435,32 @@ input[type="text"] {
 .product-dialog__checklist-panels {
   align-items: stretch;
 }
+
+/* Boot screen refresh: larger layout, single Mojang-like title */
+.boot-screen {
+  padding: 24px;
+}
+
+.boot-screen__window {
+  width: min(960px, 96vw);
+  max-height: min(92vh, 900px);
+  padding: 34px;
+}
+
+.boot-screen__logo {
+  margin-bottom: 18px;
+  gap: 10px;
+}
+
+.boot-screen__logo span {
+  font-family: "Minecraft", "Press Start 2P", "Courier New", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: clamp(2rem, 4.5vw, 3.2rem);
+  line-height: 1.1;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+
+.boot-screen__subtitle {
+  font-size: 1rem;
+}

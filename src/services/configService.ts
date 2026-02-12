@@ -67,6 +67,8 @@ export interface AppConfig {
       | "Worlds"
       | "Addons";
   };
+  pterodactylUrl?: string;
+  pterodactylApiKey?: string;
 }
 
 let cachedConfig: AppConfig | null = null;

@@ -11,15 +11,15 @@ const requestCurseforgeV1 = async <T>(
   query?: Record<string, string>,
 ): Promise<T> => {
   const params = query ? `?${new URLSearchParams(query).toString()}` : "";
+  const effectiveApiKey = apiKey?.trim() || API_CONFIG.curseforgeApiKey;
 
   if (isTauriRuntime()) {
     return invokeWithHandling<T>("curseforge_v1_get", {
       path,
       query,
+      apiKey: effectiveApiKey,
     });
   }
-
-  const effectiveApiKey = apiKey?.trim() || API_CONFIG.curseforgeApiKey;
 
   if (effectiveApiKey) {
     return apiFetch<T>(`${API_CONFIG.curseforgeBase}${path}${params}`, {

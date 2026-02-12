@@ -62,15 +62,6 @@ const loadingSteps = [
   "Sincronizando estado final",
 ];
 
-const launcherTips = [
-  "Tip: Minecraft 1.21 mejora el rendimiento del mundo con optimizaciones en el motor de chunks.",
-  "Tip: Puedes combinar Modrinth y CurseForge desde el explorador para encontrar mods más rápido.",
-  "Consejo FrutiLauncher: la cola de descargas mantiene progreso en segundo plano.",
-  "Tip: Revisa la pestaña de servidores para detectar listados con versión compatible automáticamente.",
-  "Minecraft Live: revisa snapshots y pruebas experimentales para bloques y biomas nuevos.",
-  "Consejo FrutiLauncher: puedes ajustar la escala UI para pantallas HiDPI en Configuración.",
-];
-
 const defaultCustomTheme = {
   bg: "#f7f4ff",
   surface: "#ffffff",
@@ -112,8 +103,6 @@ const AppShell = () => {
     loadingSteps.map((_, index) => (index === 0 ? 15 : 0)),
   );
   const [bootEvents, setBootEvents] = useState<string[]>([]);
-  const [activeTip, setActiveTip] = useState(launcherTips[0]);
-  const [tipIndex, setTipIndex] = useState(0);
   const bootStartedAt = useRef<number>(Date.now());
   const bootHydrated = useRef(false);
 
@@ -256,20 +245,6 @@ const AppShell = () => {
     void runBoot();
   }, [setScale, setTheme, setSection, isFocusMode, toggleFocus]);
 
-  useEffect(() => {
-    if (bootReady) {
-      return;
-    }
-    const tipTimer = window.setInterval(() => {
-      setTipIndex((current) => {
-        const next = (current + 1) % launcherTips.length;
-        setActiveTip(launcherTips[next]);
-        return next;
-      });
-    }, 3500);
-    return () => window.clearInterval(tipTimer);
-  }, [bootReady]);
-
   useUiZoom({
     scale: uiScale,
     onChange: (nextScale) => {
@@ -383,8 +358,7 @@ const AppShell = () => {
           <div className="boot-screen" role="status" aria-live="polite">
             <div className="boot-screen__window">
               <div className="boot-screen__logo" aria-label="FrutiLauncher cargando">
-                <p className="boot-screen__eyebrow">FrutiLauncher</p>
-                <span>FrutiLauncher</span>
+                <span>Fruti Launcher</span>
                 <p className="boot-screen__subtitle">
                   Preparando entorno de juego
                 </p>
@@ -423,10 +397,6 @@ const AppShell = () => {
                     {event}
                   </p>
                 ))}
-              </div>
-              <div className="boot-screen__tips">
-                <p className="boot-screen__tips-label">Tip rotativo #{tipIndex + 1}</p>
-                <p>{activeTip}</p>
               </div>
               {showVerificationWindow ? (
                 <div className="boot-screen__actions">
