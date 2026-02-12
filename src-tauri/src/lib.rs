@@ -1962,7 +1962,20 @@ impl JavaManager {
     }
 
     fn java_runtime_dir(&self) -> PathBuf {
-        self.launcher_root.join("runtime").join("java")
+        self.launcher_root.join("runtime")
+    }
+
+    fn managed_runtime_bin(runtime_dir: &Path) -> Option<PathBuf> {
+        if !runtime_dir.is_dir() {
+            return None;
+        }
+
+        let java_bin = runtime_dir.join("bin").join(java_bin_name());
+        if java_bin.is_file() {
+            Some(java_bin)
+        } else {
+            None
+        }
     }
 
     fn required_major_for_minecraft(mc_version: &str) -> u32 {
@@ -1977,74 +1990,21 @@ impl JavaManager {
         let mut runtimes = Vec::new();
         let mut seen_paths = HashSet::new();
 
-        if let Ok(explicit) = std::env::var("FRUTI_JAVA_PATH") {
-            let path = PathBuf::from(explicit.trim());
-            if let Some(runtime) = inspect_java_runtime(&path, "fruti-env") {
-                seen_paths.insert(runtime.path.clone());
-                runtimes.push(runtime);
-            }
-        }
-
         let managed_root = self.java_runtime_dir();
-        if let Ok(entries) = fs::read_dir(&managed_root) {
+
+        for root in [managed_root.clone(), managed_root.join("java")] {
+            let Ok(entries) = fs::read_dir(root) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let runtime = entry.path();
-                if !runtime.is_dir() {
+                let Some(java) = Self::managed_runtime_bin(&runtime) else {
                     continue;
-                }
-                let java = runtime.join("bin").join(java_bin_name());
+                };
                 if let Some(found) = inspect_java_runtime(&java, "embebido") {
                     if seen_paths.insert(found.path.clone()) {
                         runtimes.push(found);
                     }
-                }
-            }
-        }
-
-        let mut system_candidates = vec![
-            PathBuf::from("/usr/bin/java"),
-            PathBuf::from("/usr/local/bin/java"),
-            PathBuf::from("/opt/homebrew/opt/openjdk/bin/java"),
-        ];
-
-        if cfg!(target_os = "windows") {
-            for root in [
-                "C:/Program Files/Java",
-                "C:/Program Files/Eclipse Adoptium",
-                "C:/Program Files/Adoptium",
-            ] {
-                let base = PathBuf::from(root);
-                if let Ok(entries) = fs::read_dir(base) {
-                    for entry in entries.flatten() {
-                        let java = entry.path().join("bin").join(java_bin_name());
-                        system_candidates.push(java);
-                    }
-                }
-            }
-        }
-
-        if let Ok(java_home) = std::env::var("JAVA_HOME") {
-            let java_home = java_home.trim();
-            if !java_home.is_empty() {
-                system_candidates.push(PathBuf::from(java_home).join("bin").join(java_bin_name()));
-            }
-        }
-
-        system_candidates.extend(discover_java_candidates_from_volumes());
-
-        for candidate in system_candidates {
-            if let Some(found) = inspect_java_runtime(&candidate, "sistema") {
-                if seen_paths.insert(found.path.clone()) {
-                    runtimes.push(found);
-                }
-            }
-        }
-
-        if command_available("java") {
-            let from_path = PathBuf::from("java");
-            if let Some(found) = inspect_java_runtime(&from_path, "path") {
-                if seen_paths.insert(found.path.clone()) {
-                    runtimes.push(found);
                 }
             }
         }
@@ -2873,37 +2833,22 @@ async fn install_forge_like_loader(
         )
     })?;
 
-    let manager = JavaManager::new(app)?;
     let required_java_major = JavaManager::required_major_for_minecraft(minecraft_version);
-    let runtimes = manager.detect_installed();
     let runtime_manager = RuntimeManager::new(app)?;
-    let java_bin = if let Some(runtime_path) = runtimes
-        .iter()
-        .find(|runtime| runtime.major == required_java_major)
-        .or_else(|| {
-            runtimes
-                .iter()
-                .find(|runtime| runtime.major > required_java_major)
-        })
-        .map(|runtime| runtime.path.clone())
-    {
-        runtime_path
-    } else {
-        runtime_manager
-            .ensure_runtime_for_java_major(required_java_major)
-            .await
-            .map(|path| path.to_string_lossy().to_string())
-            .map_err(|_| {
-                let loader_name = if loader == "neoforge" {
-                    "NeoForge"
-                } else {
-                    "Forge"
-                };
-                format!(
-                    "No se encontró Java compatible para instalar {loader_name} (requerido Java {required_java_major})."
-                )
-            })?
-    };
+    let java_bin = runtime_manager
+        .ensure_runtime_for_java_major(required_java_major)
+        .await
+        .map(|path| path.to_string_lossy().to_string())
+        .map_err(|_| {
+            let loader_name = if loader == "neoforge" {
+                "NeoForge"
+            } else {
+                "Forge"
+            };
+            format!(
+                "No se encontró Java embebido compatible para instalar {loader_name} (requerido Java {required_java_major})."
+            )
+        })?;
 
     let install_flag = if loader == "neoforge" {
         "--install-client"
@@ -4658,6 +4603,8 @@ async fn bootstrap_instance_runtime(
     if let Some(objects) = asset_index_json.get("objects").and_then(|v| v.as_object()) {
         let assets_cache_root = launcher_assets_cache_root(app)?;
         ensure_writable_dir(&assets_cache_root)?;
+        let _ = remove_partial_files(&minecraft_root.join("assets").join("objects"));
+        let _ = remove_partial_files(&assets_cache_root);
 
         let mut validation_cache = load_asset_validation_cache(app);
         let mut seen_hashes = HashSet::new();
@@ -5105,105 +5052,26 @@ async fn bootstrap_instance_runtime(
             Some(&effective_version_json),
         )
     });
-    let manager = JavaManager::new(app)?;
-    let mut resolution = manager.resolve_for_minecraft(version);
-    resolution.required_major = java_major;
     let runtime_manager = RuntimeManager::new(app)?;
-
-    let config = load_config(app.clone()).await.unwrap_or_default();
-    let instance_java_mode = launch_config
-        .java_mode
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
-    let global_java_mode = config
-        .java_mode
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
-
-    let preferred_mode = instance_java_mode
-        .as_deref()
-        .or(global_java_mode.as_deref())
-        .unwrap_or("embedded");
-
-    let instance_java_path = launch_config
-        .java_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let global_java_path = config
-        .java_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-
-    let pick_compatible = |runtimes: &Vec<JavaRuntime>| {
-        runtimes
-            .iter()
-            .find(|r| r.major == java_major)
-            .cloned()
-            .or_else(|| runtimes.iter().find(|r| r.major > java_major).cloned())
-    };
-
-    let selected_manual = if preferred_mode == "manual" {
-        let candidate = instance_java_path.or(global_java_path);
-        candidate.and_then(|path| {
-            resolution
-                .runtimes
-                .iter()
-                .find(|runtime| runtime.path == path && runtime.major >= java_major)
-                .cloned()
+    let selected = runtime_manager
+        .ensure_runtime_for_java_major(java_major)
+        .await
+        .ok()
+        .map(|path| JavaRuntime {
+            id: format!("managed-java-{java_major}"),
+            name: format!("Java {java_major} (embebido)"),
+            path: path.to_string_lossy().to_string(),
+            version: format!("{java_major}"),
+            major: java_major,
+            architecture: std::env::consts::ARCH.to_string(),
+            source: "embebido".to_string(),
+            recommended: true,
         })
-    } else {
-        None
-    };
-
-    let mut selected = selected_manual;
-
-    if selected.is_none() && (preferred_mode == "embedded" || preferred_mode == "embebido") {
-        selected = runtime_manager
-            .ensure_runtime_for_java_major(java_major)
-            .await
-            .ok()
-            .map(|path| JavaRuntime {
-                id: format!("managed-java-{java_major}"),
-                name: format!("Java {java_major} (embebido)"),
-                path: path.to_string_lossy().to_string(),
-                version: format!("{java_major}"),
-                major: java_major,
-                architecture: std::env::consts::ARCH.to_string(),
-                source: "embebido".to_string(),
-                recommended: true,
-            });
-    }
-
-    if selected.is_none() && preferred_mode != "embedded" && preferred_mode != "embebido" {
-        selected = pick_compatible(&resolution.runtimes);
-    }
-
-    if selected.is_none() {
-        selected = runtime_manager
-            .ensure_runtime_for_java_major(java_major)
-            .await
-            .ok()
-            .map(|path| JavaRuntime {
-                id: format!("managed-java-{java_major}"),
-                name: format!("Java {java_major} (embebido)"),
-                path: path.to_string_lossy().to_string(),
-                version: format!("{java_major}"),
-                major: java_major,
-                architecture: std::env::consts::ARCH.to_string(),
-                source: "embebido".to_string(),
-                recommended: true,
-            });
-    }
-
-    let selected = selected.ok_or_else(|| format!("No se encontró Java compatible. Minecraft requiere Java {java_major}. Instala Java {java_major} (Temurin recomendado) o configura una ruta java válida en el launcher."))?;
+        .ok_or_else(|| {
+            format!(
+                "No se encontró Java embebido compatible. Minecraft requiere Java {java_major}."
+            )
+        })?;
 
     write_instance_state(
         instance_root,
