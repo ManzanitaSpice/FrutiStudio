@@ -5681,6 +5681,22 @@ async fn bootstrap_instance_runtime(
         }
     }
 
+    if loader == "forge" || loader == "neoforge" {
+        let fallback_launch_target = if loader == "forge" {
+            "forge_client"
+        } else {
+            "neoforgeclient"
+        };
+        let launch_target = effective_version_json
+            .get("launchTarget")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(fallback_launch_target)
+            .to_string();
+        upsert_game_arg(&mut game_args, "--launchTarget", launch_target);
+    }
+
     let required_game_args = [
         ("--username", user.to_string()),
         ("--version", version_name.clone()),
