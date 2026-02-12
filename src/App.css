@@ -4947,7 +4947,7 @@ button {
 
 /* 2026 visual hardening: solid colors, deep dark, elegant professional menu */
 :root {
-  --color-accent: #d97a2b;
+  --color-accent: #8b7cff;
 }
 
 :root[data-theme="default"],
@@ -4958,7 +4958,7 @@ button {
   --color-border: #263140;
   --color-text: #ffffff;
   --color-muted: #a2aec0;
-  --color-accent: #d97a2b;
+  --color-accent: #8b7cff;
 }
 
 .app-shell,
@@ -4985,8 +4985,9 @@ button {
   z-index: 40;
   overflow: visible;
   border-radius: 18px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface) !important;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, #ffffff14);
+  background: color-mix(in srgb, var(--color-surface) 78%, transparent) !important;
+  backdrop-filter: blur(14px);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
 }
 
@@ -5013,7 +5014,7 @@ button {
 .topbar__button:hover,
 .topbar__button--active {
   color: var(--color-accent) !important;
-  background: #0f1520 !important;
+  background: color-mix(in srgb, var(--color-accent) 16%, var(--color-surface)) !important;
   border-color: var(--color-border) !important;
 }
 
@@ -5068,4 +5069,12 @@ button {
 
 .home-panel__menu {
   display: grid !important;
+}
+
+.home-panel__hero {
+  background: transparent !important;
+  border: 0;
+  box-shadow: none;
+  min-height: auto;
+  padding: 10px 0 0;
 }
