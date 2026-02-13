@@ -248,7 +248,10 @@ interface CatalogMod {
   thumbnail?: string;
   gameVersions: string[];
   loaders: string[];
+  fileSizeBytes?: number;
 }
+
+type ModInstallStage = "idle" | "downloading" | "validating" | "installing" | "completed";
 
 export const InstancePanel = ({
   instances,
@@ -364,6 +367,11 @@ export const InstancePanel = ({
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [installingMods, setInstallingMods] = useState(false);
+  const [modInstallStage, setModInstallStage] = useState<ModInstallStage>("idle");
+  const [modInstallCurrent, setModInstallCurrent] = useState(0);
+  const [modInstallTotal, setModInstallTotal] = useState(0);
+  const [modInstallStartedAt, setModInstallStartedAt] = useState<number | null>(null);
+  const [detectedDependencyCount, setDetectedDependencyCount] = useState(0);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -1886,6 +1894,7 @@ export const InstancePanel = ({
         };
 
         const details = await fetchExplorerItemDetails(detailItem);
+        setModInstallStage("validating");
         const preferred = findCompatibleVersion(details.versions);
         if (!preferred?.downloadUrl) {
           continue;
@@ -1903,6 +1912,7 @@ export const InstancePanel = ({
             ? preferred.gameVersions
             : item.versions,
           loaders: preferred.loaders.length ? preferred.loaders : item.loaders,
+          fileSizeBytes: item.fileSizeBytes,
         });
       }
 
@@ -1923,6 +1933,10 @@ export const InstancePanel = ({
     }
 
     setInstallingMods(true);
+    setModInstallStage("downloading");
+    setModInstallCurrent(0);
+    setModInstallTotal(selectedCatalogMods.length);
+    setModInstallStartedAt(Date.now());
     setCatalogError(null);
     try {
       const queue = [...selectedCatalogMods];
@@ -1947,6 +1961,7 @@ export const InstancePanel = ({
           thumbnail: mod.thumbnail,
         };
         const details = await fetchExplorerItemDetails(detailItem);
+        setModInstallStage("validating");
         const preferred = findCompatibleVersion(details.versions);
 
         if (!preferred?.downloadUrl) {
@@ -1971,7 +1986,9 @@ export const InstancePanel = ({
           preferred.downloadUrl,
           `${mod.name}-${preferred.id}.jar`,
         );
+        setModInstallStage("installing");
         installedEntries.push(mod);
+        setModInstallCurrent(installedEntries.length);
 
         const dependencies = preferred.dependencies ?? details.dependencies;
         for (const dependency of dependencies) {
@@ -2024,6 +2041,7 @@ export const InstancePanel = ({
       setSelectedCatalogMods([]);
       setModReviewOpen(false);
       setModDownloadOpen(false);
+      setModInstallStage("completed");
       setInstanceLaunchStatus(
         selectedInstance?.id,
         `${installedEntries.length} ${modDownloadTarget.toLowerCase()} instalados correctamente (incluyendo dependencias).`,
@@ -2036,6 +2054,7 @@ export const InstancePanel = ({
       );
     } finally {
       setInstallingMods(false);
+      window.setTimeout(() => setModInstallStage("idle"), 1500);
     }
   };
   const addCatalogModWithDependencies = async (mod: CatalogMod) => {
@@ -2043,6 +2062,7 @@ export const InstancePanel = ({
       return;
     }
     const seed = [...selectedCatalogMods, mod];
+    setDetectedDependencyCount(0);
     const queue = [mod];
     const seen = new Set(seed.map((entry) => `${entry.provider}:${entry.id}`));
 
@@ -2088,6 +2108,7 @@ export const InstancePanel = ({
             loaders: [selectedInstance.loaderName.toLowerCase()],
           };
           seed.push(dependencyItem);
+          setDetectedDependencyCount((prev) => prev + 1);
           queue.push(dependencyItem);
         }
       } catch {
@@ -2104,6 +2125,11 @@ export const InstancePanel = ({
     }
     void loadCatalogMods();
   }, [catalogType, modDownloadOpen, modProvider]);
+
+  const installProgress = modInstallTotal > 0 ? Math.round((modInstallCurrent / modInstallTotal) * 100) : 0;
+  const selectedTotalSizeBytes = selectedCatalogMods.reduce((acc, current) => acc + (current.fileSizeBytes ?? 0), 0);
+  const elapsedSeconds = modInstallStartedAt ? Math.max(1, (Date.now() - modInstallStartedAt) / 1000) : 1;
+  const installRate = modInstallCurrent > 0 ? (modInstallCurrent / elapsedSeconds).toFixed(2) : "0.00";
 
   const renderEditorBody = () => {
     if (activeEditorSection === "Registro de Minecraft" && selectedInstance) {
@@ -3592,8 +3618,8 @@ export const InstancePanel = ({
           </aside>
         )}
         {repairModalOpen && selectedInstance ? (
-          <div className="instance-repair-modal__backdrop" onClick={() => setRepairModalOpen(false)}>
-            <section className="instance-repair-modal" onClick={(event) => event.stopPropagation()}>
+          <section className="instance-workspace-page instance-workspace-page--repair">
+            <section className="instance-repair-modal">
               <h3>Reparar Instancia</h3>
               <p>Selecciona el modo de reparación:</p>
               <div className="instance-repair-modal__modes">
@@ -3625,7 +3651,7 @@ export const InstancePanel = ({
                 </button>
               </div>
             </section>
-          </div>
+          </section>
         ) : null}
         {selectedInstance && editorOpen && (
           <div className="instance-editor__backdrop" onClick={closeEditor}>
@@ -4009,11 +4035,8 @@ ${rows.join("\n")}`;
       )}
 
       {launchChecklistOpen ? (
-        <div className="instance-editor__backdrop" onClick={() => undefined}>
-          <article
-            className="product-dialog product-dialog--install product-dialog--checklist"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <section className="instance-workspace-page instance-workspace-page--checklist">
+          <article className="product-dialog product-dialog--install product-dialog--checklist">
             <header>
               <h3>Checklist de inicio de instancia</h3>
               <div className="product-dialog__checklist-actions">
@@ -4230,29 +4253,43 @@ ${rows.join("\n")}`;
               </div>
             </div>
           </article>
-        </div>
+        </section>
       ) : null}
 
       {modDownloadOpen && selectedInstance ? (
-        <div
-          className="instance-editor__backdrop"
-          onClick={() => setModDownloadOpen(false)}
-        >
-          <article
-            className="product-dialog product-dialog--install product-dialog--download"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <section className="instance-workspace-page instance-workspace-page--download">
+          <article className="product-dialog product-dialog--install product-dialog--download">
             <header>
-              <h3>Descargar {modDownloadTarget}</h3>
+              <h3>Descargador e instalador de {modDownloadTarget}</h3>
               <button type="button" onClick={() => setModDownloadOpen(false)}>
-                Cancelar
+                Volver
               </button>
             </header>
             <div className="product-dialog__install-body">
               <p>
-                Busca contenido compatible con {selectedInstance.loaderName} en Minecraft{" "}
-                {selectedInstance.version}.
+                Flujo compatible con {selectedInstance.loaderName} · Minecraft {selectedInstance.version}.
               </p>
+              <div className="instance-download__pipeline" aria-label="Pipeline de instalación">
+                {[
+                  ["downloading", "Descargando"],
+                  ["validating", "Validando"],
+                  ["installing", "Instalando"],
+                  ["completed", "Finalizado"],
+                ].map(([stage, label]) => (
+                  <span
+                    key={stage}
+                    className={modInstallStage === stage ? "is-active" : modInstallStage === "completed" ? "is-done" : ""}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+              <div className="instance-download__metrics">
+                <p><strong>Progreso global:</strong> {installProgress}% ({modInstallCurrent}/{modInstallTotal || selectedCatalogMods.length || 0})</p>
+                <p><strong>Velocidad:</strong> {installRate} mods/s</p>
+                <p><strong>Tamaño estimado:</strong> {(selectedTotalSizeBytes / (1024 * 1024)).toFixed(2)} MB</p>
+                <p><strong>Dependencias detectadas:</strong> {detectedDependencyCount}</p>
+              </div>
               <div className="instance-catalog__filters">
                 <select
                   value={catalogType}
@@ -4346,18 +4383,12 @@ ${rows.join("\n")}`;
               </div>
             </div>
           </article>
-        </div>
+        </section>
       ) : null}
 
       {modReviewOpen && selectedInstance ? (
-        <div
-          className="instance-editor__backdrop"
-          onClick={() => setModReviewOpen(false)}
-        >
-          <article
-            className="product-dialog product-dialog--install"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <section className="instance-workspace-page instance-workspace-page--review">
+          <article className="product-dialog product-dialog--install">
             <header>
               <h3>Revisar mods seleccionados</h3>
             </header>
@@ -4383,7 +4414,7 @@ ${rows.join("\n")}`;
               </div>
             </div>
           </article>
-        </div>
+        </section>
       ) : null}
 
       {creatorOpen ? (
