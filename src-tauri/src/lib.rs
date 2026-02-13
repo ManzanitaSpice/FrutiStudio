@@ -60,8 +60,7 @@ use crate::core::launcher_discovery::{
     detect_minecraft_launcher_installations,
 };
 use crate::core::loader_normalizer::{
-    normalize_loader_profile as normalize_loader_profile_core,
-    sanitize_version_json_library_typos,
+    normalize_loader_profile as normalize_loader_profile_core, sanitize_version_json_library_typos,
 };
 use crate::core::maven_loader::{
     default_repositories, parse_install_profile_libraries, repositories_for_library,
@@ -2908,13 +2907,18 @@ fn resolve_library_artifacts(
                             .and_then(maven_path)
                     });
                 if let Some(rel) = rel {
+                    let include_in_classpath = rel
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .map(|ext| ext != "pom")
+                        .unwrap_or(true);
                     let target = libraries_root.join(rel);
                     push_artifact(
                         target,
                         artifact.get("url").and_then(Value::as_str),
                         artifact.get("sha1").and_then(Value::as_str),
                         artifact.get("sha256").and_then(Value::as_str),
-                        true,
+                        include_in_classpath,
                     );
                 }
             }
@@ -2946,12 +2950,13 @@ fn resolve_library_artifacts(
                     .trim_end_matches('/');
                 let rel_url = rel.to_string_lossy().replace('\\', "/");
                 let target = libraries_root.join(&rel);
+                let include_in_classpath = !rel_url.ends_with(".pom");
                 push_artifact(
                     target,
                     Some(&format!("{base_url}/{rel_url}")),
                     None,
                     None,
-                    true,
+                    include_in_classpath,
                 );
             }
         }
@@ -5167,6 +5172,19 @@ async fn preflight_maven_availability(client: &reqwest::Client, urls: &[String])
     }
 
     if checked > 0 && checked == missing {
+        let pom_candidates = maven_urls
+            .iter()
+            .filter_map(|url| url.strip_suffix(".jar").map(|base| format!("{base}.pom")))
+            .collect::<Vec<_>>();
+
+        for pom_url in &pom_candidates {
+            if let Ok(response) = client.head(pom_url).send().await {
+                if response.status().is_success() {
+                    return None;
+                }
+            }
+        }
+
         let coordinate = maven_urls
             .iter()
             .find_map(|url| parse_maven_coordinate_from_url(url))
