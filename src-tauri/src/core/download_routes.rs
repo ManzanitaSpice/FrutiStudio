@@ -117,10 +117,10 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
         urls = prioritized;
     }
 
-    let mirrors = [
+    let mirrors: [(&str, &[&str]); 4] = [
         (
             "https://libraries.minecraft.net",
-            [
+            &[
                 "https://bmclapi2.bangbang93.com/maven",
                 "https://repo.maven.apache.org/maven2",
                 "https://repo1.maven.org/maven2",
@@ -128,15 +128,18 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
         ),
         (
             "https://maven.minecraftforge.net",
-            ["https://files.minecraftforge.net/maven", ""],
+            &[
+                "https://files.minecraftforge.net/maven",
+                "https://maven.neoforged.net/releases",
+            ],
         ),
         (
             "https://maven.fabricmc.net",
-            ["https://maven.fabricmc.net", ""],
+            &["https://maven.fabricmc.net"],
         ),
         (
             "https://maven.quiltmc.org/repository/release",
-            ["https://maven.quiltmc.org/repository/release", ""],
+            &["https://maven.quiltmc.org/repository/release"],
         ),
     ];
 
