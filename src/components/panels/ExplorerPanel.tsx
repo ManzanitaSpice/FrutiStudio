@@ -772,19 +772,22 @@ export const ExplorerPanel = ({
                           }}
                           onContextMenu={(event) => handleItemContextMenu(event, item)}
                         >
-                          {item.thumbnail ? (
-                            <img
-                              className="explorer-item__icon"
-                              src={item.thumbnail}
-                              alt={item.name}
-                            />
-                          ) : (
-                            <img
-                              className="explorer-item__icon explorer-item__icon--fallback"
-                              src="/tauri.svg"
-                              alt="Logo Interface"
-                            />
-                          )}
+                          <div className="explorer-item__media">
+                            {item.thumbnail ? (
+                              <img
+                                className="explorer-item__icon"
+                                src={item.thumbnail}
+                                alt={item.name}
+                              />
+                            ) : (
+                              <img
+                                className="explorer-item__icon explorer-item__icon--fallback"
+                                src="/tauri.svg"
+                                alt="Logo Interface"
+                              />
+                            )}
+                            <span className="explorer-item__source-badge">{item.source}</span>
+                          </div>
                           <div className="explorer-item__info">
                             <h4 title={item.name}>{item.name}</h4>
                             <p>{oneLine(item.description)}</p>
@@ -801,7 +804,6 @@ export const ExplorerPanel = ({
                               <span>Peso: {formatFileSize(item.fileSizeBytes)}</span>
                               <span>Loader: {item.loaders[0] ?? "N/D"}</span>
                               <span>Minecraft: {item.versions[0] ?? "N/D"}</span>
-                              <span className="explorer-item__source">{item.source}</span>
                             </div>
                           </div>
                           <div className="explorer-item__meta-footer">
