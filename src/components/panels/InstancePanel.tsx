@@ -1493,9 +1493,9 @@ export const InstancePanel = ({
           activeCreatorSection === "Modrinth" ? "modrinth" : "curseforge";
         const aggregated: ExplorerItem[] = [];
         let page = 0;
-        let keepLoading = true;
+        const maxCreatorPages = 6;
 
-        while (keepLoading) {
+        while (page < maxCreatorPages) {
           const pageResult = await fetchUnifiedCatalog({
             category: "Modpacks",
             platform: targetPlatform,
@@ -1504,7 +1504,9 @@ export const InstancePanel = ({
             pageSize: 24,
           });
           aggregated.push(...pageResult.items);
-          keepLoading = pageResult.hasMore;
+          if (!pageResult.hasMore || pageResult.items.length === 0) {
+            break;
+          }
           page += 1;
         }
 
