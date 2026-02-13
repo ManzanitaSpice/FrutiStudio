@@ -234,11 +234,24 @@ pub(crate) fn detect_minecraft_launcher_installations() -> Vec<LauncherInstallat
 
 pub(crate) fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
     match loader {
-        "fabric" => Some("net.fabricmc.loader.launch.knot.KnotClient"),
+        "fabric" => Some("net.fabricmc.loader.impl.launch.knot.KnotClient"),
         "quilt" => Some("org.quiltmc.loader.impl.launch.knot.KnotClient"),
         "forge" | "neoforge" => Some("cpw.mods.bootstraplauncher.BootstrapLauncher"),
         "vanilla" => Some("net.minecraft.client.main.Main"),
         _ => None,
+    }
+}
+
+pub(crate) fn accepted_main_classes_for_loader(loader: &str) -> &'static [&'static str] {
+    match loader {
+        "fabric" => &[
+            "net.fabricmc.loader.impl.launch.knot.KnotClient",
+            "net.fabricmc.loader.launch.knot.KnotClient",
+        ],
+        "quilt" => &["org.quiltmc.loader.impl.launch.knot.KnotClient"],
+        "forge" | "neoforge" => &["cpw.mods.bootstraplauncher.BootstrapLauncher"],
+        "vanilla" => &["net.minecraft.client.main.Main"],
+        _ => &[],
     }
 }
 
@@ -273,6 +286,16 @@ pub(crate) fn detect_loader_from_version_json(version_json: &Value) -> Option<&'
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fabric_accepts_legacy_and_modern_main_classes() {
+        assert_eq!(
+            expected_main_class_for_loader("fabric"),
+            Some("net.fabricmc.loader.impl.launch.knot.KnotClient")
+        );
+        assert!(accepted_main_classes_for_loader("fabric")
+            .contains(&"net.fabricmc.loader.launch.knot.KnotClient"));
+    }
 
     #[test]
     fn official_roots_include_default_home_location() {

@@ -45,11 +45,17 @@ pub(crate) fn normalize_loader_profile(profile: &mut Value, minecraft_version: &
         }
     }
 
-    if let Some(main_class) = expected_main_class_for_loader(loader) {
-        profile_obj.insert(
-            "mainClass".to_string(),
-            Value::String(main_class.to_string()),
-        );
+    let has_main_class = profile_obj
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    if !has_main_class {
+        if let Some(main_class) = expected_main_class_for_loader(loader) {
+            profile_obj.insert(
+                "mainClass".to_string(),
+                Value::String(main_class.to_string()),
+            );
+        }
     }
 }
 
@@ -75,7 +81,22 @@ mod tests {
         assert_eq!(profile.get("jar").and_then(Value::as_str), Some("1.21.1"));
         assert_eq!(
             profile.get("mainClass").and_then(Value::as_str),
-            Some("net.fabricmc.loader.launch.knot.KnotClient")
+            Some("broken.Main")
+        );
+    }
+
+    #[test]
+    fn injects_expected_main_class_when_missing() {
+        let mut profile = serde_json::json!({
+            "inheritsFrom": "1.21.1",
+            "jar": "1.21.1"
+        });
+
+        normalize_loader_profile(&mut profile, "1.21.1", "fabric");
+
+        assert_eq!(
+            profile.get("mainClass").and_then(Value::as_str),
+            Some("net.fabricmc.loader.impl.launch.knot.KnotClient")
         );
     }
 
@@ -103,7 +124,7 @@ mod tests {
         );
         assert_eq!(
             profile.get("mainClass").and_then(Value::as_str),
-            Some("cpw.mods.bootstraplauncher.BootstrapLauncher")
+            Some("broken.Main")
         );
     }
 }
