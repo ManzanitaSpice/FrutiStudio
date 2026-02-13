@@ -41,9 +41,8 @@ use crate::core::external_discovery::{
 };
 use crate::core::instance::{
     ExternalDetectedInstance, ExternalImportArgs, ExternalScanArgs, ExternalScanReport,
-    InstalledModEntry, InstanceArchiveArgs, InstanceCommandArgs, InstancePathArgs,
-    InstanceRecord, LauncherInstallation, ManualExternalRoot, RegisterExternalRootArgs,
-    RemoveExternalRootArgs,
+    InstalledModEntry, InstanceArchiveArgs, InstanceCommandArgs, InstancePathArgs, InstanceRecord,
+    LauncherInstallation, ManualExternalRoot, RegisterExternalRootArgs, RemoveExternalRootArgs,
 };
 use crate::core::instance_config::{instance_game_dir, resolve_instance_launch_config};
 use crate::core::java::{JavaManager, JavaResolution, JavaRuntime};
@@ -4240,9 +4239,7 @@ fn ensure_launcher_elevation() -> Result<(), String> {
         .arg(&current_dir);
 
     relaunch.spawn().map_err(|error| {
-        format!(
-            "No se pudo solicitar permisos de administrador para reiniciar Interface: {error}"
-        )
+        format!("No se pudo solicitar permisos de administrador para reiniciar Interface: {error}")
     })?;
 
     std::process::exit(0);
@@ -5720,8 +5717,7 @@ fn normalize_critical_game_args(
     } else {
         plan.auth.access_token.clone()
     };
-    let mut version_type =
-        extract_or_fallback_arg(&plan.game_args, "--versionType", "Interface");
+    let mut version_type = extract_or_fallback_arg(&plan.game_args, "--versionType", "Interface");
     let normalized_loader = loader_name
         .map(|value| value.trim().to_lowercase())
         .unwrap_or_else(|| "vanilla".to_string());
@@ -6300,27 +6296,6 @@ async fn bootstrap_instance_runtime(
         }
     }
 
-    let mut libraries: Vec<Value> = effective_version_json
-        .get("libraries")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let mut main_class = effective_version_json
-        .get("mainClass")
-        .and_then(|v| v.as_str())
-        .unwrap_or("net.minecraft.client.main.Main")
-        .to_string();
-    let mut game_arguments = effective_version_json
-        .get("arguments")
-        .and_then(|v| v.get("game"))
-        .cloned()
-        .unwrap_or(Value::Array(Vec::new()));
-    let mut jvm_arguments = effective_version_json
-        .get("arguments")
-        .and_then(|v| v.get("jvm"))
-        .cloned()
-        .unwrap_or(Value::Array(Vec::new()));
-
     if loader == "fabric" || loader == "quilt" {
         let requested_loader_version = launch_config.modloader_version.trim();
         let loader_version = if requested_loader_version.is_empty()
@@ -6375,50 +6350,71 @@ async fn bootstrap_instance_runtime(
         validate_loader_profile_json(&minecraft_root, &persisted_profile_id, version, &loader)?;
         launch_version_name = persisted_profile_id;
         effective_version_json = merge_version_json(&effective_version_json, &profile);
-        libraries = effective_version_json
-            .get("libraries")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if let Some(class) = effective_version_json
-            .get("mainClass")
-            .and_then(|v| v.as_str())
-        {
-            main_class = class.to_string();
-        }
-        if let Some(args) = effective_version_json
-            .get("arguments")
-            .and_then(|v| v.get("game"))
-        {
-            game_arguments = args.clone();
-        }
-        if let Some(args) = effective_version_json
-            .get("arguments")
-            .and_then(|v| v.get("jvm"))
-        {
-            jvm_arguments = args.clone();
-        }
     }
 
     effective_version_json =
         resolve_complete_version_json(&minecraft_root, &launch_version_name, &base_version_json)
             .unwrap_or(effective_version_json);
-    libraries = effective_version_json
-        .get("libraries")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    main_class = effective_version_json
+
+    let launch_jar_id = effective_version_json
+        .get("jar")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&launch_version_name)
+        .to_string();
+    let launch_jar_path = minecraft_root
+        .join("versions")
+        .join(&launch_jar_id)
+        .join(format!("{launch_jar_id}.jar"));
+    if let Some(client_download) = effective_version_json
+        .get("downloads")
+        .and_then(|downloads| downloads.get("client"))
+    {
+        if let Some(client_url) = client_download.get("url").and_then(Value::as_str) {
+            let client_sha1 = client_download
+                .get("sha1")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            write_instance_state(
+                instance_root,
+                "downloading_loader_jar",
+                serde_json::json!({
+                    "version": launch_jar_id,
+                    "target": launch_jar_path.to_string_lossy(),
+                }),
+            );
+            download_with_retries(
+                &[client_url.to_string()],
+                &launch_jar_path,
+                client_sha1,
+                network_tuning.retries,
+                should_validate_zip_from_path(&launch_jar_path),
+                &network_tuning,
+                "loader_client_jar",
+            )
+            .await?;
+        }
+    }
+    if !launch_jar_path.exists() {
+        return Err(format!(
+            "No se encontró el jar de la versión de lanzamiento {launch_jar_id} en {}. Reinstala el loader para regenerar su profile completo.",
+            launch_jar_path.display()
+        ));
+    }
+
+    let mut main_class = effective_version_json
         .get("mainClass")
         .and_then(|v| v.as_str())
         .unwrap_or("net.minecraft.client.main.Main")
         .to_string();
-    game_arguments = effective_version_json
+    let mut game_arguments = effective_version_json
         .get("arguments")
         .and_then(|v| v.get("game"))
         .cloned()
         .unwrap_or(Value::Array(Vec::new()));
-    jvm_arguments = effective_version_json
+    let mut jvm_arguments = effective_version_json
         .get("arguments")
         .and_then(|v| v.get("jvm"))
         .cloned()
@@ -6512,8 +6508,8 @@ async fn bootstrap_instance_runtime(
         }
     }
 
-    if classpath_seen.insert(client_jar.clone()) {
-        classpath_entries.push(client_jar.clone());
+    if classpath_seen.insert(launch_jar_path.clone()) {
+        classpath_entries.push(launch_jar_path.clone());
     }
 
     let java_major = launch_config.java_version_required.unwrap_or_else(|| {
