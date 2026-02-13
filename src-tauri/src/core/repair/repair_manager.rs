@@ -296,7 +296,11 @@ fn clear_version_json_cache(
     }
 
     // 3. Launch plan y launch command cacheados (contienen rutas de libraries resueltas)
-    for cached_file in ["launch-plan.json", "launch-command.txt", "instance_integrity.json"] {
+    for cached_file in [
+        "launch-plan.json",
+        "launch-command.txt",
+        "instance_integrity.json",
+    ] {
         let path = instance_root.join(cached_file);
         if path.exists() {
             let _ = fs::remove_file(&path);
@@ -318,8 +322,7 @@ fn clear_version_json_cache(
                     && dir_name_str != version_id
                     && entry.path().is_dir()
                 {
-                    let profile_json =
-                        entry.path().join(format!("{}.json", dir_name_str));
+                    let profile_json = entry.path().join(format!("{}.json", dir_name_str));
                     if profile_json.exists() {
                         let _ = fs::remove_file(&profile_json);
                         issues.push(format!(

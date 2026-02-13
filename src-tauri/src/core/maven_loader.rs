@@ -222,6 +222,29 @@ pub fn parse_install_profile_libraries(install_profile: &Value) -> Vec<Value> {
             }
         }
     }
+
+    if let Some(processors) = install_profile.get("processors").and_then(Value::as_array) {
+        for processor in processors {
+            let mut register_coordinate = |value: Option<&str>| {
+                let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+                    return;
+                };
+                if !seen.insert(raw.to_string()) {
+                    return;
+                }
+                out.push(serde_json::json!({ "name": raw }));
+            };
+
+            register_coordinate(processor.get("jar").and_then(Value::as_str));
+
+            if let Some(classpath) = processor.get("classpath").and_then(Value::as_array) {
+                for entry in classpath {
+                    register_coordinate(entry.as_str());
+                }
+            }
+        }
+    }
+
     out
 }
 
