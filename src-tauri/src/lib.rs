@@ -4615,39 +4615,103 @@ fn classpath_contains_loader_artifact(entries: &[String], needle: &str) -> bool 
     })
 }
 
-fn classpath_has_loader_runtime(loader: &str, entries: &[String]) -> bool {
-    let has_any = |needles: &[&str]| -> bool {
-        needles
-            .iter()
-            .any(|needle| classpath_contains_loader_artifact(entries, needle))
-    };
-
+fn loader_runtime_marker_groups(loader: &str) -> Vec<(&'static str, Vec<&'static str>)> {
     match loader {
-        "fabric" => classpath_contains_loader_artifact(entries, "fabric-loader"),
-        "quilt" => classpath_contains_loader_artifact(entries, "quilt-loader"),
-        "forge" => {
-            let modern_runtime = has_any(&["bootstraplauncher", "modlauncher"])
-                && has_any(&[
-                    "fmlloader",
-                    "net/minecraftforge/forge",
-                    "minecraftforge/fml",
-                ]);
-
-            let legacy_runtime = classpath_contains_loader_artifact(entries, "launchwrapper")
-                && has_any(&["net/minecraftforge/forge", "minecraftforge/fml"]);
-
-            modern_runtime || legacy_runtime
-        }
-        "neoforge" => {
-            classpath_contains_loader_artifact(entries, "bootstraplauncher")
-                && has_any(&[
-                    "net/neoforged/neoforge",
+        "fabric" => vec![
+            ("fabric-loader", vec!["fabric-loader"]),
+            ("fabric-intermediary", vec!["intermediary"]),
+        ],
+        "quilt" => vec![
+            ("quilt-loader", vec!["quilt-loader"]),
+            ("fabric-intermediary", vec!["intermediary"]),
+        ],
+        "forge" => vec![
+            (
+                "bootstraplauncher",
+                vec!["bootstraplauncher", "cpw/mods/bootstraplauncher"],
+            ),
+            (
+                "bootstrap",
+                vec!["net/minecraftforge/bootstrap", "minecraftforge/bootstrap"],
+            ),
+            (
+                "bootstrap-api",
+                vec!["net/minecraftforge/bootstrapapi", "bootstrap-api"],
+            ),
+            ("modlauncher", vec!["modlauncher"]),
+            (
+                "fml-runtime",
+                vec!["fmlloader", "fmlcore", "minecraftforge/fml"],
+            ),
+            ("forge-spi", vec!["forge-spi", "forgespi"]),
+            ("securemodules", vec!["securemodules"]),
+            ("mixin", vec!["spongepowered/mixin", "mixin"]),
+            (
+                "forge",
+                vec!["net/minecraftforge/forge", "minecraftforge/forge"],
+            ),
+        ],
+        "neoforge" => vec![
+            (
+                "bootstraplauncher",
+                vec!["bootstraplauncher", "cpw/mods/bootstraplauncher"],
+            ),
+            ("modlauncher", vec!["modlauncher"]),
+            (
+                "fml-runtime",
+                vec![
                     "net/neoforged/fml",
-                    "net/neoforged/fancymodloader",
-                ])
-        }
-        _ => true,
+                    "fancymodloader",
+                    "fmlloader",
+                    "fmlcore",
+                ],
+            ),
+            ("neoforge", vec!["net/neoforged/neoforge", "neoforge"]),
+            ("securemodules", vec!["securemodules"]),
+            ("mixin", vec!["spongepowered/mixin", "mixin"]),
+        ],
+        _ => Vec::new(),
     }
+}
+
+fn evaluate_loader_runtime_classpath(
+    loader: &str,
+    entries: &[String],
+) -> (bool, Vec<String>, Vec<String>, Vec<String>) {
+    let marker_groups = loader_runtime_marker_groups(loader);
+    if marker_groups.is_empty() {
+        return (true, Vec::new(), Vec::new(), Vec::new());
+    }
+
+    let mut expected = Vec::new();
+    let mut found = Vec::new();
+    let mut missing = Vec::new();
+
+    for (label, needles) in marker_groups {
+        expected.push(label.to_string());
+        let matched = needles
+            .iter()
+            .any(|needle| classpath_contains_loader_artifact(entries, needle));
+        if matched {
+            found.push(label.to_string());
+        } else {
+            missing.push(label.to_string());
+        }
+    }
+
+    if loader == "forge" {
+        let legacy_runtime = classpath_contains_loader_artifact(entries, "launchwrapper")
+            && classpath_contains_loader_artifact(entries, "net/minecraftforge/forge");
+        if legacy_runtime {
+            return (true, expected, found, Vec::new());
+        }
+    }
+
+    (missing.is_empty(), expected, found, missing)
+}
+
+fn classpath_has_loader_runtime(loader: &str, entries: &[String]) -> bool {
+    evaluate_loader_runtime_classpath(loader, entries).0
 }
 
 async fn send_request_with_retry(
@@ -6989,9 +7053,23 @@ async fn bootstrap_instance_runtime(
         .iter()
         .map(|path| path.to_string_lossy().to_string())
         .collect::<Vec<_>>();
-    if !classpath_has_loader_runtime(&loader, &classpath_entries_raw) {
+    let (runtime_complete, runtime_expected, runtime_found, runtime_missing) =
+        evaluate_loader_runtime_classpath(&loader, &classpath_entries_raw);
+    write_instance_state(
+        instance_root,
+        "loader_runtime_preflight",
+        serde_json::json!({
+            "loader": loader,
+            "expectedRuntimeArtifacts": runtime_expected,
+            "foundRuntimeArtifacts": runtime_found,
+            "missingRuntimeArtifacts": runtime_missing.clone(),
+            "classpathEntries": classpath_entries_raw.clone(),
+        }),
+    );
+    if !runtime_complete {
         return Err(format!(
-            "Classpath incompleto para loader {loader}: faltan artefactos runtime obligatorios (BootstrapLauncher/FML). Reinstala el loader o repara la instancia."
+            "Classpath incompleto para loader {loader}: faltan artefactos runtime obligatorios [{}]. Reinstala el loader o repara la instancia.",
+            runtime_missing.join(", ")
         ));
     }
     let user = "Player";
@@ -10140,7 +10218,16 @@ mod tests {
     fn classpath_loader_detection_normalizes_windows_separators() {
         let entries = vec![
             r"C:\libs\cpw\mods\bootstraplauncher\1.1.2\bootstraplauncher-1.1.2.jar".to_string(),
-            r"C:\libs\net\minecraftforge\fmlloader\1.20.1-47.3.0\fmlloader.jar".to_string(),
+            r"C:\libs\net\minecraftforge\bootstrap\2.1.8\bootstrap-2.1.8.jar".to_string(),
+            r"C:\libs\net\minecraftforge\bootstrapapi\2.1.8\bootstrapapi-2.1.8.jar".to_string(),
+            r"C:\libs\cpw\mods\modlauncher\10.0.9\modlauncher-10.0.9.jar".to_string(),
+            r"C:\libs\net\minecraftforge\fmlcore\1.20.1-47.3.0\fmlcore-1.20.1-47.3.0.jar"
+                .to_string(),
+            r"C:\libs\net\minecraftforge\forgespi\7.0.0\forgespi-7.0.0.jar".to_string(),
+            r"C:\libs\cpw\mods\securejarhandler\2.1.10\securejarhandler-2.1.10.jar".to_string(),
+            r"C:\libs\org\spongepowered\mixin\0.8.5\mixin-0.8.5.jar".to_string(),
+            r"C:\libs\net\minecraftforge\forge\1.20.1-47.3.0\forge-1.20.1-47.3.0-client.jar"
+                .to_string(),
         ];
 
         assert!(classpath_has_loader_runtime("forge", &entries));
@@ -10158,7 +10245,14 @@ mod tests {
     #[test]
     fn classpath_loader_detection_accepts_modlauncher_based_forge_runtime() {
         let entries = vec![
+            "/home/user/.minecraft/libraries/cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/minecraftforge/bootstrap/2.1.8/bootstrap-2.1.8.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/minecraftforge/bootstrapapi/2.1.8/bootstrapapi-2.1.8.jar".to_string(),
             "/home/user/.minecraft/libraries/cpw/mods/modlauncher/10.0.9/modlauncher-10.0.9.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/minecraftforge/fmlloader/1.20.1-47.3.0/fmlloader-1.20.1-47.3.0.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/minecraftforge/forgespi/7.0.0/forgespi-7.0.0.jar".to_string(),
+            "/home/user/.minecraft/libraries/cpw/mods/securejarhandler/2.1.10/securejarhandler-2.1.10.jar".to_string(),
+            "/home/user/.minecraft/libraries/org/spongepowered/mixin/0.8.5/mixin-0.8.5.jar".to_string(),
             "/home/user/.minecraft/libraries/net/minecraftforge/forge/1.20.1-47.3.0/forge-1.20.1-47.3.0-client.jar".to_string(),
         ];
 
@@ -10169,12 +10263,34 @@ mod tests {
     fn classpath_loader_detection_accepts_neoforge_fancymodloader_runtime() {
         let entries = vec![
             "/home/user/.minecraft/libraries/cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar".to_string(),
+            "/home/user/.minecraft/libraries/cpw/mods/modlauncher/10.0.9/modlauncher-10.0.9.jar".to_string(),
             "/home/user/.minecraft/libraries/net/neoforged/fancymodloader/4.0.31/fancymodloader-4.0.31.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/neoforged/neoforge/21.1.128/neoforge-21.1.128.jar".to_string(),
+            "/home/user/.minecraft/libraries/cpw/mods/securejarhandler/2.1.10/securejarhandler-2.1.10.jar".to_string(),
+            "/home/user/.minecraft/libraries/org/spongepowered/mixin/0.8.5/mixin-0.8.5.jar".to_string(),
         ];
 
         assert!(classpath_has_loader_runtime("neoforge", &entries));
     }
 
+    #[test]
+    fn classpath_loader_detection_reports_missing_runtime_markers() {
+        let entries = vec![
+            "/home/user/.minecraft/libraries/cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar".to_string(),
+            "/home/user/.minecraft/libraries/cpw/mods/modlauncher/10.0.9/modlauncher-10.0.9.jar".to_string(),
+        ];
+
+        let (complete, expected, found, missing) =
+            evaluate_loader_runtime_classpath("forge", &entries);
+
+        assert!(!complete);
+        assert!(!expected.is_empty());
+        assert_eq!(
+            found,
+            vec!["bootstraplauncher".to_string(), "modlauncher".to_string()]
+        );
+        assert!(missing.contains(&"forge".to_string()));
+    }
     #[test]
     fn resolve_minecraft_client_jar_path_falls_back_to_game_version_jar() {
         let unique = SystemTime::now()
