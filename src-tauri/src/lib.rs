@@ -3367,7 +3367,7 @@ async fn resolve_latest_loader_version(
 
     for url in metadata_urls {
         let resp = match client
-            .get(url)
+            .get(&url)
             .header(reqwest::header::USER_AGENT, user_agent)
             .send()
             .await
