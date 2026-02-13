@@ -93,8 +93,6 @@ export const NewsPanel = () => {
 
   const warnings = news?.warnings ?? [];
   const catalog = news?.catalogItems ?? [];
-  const categories = news?.categories ?? [];
-
   const popularModpacks = useMemo(
     () =>
       [...catalog]
@@ -104,20 +102,21 @@ export const NewsPanel = () => {
     [catalog],
   );
 
-  const byCategory = useMemo(
-    () =>
-      categories
-        .filter((category) => category !== "Modpacks")
-        .map((category) => ({
-          category,
-          items: catalog
-            .filter((item) =>
-              item.type.toLowerCase().includes(category.toLowerCase().replace(" ", "")),
-            )
-            .slice(0, 6),
-        })),
-    [catalog, categories],
-  );
+  const sections = useMemo(() => {
+    const map = [
+      { title: "Mods destacados", token: "mod" },
+      { title: "Mapas y mundos", token: "world" },
+      { title: "Data packs", token: "data" },
+      { title: "Shaders", token: "shader" },
+      { title: "Modpacks", token: "modpack" },
+    ];
+    return map
+      .map((entry) => ({
+        category: entry.title,
+        items: catalog.filter((item) => item.type.toLowerCase().includes(entry.token)).slice(0, 8),
+      }))
+      .filter((entry) => entry.items.length);
+  }, [catalog]);
 
   const featuredItem = popularModpacks[carouselIndex] ?? null;
 
@@ -170,7 +169,7 @@ export const NewsPanel = () => {
         <div className="news-section news-section--featured">
           <div className="news-section__header">
             <h3>Selección destacada</h3>
-            <span className="news-section__meta">Inspirado en catálogo e-commerce</span>
+            <span className="news-section__meta">Feed dinámico CurseForge + Modrinth</span>
           </div>
           {featuredItem ? (
             <div className="news-carousel news-carousel--featured">
@@ -259,14 +258,14 @@ export const NewsPanel = () => {
         </div>
       ) : null}
 
-      {byCategory.map((entry) =>
+      {sections.map((entry) =>
         entry.items.length ? (
           <div className="news-section" key={entry.category}>
             <div className="news-section__header">
               <h3>{entry.category}</h3>
-              <span className="news-section__meta">Categorías populares</span>
+              <span className="news-section__meta">Actualizaciones en vivo</span>
             </div>
-            <div className="explorer-layout__cards">
+            <div className="news-row">
               {entry.items.map((item) => (
                 <article
                   key={item.id}
@@ -291,9 +290,7 @@ export const NewsPanel = () => {
                     </div>
                   </div>
                   <div className="explorer-item__actions">
-                    <button type="button" onClick={() => setSelectedItem(item)}>
-                      Ver más
-                    </button>
+                    <button type="button" onClick={() => setSelectedItem(item)}>Abrir ficha</button>
                     <button
                       type="button"
                       className="explorer-item__secondary"

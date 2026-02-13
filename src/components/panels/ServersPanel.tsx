@@ -22,7 +22,7 @@ export const ServersPanel = () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchServerListings(page, 8);
+        const data = await fetchServerListings(page, 12);
         if (isActive) {
           setServers((prev) => (page === 0 ? data.items : [...prev, ...data.items]));
           setHasMore(data.hasMore);
@@ -140,10 +140,10 @@ export const ServersPanel = () => {
                 </div>
               </div>
               <div className="server-card__meta">
-                <span className="server-card__players">{server.players} jugadores</span>
+                <span className="server-card__players">👥 {server.players} en línea</span>
                 <span className="server-card__status">{server.status}</span>
-                <span className="server-card__version">{server.version}</span>
-                <span className="server-card__type">{server.serverType}</span>
+                <span className="server-card__version">Versión {server.version}</span>
+                <span className="server-card__type">Tipo: {server.serverType}</span>
                 <div className="server-card__actions">
                   <a href={server.website} target="_blank" rel="noreferrer">
                     Sitio oficial
