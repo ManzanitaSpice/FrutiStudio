@@ -4828,6 +4828,12 @@ async fn download_with_retries(
     let mut last_error = None;
 
     for attempt in 1..=max_attempts {
+        if attempt == 1 {
+            println!(
+                "[download:{stage}] orden de repositorios: {}",
+                urls.join(" -> ")
+            );
+        }
         for url in urls {
             traces.push(DownloadTrace {
                 endpoint: format!("{}:{}", stage, download_routes::endpoint_label(url)),
@@ -5000,6 +5006,7 @@ async fn download_with_retries(
                         let cache_root = launcher_global_download_cache_dir();
                         let _ = persist_binary_to_global_cache(&cache_root, path, expected_sha1);
                     }
+                    println!("[download:{stage}] repositorio exitoso: {url}");
                     return Ok(());
                 }
                 Err(error) => {
@@ -5027,7 +5034,7 @@ async fn download_with_retries(
         .collect::<Vec<_>>()
         .join("; ");
     Err(format!(
-        "{} | endpoints: {}",
+        "Ningún repositorio respondió correctamente tras {max_attempts} intento(s). Último error: {} | endpoints: {}",
         last_error.unwrap_or_else(|| "desconocido".to_string()),
         trace_summary
     ))
@@ -7484,8 +7491,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let libraries_dir_matches_launcher = expected_libraries_dir
         .as_ref()
         .map(|expected| {
-            canonical_or_original(expected)
-                == canonical_or_original(Path::new(&plan.libraries_dir))
+            canonical_or_original(expected) == canonical_or_original(Path::new(&plan.libraries_dir))
         })
         .unwrap_or(true);
     let minecraft_jar_size_ok = fs::metadata(&version_jar_path)
