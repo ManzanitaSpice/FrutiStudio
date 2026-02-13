@@ -1,6 +1,6 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
 
-import { ProductDetailsDialog, ProductInstallDialog } from "../ProductDialogs";
+import { ProductInstallDialog } from "../ProductDialogs";
 
 import {
   type ExplorerCategory,
@@ -62,7 +62,7 @@ export const ExplorerPanel = ({
   externalQueryToken,
 }: ExplorerPanelProps) => {
   const [filters, setFilters] = useState<ExplorerFilters>({
-    category: "Modpacks",
+    category: "Mods",
     sort: "popular",
     platform: "all",
     query: "",
@@ -78,7 +78,6 @@ export const ExplorerPanel = ({
   const [total, setTotal] = useState(0);
   const [selectedItem, setSelectedItem] = useState<ExplorerItem | null>(null);
   const [details, setDetails] = useState<ExplorerItemDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
   const [installState, setInstallState] = useState<{
     item: ExplorerItem;
     version?: ExplorerItemFileVersion;
@@ -89,7 +88,7 @@ export const ExplorerPanel = ({
     y: number;
     item: ExplorerItem;
   } | null>(null);
-  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(true);
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [viewMode, setViewMode] = useState<ExplorerViewMode>("cards");
 
@@ -185,7 +184,6 @@ export const ExplorerPanel = ({
     let isActive = true;
 
     const loadDetails = async () => {
-      setDetailsLoading(true);
       try {
         const data = await fetchExplorerItemDetails(selectedItem);
         if (isActive) {
@@ -193,7 +191,6 @@ export const ExplorerPanel = ({
         }
       } finally {
         if (isActive) {
-          setDetailsLoading(false);
         }
       }
     };
@@ -311,9 +308,55 @@ export const ExplorerPanel = ({
     <section className="panel-view panel-view--explorer">
       <div className="explorer-layout explorer-layout--upgraded">
         <div className="explorer-layout__results">
+          {selectedItem ? (
+            <section className="explorer-detail-view">
+              <button
+                type="button"
+                className="explorer-detail-view__back"
+                onClick={() => setSelectedItem(null)}
+              >
+                ← Explorador global / {filters.category}
+              </button>
+              <header className="explorer-detail-view__header">
+                {selectedItem.thumbnail ? (
+                  <img src={selectedItem.thumbnail} alt={selectedItem.name} />
+                ) : (
+                  <img src="/tauri.svg" alt="Interface" />
+                )}
+                <div>
+                  <p>{selectedItem.source}</p>
+                  <h2>{selectedItem.name}</h2>
+                  <div className="explorer-detail-view__meta">
+                    <span>Autor: {selectedItem.author}</span>
+                    <span>Descargas: {selectedItem.downloads}</span>
+                    <span>
+                      Actualizado: {selectedItem.updatedAt
+                        ? new Date(selectedItem.updatedAt).toLocaleDateString()
+                        : "N/D"}
+                    </span>
+                    <span>Loader: {selectedItem.loaders.join(", ") || "N/D"}</span>
+                    <span>Minecraft: {selectedItem.versions.join(", ") || "N/D"}</span>
+                    <span>Tamaño: {formatFileSize(selectedItem.fileSizeBytes)}</span>
+                    <span>Categoría: {selectedItem.type}</span>
+                  </div>
+                  <p>{details?.description ?? selectedItem.description}</p>
+                </div>
+              </header>
+              <div className="explorer-detail-view__actions">
+                <button type="button" onClick={() => setInstallState({ item: selectedItem })}>
+                  Instalar
+                </button>
+                {selectedItem.url ? (
+                  <a href={selectedItem.url} target="_blank" rel="noreferrer">
+                    Abrir en {selectedItem.source}
+                  </a>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
           <div className="explorer-layout__toolbar explorer-layout__toolbar--top">
             <div>
-              <h3>{filters.category}</h3>
+              <h3>Explorador global · {filters.category}</h3>
               <p>{total} resultados encontrados</p>
               {loading && <small>Cargando resultados...</small>}
               {error && <small className="explorer-layout__error">{error}</small>}
@@ -368,7 +411,7 @@ export const ExplorerPanel = ({
                   type="button"
                   onClick={() =>
                     setFilters({
-                      category: "Modpacks",
+                      category: "Mods",
                       sort: "popular",
                       platform: "all",
                       query: "",
@@ -453,9 +496,7 @@ export const ExplorerPanel = ({
             </div>
           ) : null}
 
-          <div
-            className={`explorer-layout__list explorer-layout__list--${viewMode}`}
-          >
+          {!selectedItem ? <div className={`explorer-layout__list explorer-layout__list--${viewMode}`}>
             {Object.entries(grouped).map(([source, sourceItems]) =>
               sourceItems.length ? (
                 <div key={source} className="explorer-layout__source-block">
@@ -481,11 +522,11 @@ export const ExplorerPanel = ({
                           />
                         )}
                         <div className="explorer-item__info">
-                          <h4>{item.name}</h4>
+                          <h4 title={item.name}>{item.name}</h4>
                           <p>{oneLine(item.description)}</p>
                           <div className="explorer-item__meta explorer-item__meta--rich">
                             <span>Autor: {item.author}</span>
-                            <span>Targets: {item.type}</span>
+                            <span>Categoría: {item.type}</span>
                             <span>Descargas: {item.downloads}</span>
                             <span>Última actualización: {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "N/D"}</span>
                             <span>Peso: {formatFileSize(item.fileSizeBytes)}</span>
@@ -495,9 +536,6 @@ export const ExplorerPanel = ({
                           </div>
                         </div>
                         <div className="explorer-item__actions">
-                          <button type="button" onClick={() => setSelectedItem(item)}>
-                            Ver más
-                          </button>
                           <button
                             type="button"
                             className="explorer-item__secondary"
@@ -506,6 +544,12 @@ export const ExplorerPanel = ({
                             Instalar
                           </button>
                         </div>
+                        <button
+                          type="button"
+                          className="explorer-item__open"
+                          aria-label={`Abrir ${item.name}`}
+                          onClick={() => setSelectedItem(item)}
+                        />
                       </article>
                     ))}
                   </div>
@@ -517,7 +561,7 @@ export const ExplorerPanel = ({
                 <p>No se encontraron resultados para esos filtros.</p>
               </div>
             ) : null}
-          </div>
+          </div> : null}
 
           {hasMore ? (
             <button
@@ -558,16 +602,6 @@ export const ExplorerPanel = ({
             Copiar enlace/nombre
           </button>
         </div>
-      ) : null}
-
-      {selectedItem ? (
-        <ProductDetailsDialog
-          item={selectedItem}
-          details={details}
-          loading={detailsLoading}
-          onClose={() => setSelectedItem(null)}
-          onInstall={(item, version) => setInstallState({ item, version })}
-        />
       ) : null}
 
       {installState ? (

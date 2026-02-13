@@ -1323,11 +1323,6 @@ export const InstancePanel = ({
     selectedInstance,
   ]);
 
-  const handleCreatorBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
-      setCreatorOpen(false);
-    }
-  };
 
   useEffect(() => {
     if (!creatorOpen || versionsStatus !== "idle") {
@@ -3354,6 +3349,7 @@ export const InstancePanel = ({
           </button>
         </div>
       </div>
+{!creatorOpen ? (
       <div
         className={
           selectedInstance
@@ -3890,8 +3886,9 @@ ${rows.join("\n")}`;
               </div>
             </section>
           </div>
-        )}
-      </div>
+        )}      </div>
+      ) : null}
+
       {contextMenu && (
         <div
           className="instance-context-menu"
@@ -4379,75 +4376,74 @@ ${rows.join("\n")}`;
         </div>
       ) : null}
 
-      {creatorOpen && (
-        <div className="instance-editor__backdrop" onClick={handleCreatorBackdropClick}>
-          <div className="instance-creator">
-            <header className="instance-creator__header">
-              <div>
-                <h3>Nueva instancia</h3>
-                <p>Elige el origen y configura tu perfil.</p>
+      {creatorOpen ? (
+        <section className="instance-creator instance-creator--inline">
+          <header className="instance-creator__header">
+            <div>
+              <p className="instance-creator__breadcrumb">Mis modpacks / Crear instancia</p>
+              <h3>Nueva instancia</h3>
+              <p>Elige el origen y configura tu perfil.</p>
+            </div>
+            <button
+              type="button"
+              className="instance-button instance-button--ghost"
+              onClick={() => setCreatorOpen(false)}
+            >
+              Volver al listado
+            </button>
+          </header>
+          <div className="instance-creator__body">
+            <aside className="instance-creator__sidebar">
+              {creatorSections.map((section) => (
+                <button
+                  key={section}
+                  type="button"
+                  onClick={() => setActiveCreatorSection(section)}
+                  className={
+                    activeCreatorSection === section
+                      ? "instance-creator__tab instance-creator__tab--active"
+                      : "instance-creator__tab"
+                  }
+                >
+                  {section}
+                </button>
+              ))}
+            </aside>
+            <div className="instance-creator__content">
+              <div className="instance-creator__heading">
+                <div>
+                  <h4>{activeCreatorSection}</h4>
+                  <p>Configura o importa tu nueva instancia.</p>
+                </div>
+                <input type="search" placeholder="Buscar..." />
               </div>
-              <button
-                type="button"
-                className="instance-button instance-button--ghost"
-                onClick={() => setCreatorOpen(false)}
-              >
-                Cerrar
-              </button>
-            </header>
-            <div className="instance-creator__body">
-              <aside className="instance-creator__sidebar">
-                {creatorSections.map((section) => (
-                  <button
-                    key={section}
-                    type="button"
-                    onClick={() => setActiveCreatorSection(section)}
-                    className={
-                      activeCreatorSection === section
-                        ? "instance-creator__tab instance-creator__tab--active"
-                        : "instance-creator__tab"
-                    }
-                  >
-                    {section}
-                  </button>
-                ))}
-              </aside>
-              <div className="instance-creator__content">
-                <div className="instance-creator__heading">
-                  <div>
-                    <h4>{activeCreatorSection}</h4>
-                    <p>Configura o importa tu nueva instancia.</p>
+              <div className="instance-creator__workspace">
+                {renderCreatorBody()}
+                <aside className="instance-creator__rail">
+                  <h5>Acciones</h5>
+                  <div className="instance-creator__actions">
+                    <button
+                      type="button"
+                      onClick={handleCreateInstance}
+                      className="instance-button instance-button--primary"
+                      disabled={versionsStatus === "error"}
+                    >
+                      Crear instancia
+                    </button>
+                    <button
+                      type="button"
+                      className="instance-button instance-button--ghost"
+                      onClick={() => setCreatorOpen(false)}
+                    >
+                      Cancelar
+                    </button>
                   </div>
-                  <input type="search" placeholder="Buscar..." />
-                </div>
-                <div className="instance-creator__workspace">
-                  {renderCreatorBody()}
-                  <aside className="instance-creator__rail">
-                    <h5>Acciones</h5>
-                    <div className="instance-creator__actions">
-                      <button
-                        type="button"
-                        onClick={handleCreateInstance}
-                        className="instance-button instance-button--primary"
-                        disabled={versionsStatus === "error"}
-                      >
-                        Crear instancia
-                      </button>
-                      <button
-                        type="button"
-                        className="instance-button instance-button--ghost"
-                        onClick={() => setCreatorOpen(false)}
-                      >
-                        Cerrar
-                      </button>
-                    </div>
-                  </aside>
-                </div>
+                </aside>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
     </section>
   );
 };
