@@ -267,11 +267,18 @@ async fn fetch_pom_dependencies(
 fn parse_dependencies_from_pom(raw: &str) -> Vec<MavenCoordinate> {
     let mut out = Vec::new();
     let dep_block_re = Regex::new(r"(?s)<dependency>(.*?)</dependency>").expect("regex dep");
+    let comment_re = Regex::new(r"(?s)<!--.*?-->").expect("regex comment");
     let tag_value = |block: &str, tag: &str| -> Option<String> {
         let re = Regex::new(&format!(r"(?s)<{tag}>\s*(.*?)\s*</{tag}>")).ok()?;
         re.captures(block)
             .and_then(|cap| cap.get(1))
-            .map(|value| value.as_str().trim().to_string())
+            .map(|value| {
+                comment_re
+                    .replace_all(value.as_str(), "")
+                    .trim()
+                    .to_string()
+            })
+            .filter(|value| !value.is_empty())
     };
 
     for cap in dep_block_re.captures_iter(raw) {
@@ -314,4 +321,28 @@ fn parse_dependencies_from_pom(raw: &str) -> Vec<MavenCoordinate> {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_dependencies_from_pom;
+
+    #[test]
+    fn parse_dependencies_strips_xml_comments_in_versions() {
+        let pom = r#"
+            <project>
+              <dependencies>
+                <dependency>
+                  <groupId>org.checkerframework</groupId>
+                  <artifactId>javacutil</artifactId>
+                  <version><!-- checker-framework-version -->1.8.10<!-- /checker-framework-version --></version>
+                </dependency>
+              </dependencies>
+            </project>
+        "#;
+
+        let deps = parse_dependencies_from_pom(pom);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].version, "1.8.10");
+    }
 }
