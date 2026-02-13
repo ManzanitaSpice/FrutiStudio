@@ -66,7 +66,7 @@ fn walk_files(root: &Path) -> Result<Vec<std::path::PathBuf>, String> {
 
 fn permission_denied_message(path: &Path) -> String {
     format!(
-        "No se pudo ejecutar repair_instance: Librería {} falló: No hay permisos de escritura. Cierra procesos Java/Minecraft, ejecuta FrutiLauncher como administrador y revisa antivirus/Acceso controlado a carpetas.",
+        "No se pudo ejecutar repair_instance: Librería {} falló: No hay permisos de escritura. Cierra procesos Java/Minecraft, ejecuta Interface como administrador y revisa antivirus/Acceso controlado a carpetas.",
         path.display()
     )
 }

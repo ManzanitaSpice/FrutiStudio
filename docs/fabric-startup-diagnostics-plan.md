@@ -56,7 +56,7 @@ Cuando Fabric falla en `McVersionLookup.fromAnalyzer/getVersion`, normalmente no
    - Reparar runtime (redescarga de `jar`, `asset index`, `libraries`, `natives`, loader).
 5. Persistir diagnóstico en log por instancia con resumen accionable.
 
-## Mejoras técnicas prioritarias para FrutiLauncher
+## Mejoras técnicas prioritarias para Interface
 
 1. **Gestión automática de Java**
    - Detectar múltiples instalaciones (17/21 y ruta real).

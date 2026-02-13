@@ -1,4 +1,4 @@
-# Flujo CurseForge estilo Prism (implementación en FrutiLauncher)
+# Flujo CurseForge estilo Prism (implementación en Interface)
 
 ## 1) Importar modpack CurseForge
 
@@ -53,11 +53,11 @@ El fragmento es útil **como guía de producto/arquitectura**, no para copiar c�
 
 1. **Pantalla de “Services / APIs” con campos de override**
    - Prism maneja claves/tokens como `FlameKeyOverride`, `ModrinthToken`, `UserAgentOverride`, y persistencia centralizada.
-   - En FrutiLauncher ya existe un campo para la API key de CurseForge en `SettingsPanel`; lo más valioso sería mover ese valor a un flujo 100% backend (Tauri) y mantener en frontend solo UX de entrada/validación.
+   - En Interface ya existe un campo para la API key de CurseForge en `SettingsPanel`; lo más valioso sería mover ese valor a un flujo 100% backend (Tauri) y mantener en frontend solo UX de entrada/validación.
 
 2. **Validaciones y saneamiento de URL/config**
    - Prism valida URLs y fuerza HTTPS en endpoints inseguros.
-   - Si abres overrides de endpoints en FrutiLauncher (ej. para staging/proxy), conviene replicar esa política: validar formato, normalizar barra final y bloquear `http` no-localhost.
+   - Si abres overrides de endpoints en Interface (ej. para staging/proxy), conviene replicar esa política: validar formato, normalizar barra final y bloquear `http` no-localhost.
 
 3. **Controles operativos para red/tareas**
    - El UI de Prism expone concurrencia, retries y timeout HTTP.
@@ -65,11 +65,11 @@ El fragmento es útil **como guía de producto/arquitectura**, no para copiar c�
 
 4. **Metadata y dependencias automáticas**
    - Prism tiene toggles de “Keep track of mod metadata” e “Install dependencies automatically”.
-   - Son directamente aplicables para mejorar UX de actualización/modpack en FrutiLauncher si aún no están configurables.
+   - Son directamente aplicables para mejorar UX de actualización/modpack en Interface si aún no están configurables.
 
 5. **Detección de mods “bloqueados” en descargas**
    - Prism contempla revisar subcarpetas de Downloads y mover/copiar recursos bloqueados.
-   - Para FrutiLauncher sirve como patrón de fallback legal y trazabilidad cuando no hay descarga directa.
+   - Para Interface sirve como patrón de fallback legal y trazabilidad cuando no hay descarga directa.
 
 ## 7) Qué NO tomar tal cual
 

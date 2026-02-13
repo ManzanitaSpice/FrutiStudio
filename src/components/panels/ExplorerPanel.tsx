@@ -1,6 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
 
 import { ProductInstallDialog } from "../ProductDialogs";
+import { parseAndSanitizeRichText } from "../../utils/sanitizeRichText";
 
 import {
   type ExplorerCategory,
@@ -28,6 +29,7 @@ const loaders = ["", "forge", "fabric", "quilt", "neoforge"];
 
 type ExplorerViewMode = "cards" | "list" | "table";
 type SortDirection = "desc" | "asc";
+type ExplorerDetailTab = "descripcion" | "actualizaciones" | "versiones" | "galeria" | "comentarios";
 
 interface ExplorerPanelProps {
   externalQuery?: string;
@@ -55,6 +57,12 @@ const oneLine = (text: string) => {
     return sanitized;
   }
   return `${sanitized.slice(0, 107)}...`;
+};
+
+const formatLoaderName = (loader?: string) => {
+  if (!loader) return "N/D";
+  if (loader.toLowerCase() === "neoforge") return "NeoForge";
+  return loader.charAt(0).toUpperCase() + loader.slice(1);
 };
 
 export const ExplorerPanel = ({
@@ -91,6 +99,13 @@ export const ExplorerPanel = ({
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(true);
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [viewMode, setViewMode] = useState<ExplorerViewMode>("cards");
+  const [detailTab, setDetailTab] = useState<ExplorerDetailTab>("descripcion");
+  const [versionQuery, setVersionQuery] = useState("");
+  const [versionLoaderFilter, setVersionLoaderFilter] = useState("");
+  const [versionMcFilter, setVersionMcFilter] = useState("");
+  const [versionTypeFilter, setVersionTypeFilter] = useState("");
+  const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
+  const [galleryItem, setGalleryItem] = useState<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -179,6 +194,7 @@ export const ExplorerPanel = ({
   useEffect(() => {
     if (!selectedItem) {
       setDetails(null);
+      setDetailTab("descripcion");
       return;
     }
     let isActive = true;
@@ -201,6 +217,19 @@ export const ExplorerPanel = ({
       isActive = false;
     };
   }, [selectedItem]);
+
+  const filteredVersions = useMemo(() => {
+    if (!details) return [];
+    return details.versions.filter((version) => {
+      const searchText = `${version.name} ${version.gameVersions.join(" ")} ${version.loaders.join(" ")}`
+        .toLowerCase();
+      if (versionQuery && !searchText.includes(versionQuery.toLowerCase())) return false;
+      if (versionLoaderFilter && !version.loaders.includes(versionLoaderFilter)) return false;
+      if (versionMcFilter && !version.gameVersions.includes(versionMcFilter)) return false;
+      if (versionTypeFilter && version.releaseType !== versionTypeFilter) return false;
+      return true;
+    });
+  }, [details, versionLoaderFilter, versionMcFilter, versionQuery, versionTypeFilter]);
 
   const grouped = useMemo(() => {
     const sortedItems = [...items].sort((a, b) => {
@@ -309,7 +338,7 @@ export const ExplorerPanel = ({
       <div className="explorer-layout explorer-layout--upgraded">
         <div className="explorer-layout__results">
           {selectedItem ? (
-            <section className="explorer-detail-view">
+            <section className="explorer-detail-view explorer-detail-view--full">
               <button
                 type="button"
                 className="explorer-detail-view__back"
@@ -328,33 +357,149 @@ export const ExplorerPanel = ({
                   <h2>{selectedItem.name}</h2>
                   <div className="explorer-detail-view__meta">
                     <span>Autor: {selectedItem.author}</span>
-                    <span>Descargas: {selectedItem.downloads}</span>
-                    <span>
-                      Actualizado: {selectedItem.updatedAt
-                        ? new Date(selectedItem.updatedAt).toLocaleDateString()
-                        : "N/D"}
-                    </span>
-                    <span>Loader: {selectedItem.loaders.join(", ") || "N/D"}</span>
-                    <span>Minecraft: {selectedItem.versions.join(", ") || "N/D"}</span>
-                    <span>Tamaño: {formatFileSize(selectedItem.fileSizeBytes)}</span>
                     <span>Categoría: {selectedItem.type}</span>
+                    <span>Loaders: {selectedItem.loaders.map((loader) => formatLoaderName(loader)).join(", ") || "N/D"}</span>
+                    <span>Versiones MC: {selectedItem.versions.slice(0, 4).join(", ") || "N/D"}</span>
+                    <span>Actualizado: {selectedItem.updatedAt ? new Date(selectedItem.updatedAt).toLocaleDateString() : "N/D"}</span>
                   </div>
-                  <p>{details?.description ?? selectedItem.description}</p>
+                  <div className="explorer-detail-view__actions">
+                    <button type="button" onClick={() => setInstallState({ item: selectedItem })}>
+                      Descargar para instancia
+                    </button>
+                    <button type="button" onClick={() => setInstallState({ item: selectedItem })}>
+                      Crear instancia con este complemento
+                    </button>
+                    {selectedItem.url ? (
+                      <a href={selectedItem.url} target="_blank" rel="noreferrer">
+                        Abrir en {selectedItem.source}
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
               </header>
-              <div className="explorer-detail-view__actions">
-                <button type="button" onClick={() => setInstallState({ item: selectedItem })}>
-                  Instalar
-                </button>
-                {selectedItem.url ? (
-                  <a href={selectedItem.url} target="_blank" rel="noreferrer">
-                    Abrir en {selectedItem.source}
-                  </a>
-                ) : null}
-              </div>
+
+              <nav className="explorer-detail-view__tabs">
+                {[
+                  ["descripcion", "Descripción"],
+                  ["actualizaciones", "Actualizaciones"],
+                  ["versiones", "Versiones"],
+                  ["galeria", "Galería"],
+                  ["comentarios", "Comentarios"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={detailTab === key ? "explorer-detail-view__tab explorer-detail-view__tab--active" : "explorer-detail-view__tab"}
+                    onClick={() => setDetailTab(key as ExplorerDetailTab)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+
+              {detailTab === "descripcion" ? (
+                <div className="explorer-detail-view__panel">
+                  <div
+                    className="rich-description"
+                    dangerouslySetInnerHTML={{
+                      __html: parseAndSanitizeRichText(details?.body ?? details?.description ?? selectedItem.description),
+                    }}
+                  />
+                  <h4>Relacionados</h4>
+                  <div className="explorer-related-carousel">
+                    {items
+                      .filter((item) => item.id !== selectedItem.id && item.source === selectedItem.source)
+                      .slice(0, 12)
+                      .map((item) => (
+                        <button key={item.id} type="button" onClick={() => setSelectedItem(item)}>
+                          {item.name}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {detailTab === "actualizaciones" ? (
+                <div className="explorer-detail-view__panel">
+                  {(details?.versions ?? []).slice(0, 12).map((version) => (
+                    <article key={version.id} className="explorer-version-item">
+                      <strong>{version.name}</strong>
+                      <span>{version.publishedAt ? new Date(version.publishedAt).toLocaleDateString() : "Sin fecha"}</span>
+                      <span>{version.releaseType}</span>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+
+              {detailTab === "versiones" ? (
+                <div className="explorer-detail-view__panel">
+                  <div className="explorer-versions-filters">
+                    <input
+                      type="search"
+                      placeholder="Buscar versión..."
+                      value={versionQuery}
+                      onChange={(event) => setVersionQuery(event.target.value)}
+                    />
+                    <select value={versionLoaderFilter} onChange={(event) => setVersionLoaderFilter(event.target.value)}>
+                      <option value="">Todos los loaders</option>
+                      {Array.from(new Set((details?.versions ?? []).flatMap((version) => version.loaders))).map((loader) => (
+                        <option key={loader} value={loader}>{formatLoaderName(loader)}</option>
+                      ))}
+                    </select>
+                    <select value={versionMcFilter} onChange={(event) => setVersionMcFilter(event.target.value)}>
+                      <option value="">Todas las versiones MC</option>
+                      {Array.from(new Set((details?.versions ?? []).flatMap((version) => version.gameVersions))).map((version) => (
+                        <option key={version} value={version}>{version}</option>
+                      ))}
+                    </select>
+                    <select value={versionTypeFilter} onChange={(event) => setVersionTypeFilter(event.target.value)}>
+                      <option value="">Todos los tipos</option>
+                      <option value="release">Release</option>
+                      <option value="beta">Beta</option>
+                      <option value="alpha">Alpha</option>
+                    </select>
+                  </div>
+
+                  {filteredVersions.map((version) => (
+                    <article key={version.id} className="explorer-version-item explorer-version-item--expandable">
+                      <button type="button" onClick={() => setExpandedVersionId((current) => current === version.id ? null : version.id)}>
+                        <strong>{version.name}</strong>
+                        <span>{version.releaseType} · {version.publishedAt ? new Date(version.publishedAt).toLocaleDateString() : "Sin fecha"}</span>
+                      </button>
+                      {expandedVersionId === version.id ? (
+                        <div>
+                          <p>Loaders: {version.loaders.map((loader) => formatLoaderName(loader)).join(", ") || "N/D"}</p>
+                          <p>Minecraft: {version.gameVersions.join(", ") || "N/D"}</p>
+                          <p>Dependencias: {version.dependencies?.join(", ") || "Sin dependencias"}</p>
+                          <div className="explorer-detail-view__actions">
+                            <button type="button" onClick={() => setInstallState({ item: selectedItem, version })}>Descargar a instancia</button>
+                            <button type="button" onClick={() => setInstallState({ item: selectedItem, version })}>Crear instancia con esta versión</button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+
+              {detailTab === "galeria" ? (
+                <div className="explorer-detail-view__panel explorer-gallery-grid">
+                  {(details?.gallery ?? []).map((image) => (
+                    <button key={image} type="button" onClick={() => setGalleryItem(image)}>
+                      <img src={image} alt={selectedItem.name} />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {detailTab === "comentarios" ? (
+                <div className="explorer-detail-view__panel">
+                  <p>Los comentarios se cargan dinámicamente desde {selectedItem.source} en próximas iteraciones del API unificado.</p>
+                </div>
+              ) : null}
             </section>
           ) : null}
-          <div className="explorer-layout__toolbar explorer-layout__toolbar--top">
+          {!selectedItem ? <div className="explorer-layout__toolbar explorer-layout__toolbar--top">
             <div>
               <h3>Explorador global · {filters.category}</h3>
               <p>{total} resultados encontrados</p>
@@ -401,9 +546,9 @@ export const ExplorerPanel = ({
                 </select>
               </label>
             </div>
-          </div>
+          </div> : null}
 
-          {showAdvancedFilter ? (
+          {showAdvancedFilter && !selectedItem ? (
             <div className="explorer-layout__advanced-panel">
               <div className="explorer-layout__filters-header">
                 <h4>Filtro avanzado</h4>
@@ -506,6 +651,15 @@ export const ExplorerPanel = ({
                       <article
                         key={item.id}
                         className="explorer-item explorer-item--card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedItem(item)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedItem(item);
+                          }
+                        }}
                         onContextMenu={(event) => handleItemContextMenu(event, item)}
                       >
                         {item.thumbnail ? (
@@ -535,21 +689,10 @@ export const ExplorerPanel = ({
                             <span className="explorer-item__source">{item.source}</span>
                           </div>
                         </div>
-                        <div className="explorer-item__actions">
-                          <button
-                            type="button"
-                            className="explorer-item__secondary"
-                            onClick={() => setInstallState({ item })}
-                          >
-                            Instalar
-                          </button>
+                        <div className="explorer-item__meta-footer">
+                          <span>{formatLoaderName(item.loaders[0])}</span>
+                          <span>v {item.versions[0] ?? "N/D"}</span>
                         </div>
-                        <button
-                          type="button"
-                          className="explorer-item__open"
-                          aria-label={`Abrir ${item.name}`}
-                          onClick={() => setSelectedItem(item)}
-                        />
                       </article>
                     ))}
                   </div>
@@ -610,6 +753,12 @@ export const ExplorerPanel = ({
           version={installState.version}
           onClose={() => setInstallState(null)}
         />
+      ) : null}
+
+      {galleryItem ? (
+        <div className="explorer-gallery-lightbox" onClick={() => setGalleryItem(null)}>
+          <img src={galleryItem} alt="Galería del proyecto" />
+        </div>
       ) : null}
     </section>
   );
