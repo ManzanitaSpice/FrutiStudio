@@ -10,6 +10,9 @@ export interface ExternalInstance {
   gameDir: string;
   loaderName: string;
   loaderVersion: string;
+  runtimeHint?: string;
+  launchArgs: string[];
+  signature: string;
   details?: string;
 }
 
@@ -30,8 +33,34 @@ export interface ImportExternalInstanceArgs {
   customName?: string;
 }
 
+export interface ExternalScanArgs {
+  mode?: "quick" | "advanced";
+  depthLimit?: number;
+  includeAllVolumes?: boolean;
+  includeManualRoots?: boolean;
+}
+
+export interface ExternalScanReport {
+  mode: string;
+  instances: ExternalInstance[];
+  stats: {
+    rootsScanned: number;
+    rootsDetected: number;
+    visitedDirs: number;
+    elapsedMs: number;
+  };
+}
+
 export const fetchExternalInstances = async (): Promise<ExternalInstance[]> => {
   return invokeWithHandling<ExternalInstance[]>("list_external_instances");
+};
+
+export const scanExternalInstances = async (
+  args: ExternalScanArgs,
+): Promise<ExternalScanReport> => {
+  return invokeWithHandling<ExternalScanReport>("scan_external_instances_command", {
+    args,
+  });
 };
 
 export const fetchExternalRoots = async (): Promise<ManualExternalRoot[]> => {

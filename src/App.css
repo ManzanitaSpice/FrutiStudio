@@ -2253,6 +2253,27 @@ select:focus-visible {
   color: rgba(255, 255, 255, 0.7);
 }
 
+
+.instance-import__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.instance-import__tab {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.instance-import__tab--active {
+  border-color: rgba(125, 143, 255, 0.65);
+  background: rgba(125, 143, 255, 0.24);
+}
+
 .instance-import__hero {
   display: flex;
   gap: 16px;

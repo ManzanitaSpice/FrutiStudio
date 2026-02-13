@@ -2,14 +2,34 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
 use crate::core::instance::{
-    ExternalDetectedInstance, ExternalDiscoveryCache, ExternalDiscoveryRoot,
+    ExternalDetectedInstance, ExternalDiscoveryCache, ExternalDiscoveryRoot, ExternalScanReport,
+    ExternalScanStats,
 };
 use crate::core::launcher_discovery::detect_minecraft_launcher_installations;
+
+#[derive(Debug, Clone)]
+pub(crate) struct ExternalScanOptions {
+    pub(crate) mode: String,
+    pub(crate) depth_limit: usize,
+    pub(crate) include_all_volumes: bool,
+    pub(crate) include_manual_roots: bool,
+}
+
+impl Default for ExternalScanOptions {
+    fn default() -> Self {
+        Self {
+            mode: "quick".to_string(),
+            depth_limit: 4,
+            include_all_volumes: false,
+            include_manual_roots: true,
+        }
+    }
+}
 
 fn external_discovery_cache_path(launcher_root: &Path) -> PathBuf {
     launcher_root
@@ -56,7 +76,7 @@ pub fn launcher_from_hint(value: Option<&str>) -> Option<String> {
         return None;
     }
     match normalized.as_str() {
-        "prism" | "prismlauncher" => Some("prism".to_string()),
+        "prism" | "prismlauncher" | "polymc" | "multimc" => Some("prism".to_string()),
         "curseforge" | "cf" => Some("curseforge".to_string()),
         "modrinth" | "modrinthapp" => Some("modrinth".to_string()),
         "minecraft" | "mojang" | "vanilla" => Some("minecraft".to_string()),
@@ -69,6 +89,7 @@ fn detect_launcher_signature(root: &Path) -> Option<String> {
     let checks = [
         ("prism", root.join("instance.cfg")),
         ("prism", root.join("instances").join("instance.cfg")),
+        ("prism", root.join("mmc-pack.json")),
         ("curseforge", root.join("minecraftinstance.json")),
         ("modrinth", root.join("profile.json")),
         ("minecraft", root.join("launcher_profiles.json")),
@@ -90,14 +111,11 @@ fn detect_launcher_signature(root: &Path) -> Option<String> {
 }
 
 fn normalize_external_root(launcher: &str, root: &Path) -> PathBuf {
-    if launcher == "prism" {
-        if root.ends_with("instances") {
-            return root
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| root.to_path_buf());
-        }
-        return root.to_path_buf();
+    if launcher == "prism" && root.ends_with("instances") {
+        return root
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| root.to_path_buf());
     }
     if launcher == "modrinth" && root.ends_with("profiles") {
         return root
@@ -142,6 +160,10 @@ fn discover_known_launcher_roots() -> Vec<(String, PathBuf, String)> {
         ));
     }
 
+    dedup_roots(roots)
+}
+
+fn dedup_roots(roots: Vec<(String, PathBuf, String)>) -> Vec<(String, PathBuf, String)> {
     let mut dedup = HashSet::new();
     roots
         .into_iter()
@@ -151,16 +173,21 @@ fn discover_known_launcher_roots() -> Vec<(String, PathBuf, String)> {
         .collect()
 }
 
-fn collect_external_scan_roots(launcher_root: &Path) -> Vec<(String, PathBuf, String)> {
+fn collect_external_scan_roots(
+    launcher_root: &Path,
+    include_manual_roots: bool,
+) -> Vec<(String, PathBuf, String)> {
     let mut roots = discover_known_launcher_roots();
     let cache = read_external_discovery_cache(launcher_root);
 
-    for manual in cache.manual_roots {
-        let path = PathBuf::from(manual.path);
-        let launcher = launcher_from_hint(manual.launcher_hint.as_deref())
-            .or_else(|| detect_launcher_signature(&path))
-            .unwrap_or_else(|| "minecraft".to_string());
-        roots.push((launcher, path, "manual".to_string()));
+    if include_manual_roots {
+        for manual in cache.manual_roots {
+            let path = PathBuf::from(manual.path);
+            let launcher = launcher_from_hint(manual.launcher_hint.as_deref())
+                .or_else(|| detect_launcher_signature(&path))
+                .unwrap_or_else(|| "minecraft".to_string());
+            roots.push((launcher, path, "manual".to_string()));
+        }
     }
 
     for cached in cache.discovered_roots {
@@ -171,13 +198,7 @@ fn collect_external_scan_roots(launcher_root: &Path) -> Vec<(String, PathBuf, St
         ));
     }
 
-    let mut dedup = HashSet::new();
-    roots
-        .into_iter()
-        .filter(|(launcher, root, _)| {
-            dedup.insert((launcher.clone(), root.to_string_lossy().to_string()))
-        })
-        .collect()
+    dedup_roots(roots)
 }
 
 fn normalize_loader_name(value: Option<&str>) -> String {
@@ -188,6 +209,60 @@ fn normalize_loader_name(value: Option<&str>) -> String {
         "neoforge" => "NeoForge".to_string(),
         _ => "Vanilla".to_string(),
     }
+}
+
+fn build_signature(launcher: &str, path: &Path) -> String {
+    format!("{}::{}", launcher, path.to_string_lossy().to_lowercase())
+}
+
+fn scan_extra_roots(depth_limit: usize) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let default_unix_mounts = ["/mnt", "/media", "/run/media"];
+    for base in default_unix_mounts {
+        let path = PathBuf::from(base);
+        if path.is_dir() {
+            roots.push(path);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        for letter in b'C'..=b'Z' {
+            let drive = format!("{}:/", letter as char);
+            let path = PathBuf::from(drive);
+            if path.exists() {
+                roots.push(path);
+            }
+        }
+    }
+
+    let mut discovered = Vec::new();
+    let excludes = ["$Recycle.Bin", "System Volume Information", "Windows"];
+    for root in roots {
+        let mut stack = vec![(root, 0_usize)];
+        while let Some((current, depth)) = stack.pop() {
+            if depth > depth_limit {
+                continue;
+            }
+            if let Some(name) = current.file_name().and_then(|value| value.to_str()) {
+                if excludes.iter().any(|excluded| name.eq_ignore_ascii_case(excluded)) {
+                    continue;
+                }
+            }
+            if detect_launcher_signature(&current).is_some() {
+                discovered.push(current.clone());
+            }
+            if let Ok(dir) = fs::read_dir(&current) {
+                for entry in dir.flatten().take(128) {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push((path, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+    discovered
 }
 
 fn detect_external_instances_from_root(
@@ -270,6 +345,9 @@ fn detect_external_instances_from_root(
                 game_dir: game_dir.to_string_lossy().to_string(),
                 loader_name,
                 loader_version,
+                runtime_hint: None,
+                launch_args: vec![],
+                signature: build_signature("prism", &path),
                 details: Some(format!("Instancia Prism: {name}")),
             });
         }
@@ -321,6 +399,9 @@ fn detect_external_instances_from_root(
                 game_dir: root.to_string_lossy().to_string(),
                 loader_name,
                 loader_version,
+                runtime_hint: None,
+                launch_args: vec![],
+                signature: build_signature(launcher, &version_dir),
                 details: Some(format!("Versión detectada en {}", root.display())),
             });
         }
@@ -337,15 +418,34 @@ fn current_unix_secs() -> u64 {
 }
 
 pub(crate) fn detect_external_instances(launcher_root: &Path) -> Vec<ExternalDetectedInstance> {
-    let scan_roots = collect_external_scan_roots(launcher_root);
+    scan_external_instances(launcher_root, ExternalScanOptions::default()).instances
+}
+
+pub(crate) fn scan_external_instances(
+    launcher_root: &Path,
+    options: ExternalScanOptions,
+) -> ExternalScanReport {
+    let started = Instant::now();
+    let mut scan_roots = collect_external_scan_roots(launcher_root, options.include_manual_roots);
+
+    if options.include_all_volumes || options.mode.eq_ignore_ascii_case("advanced") {
+        for root in scan_extra_roots(options.depth_limit.max(2)) {
+            let launcher = detect_launcher_signature(&root).unwrap_or_else(|| "minecraft".to_string());
+            scan_roots.push((launcher, root, "volume-scan".to_string()));
+        }
+    }
+    scan_roots = dedup_roots(scan_roots);
+
     let mut all = Vec::new();
     let mut discovered_roots = Vec::new();
+    let mut visited_dirs = 0usize;
 
-    for (launcher, root, source) in scan_roots {
+    for (launcher, root, source) in scan_roots.clone() {
         let normalized_root = normalize_external_root(&launcher, &root);
         if !normalized_root.exists() {
             continue;
         }
+        visited_dirs += 1;
         let instances = detect_external_instances_from_root(&launcher, &normalized_root);
         if !instances.is_empty() {
             discovered_roots.push(ExternalDiscoveryRoot {
@@ -368,7 +468,19 @@ pub(crate) fn detect_external_instances(launcher_root: &Path) -> Vec<ExternalDet
     let _ = write_external_discovery_cache(launcher_root, &cache);
 
     let mut dedup_instances = HashSet::new();
-    all.into_iter()
-        .filter(|entry| dedup_instances.insert(entry.id.clone()))
-        .collect()
+    let instances = all
+        .into_iter()
+        .filter(|entry| dedup_instances.insert(entry.signature.clone()))
+        .collect::<Vec<_>>();
+
+    ExternalScanReport {
+        mode: options.mode,
+        stats: ExternalScanStats {
+            roots_scanned: scan_roots.len(),
+            roots_detected: cache.discovered_roots.len(),
+            visited_dirs,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        },
+        instances,
+    }
 }
