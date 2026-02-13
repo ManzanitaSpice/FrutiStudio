@@ -103,6 +103,10 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
         } else if rest.contains("/org/jetbrains/") {
             prioritized.insert(0, format!("https://repo.maven.apache.org/maven2{rest}"));
             prioritized.insert(1, format!("https://repo1.maven.org/maven2{rest}"));
+            prioritized.insert(
+                2,
+                format!("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies{rest}"),
+            );
         } else if rest.starts_with("/net/neoforged/") || rest.starts_with("/cpw/mods/") {
             prioritized.insert(0, format!("https://maven.neoforged.net/releases{rest}"));
         } else if rest.starts_with("/net/minecraftforge/") {
@@ -111,6 +115,9 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
 
         prioritized.push(format!("https://repo.maven.apache.org/maven2{rest}"));
         prioritized.push(format!("https://repo1.maven.org/maven2{rest}"));
+        prioritized.push(format!(
+            "https://packages.jetbrains.team/maven/p/ij/intellij-dependencies{rest}"
+        ));
         prioritized.push(format!("https://maven.neoforged.net/releases{rest}"));
         prioritized.push(format!("https://maven.minecraftforge.net{rest}"));
         prioritized.push(format!("https://bmclapi2.bangbang93.com/maven{rest}"));
@@ -128,6 +135,7 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
             urls = vec![
                 format!("https://repo.maven.apache.org/maven2{rest}"),
                 format!("https://repo1.maven.org/maven2{rest}"),
+                format!("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies{rest}"),
             ];
         }
     }
@@ -141,6 +149,7 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
             url.to_string(),
             format!("https://repo.maven.apache.org/maven2{rest}"),
             format!("https://repo1.maven.org/maven2{rest}"),
+            format!("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies{rest}"),
         ];
         if includes_experimental_jetbrains {
             urls.push(format!(
@@ -265,6 +274,10 @@ mod tests {
             value
                 == "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
         }));
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
+        }));
     }
 
     #[test]
@@ -354,6 +367,9 @@ pub(crate) fn endpoint_label(url: &str) -> &'static str {
     }
     if url.contains("maven.pkg.jetbrains.space/kotlin") {
         return "jetbrains-kotlin";
+    }
+    if url.contains("packages.jetbrains.team/maven/p/ij/intellij-dependencies") {
+        return "jetbrains-ij";
     }
     "generic"
 }

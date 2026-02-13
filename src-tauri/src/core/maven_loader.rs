@@ -156,12 +156,13 @@ pub fn repositories_for_library(library: &Value, declared: &[String]) -> Vec<Str
 pub fn default_repositories() -> Vec<String> {
     vec![
         "https://libraries.minecraft.net".to_string(),
+        "https://repo1.maven.org/maven2".to_string(),
+        "https://packages.jetbrains.team/maven/p/ij/intellij-dependencies".to_string(),
         "https://maven.minecraftforge.net".to_string(),
         "https://maven.neoforged.net/releases".to_string(),
         "https://maven.fabricmc.net".to_string(),
         "https://maven.quiltmc.org/repository/release".to_string(),
         "https://repo.maven.apache.org/maven2".to_string(),
-        "https://repo1.maven.org/maven2".to_string(),
     ]
 }
 
@@ -417,6 +418,15 @@ mod tests {
         assert!(repositories
             .iter()
             .any(|repo| repo == "https://repo.maven.apache.org/maven2"));
+        assert!(repositories
+            .iter()
+            .any(|repo| repo == "https://repo1.maven.org/maven2"));
+        assert!(
+            repositories
+                .iter()
+                .any(|repo| repo
+                    == "https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
+        );
     }
 
     #[test]
