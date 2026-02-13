@@ -3007,9 +3007,9 @@ fn validate_loader_profile_json(
             .map(str::trim)
             .unwrap_or_default();
         let expected_target = if loader == "forge" {
-            "forge_client"
+            "forgeclient"
         } else {
-            "neoforge_client"
+            "neoforgeclient"
         };
         if launch_target.is_empty() {
             return Err(format!(
@@ -4770,6 +4770,36 @@ fn classpath_entries_complete(plan: &LaunchPlan) -> bool {
         })
 }
 
+fn resolve_bootstraplauncher_jar_from_version_json(version_json: &Path) -> Option<PathBuf> {
+    let raw = fs::read_to_string(version_json).ok()?;
+    let json = serde_json::from_str::<Value>(&raw).ok()?;
+    let libraries = json.get("libraries")?.as_array()?;
+    for library in libraries {
+        let Some(name) = library.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if !name.starts_with("cpw.mods:bootstraplauncher:") {
+            continue;
+        }
+
+        let explicit_path = library
+            .get("downloads")
+            .and_then(|downloads| downloads.get("artifact"))
+            .and_then(|artifact| artifact.get("path"))
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
+
+        let rel_path = explicit_path.or_else(|| maven_path(name).map(PathBuf::from))?;
+        let base = version_json
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)?;
+        return Some(base.join("libraries").join(rel_path));
+    }
+
+    None
+}
+
 fn canonical_or_original(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
@@ -5405,6 +5435,24 @@ fn normalize_critical_game_args(
     ensure_single_game_arg(plan, "--accessToken", &access_token);
     ensure_single_game_arg(plan, "--userType", &user_type);
     ensure_single_game_arg(plan, "--versionType", &version_type);
+
+    if normalized_loader == "forge" || normalized_loader == "neoforge" {
+        let fallback_target = if normalized_loader == "forge" {
+            "forgeclient"
+        } else {
+            "neoforgeclient"
+        };
+        ensure_single_game_arg(plan, "--launchTarget", fallback_target);
+
+        if let Some(loader_version_value) = loader_version
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "latest")
+        {
+            ensure_single_game_arg(plan, "--fml.forgeVersion", loader_version_value);
+        }
+        ensure_single_game_arg(plan, "--fml.mcVersion", version);
+    }
+
     normalize_resolution_args(&mut plan.game_args);
 
     plan.auth.username = username;
@@ -6313,9 +6361,9 @@ async fn bootstrap_instance_runtime(
 
     if loader == "forge" || loader == "neoforge" {
         let fallback_launch_target = if loader == "forge" {
-            "forge_client"
+            "forgeclient"
         } else {
-            "neoforge_client"
+            "neoforgeclient"
         };
         let launch_target = effective_version_json
             .get("launchTarget")
@@ -6661,6 +6709,22 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         .any(|entry| canonical_or_original(entry) == version_jar_canonical);
     let has_loader_runtime_jar =
         classpath_has_loader_runtime(plan.loader.as_str(), &plan.classpath_entries);
+    let forge_bootstrap_jar = if plan.loader == "forge" || plan.loader == "neoforge" {
+        resolve_bootstraplauncher_jar_from_version_json(Path::new(&plan.version_json))
+    } else {
+        None
+    };
+    let forge_bootstrap_present = forge_bootstrap_jar.as_ref().is_some_and(|path| {
+        fs::metadata(path)
+            .map(|meta| meta.is_file() && meta.len() > 0)
+            .unwrap_or(false)
+    });
+    let forge_bootstrap_on_classpath = forge_bootstrap_jar.as_ref().is_none_or(|path| {
+        let normalized_expected = path.to_string_lossy().replace('\\', "/").to_lowercase();
+        plan.classpath_entries
+            .iter()
+            .any(|entry| entry.replace('\\', "/").to_lowercase() == normalized_expected)
+    });
 
     let main_class_matches_loader = expected_main_class_for_loader(plan.loader.as_str())
         .map(|expected| plan.main_class == expected)
@@ -6707,6 +6771,14 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ("jar_minecraft_sha1", minecraft_jar_sha1_ok),
         ("main_class_resuelta", !plan.main_class.trim().is_empty()),
         ("main_class_loader_compatible", main_class_matches_loader),
+        (
+            "main_class_forge_bootstraplauncher",
+            if plan.loader == "forge" || plan.loader == "neoforge" {
+                plan.main_class == "cpw.mods.bootstraplauncher.BootstrapLauncher"
+            } else {
+                true
+            },
+        ),
         ("argumentos_jvm", !plan.java_args.is_empty()),
         ("argumentos_juego", !plan.game_args.is_empty()),
         (
@@ -6768,6 +6840,22 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             },
         ),
         ("runtime_loader_en_classpath", has_loader_runtime_jar),
+        (
+            "forge_bootstraplauncher_jar_presente",
+            if plan.loader == "forge" || plan.loader == "neoforge" {
+                forge_bootstrap_present
+            } else {
+                true
+            },
+        ),
+        (
+            "forge_bootstraplauncher_en_classpath",
+            if plan.loader == "forge" || plan.loader == "neoforge" {
+                forge_bootstrap_on_classpath
+            } else {
+                true
+            },
+        ),
         (
             "mods_compatibles_con_loader",
             if plan.loader == "vanilla" {
@@ -6924,6 +7012,13 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             "La ruta de la instancia es muy larga en Windows; usa una carpeta base más corta para evitar errores del loader."
                 .to_string(),
         );
+    }
+
+    if (plan.loader == "forge" || plan.loader == "neoforge")
+        && (!plan.game_args.iter().any(|arg| arg == "--fml.forgeVersion")
+            || !plan.game_args.iter().any(|arg| arg == "--fml.mcVersion"))
+    {
+        warnings.push("Faltan argumentos obligatorios de Forge/NeoForge (--fml.forgeVersion y/o --fml.mcVersion); revisa el profile JSON fusionado del loader.".to_string());
     }
 
     if !["vanilla", "fabric", "quilt", "forge", "neoforge"].contains(&plan.loader.as_str()) {
@@ -8314,6 +8409,25 @@ async fn launch_instance(
         cmd.args(&launch_plan.java_args)
             .arg(&launch_plan.main_class)
             .args(&launch_plan.game_args);
+
+        let launch_cmd_preview = format!(
+            "{} {} {} {}",
+            shell_escape(&launch_plan.java_path),
+            launch_plan
+                .java_args
+                .iter()
+                .map(|arg| shell_escape(arg))
+                .collect::<Vec<_>>()
+                .join(" "),
+            shell_escape(&launch_plan.main_class),
+            launch_plan
+                .game_args
+                .iter()
+                .map(|arg| shell_escape(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        info!("Lanzando Java con comando completo: {}", launch_cmd_preview);
 
         let mut child = cmd
             .spawn()
@@ -10088,7 +10202,7 @@ mod tests {
         );
         assert_eq!(
             forge_profile.get("launchTarget").and_then(Value::as_str),
-            Some("forge_client")
+            Some("forgeclient")
         );
         assert_eq!(
             forge_profile.get("mainClass").and_then(Value::as_str),
@@ -10111,7 +10225,7 @@ mod tests {
         );
         assert_eq!(
             neoforge_profile.get("launchTarget").and_then(Value::as_str),
-            Some("neoforge_client")
+            Some("neoforgeclient")
         );
         assert_eq!(
             neoforge_profile.get("mainClass").and_then(Value::as_str),
