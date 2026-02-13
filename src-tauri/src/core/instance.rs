@@ -51,7 +51,27 @@ pub(crate) struct ExternalDetectedInstance {
     pub(crate) game_dir: String,
     pub(crate) loader_name: String,
     pub(crate) loader_version: String,
+    pub(crate) runtime_hint: Option<String>,
+    pub(crate) launch_args: Vec<String>,
+    pub(crate) signature: String,
     pub(crate) details: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExternalScanStats {
+    pub(crate) roots_scanned: usize,
+    pub(crate) roots_detected: usize,
+    pub(crate) visited_dirs: usize,
+    pub(crate) elapsed_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExternalScanReport {
+    pub(crate) mode: String,
+    pub(crate) instances: Vec<ExternalDetectedInstance>,
+    pub(crate) stats: ExternalScanStats,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -135,4 +155,13 @@ pub(crate) struct InstanceArchiveArgs {
 pub(crate) struct ExternalImportArgs {
     pub(crate) external_id: String,
     pub(crate) custom_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExternalScanArgs {
+    pub(crate) mode: Option<String>,
+    pub(crate) depth_limit: Option<usize>,
+    pub(crate) include_all_volumes: Option<bool>,
+    pub(crate) include_manual_roots: Option<bool>,
 }

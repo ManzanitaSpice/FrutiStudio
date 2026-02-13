@@ -37,12 +37,13 @@ use crate::core::config::{
 use crate::core::download_routes;
 use crate::core::external_discovery::{
     detect_external_instances, launcher_from_hint, read_external_discovery_cache,
-    write_external_discovery_cache,
+    scan_external_instances, write_external_discovery_cache, ExternalScanOptions,
 };
 use crate::core::instance::{
-    ExternalDetectedInstance, ExternalImportArgs, InstalledModEntry, InstanceArchiveArgs,
-    InstanceCommandArgs, InstancePathArgs, InstanceRecord, LauncherInstallation,
-    ManualExternalRoot, RegisterExternalRootArgs, RemoveExternalRootArgs,
+    ExternalDetectedInstance, ExternalImportArgs, ExternalScanArgs, ExternalScanReport,
+    InstalledModEntry, InstanceArchiveArgs, InstanceCommandArgs, InstancePathArgs,
+    InstanceRecord, LauncherInstallation, ManualExternalRoot, RegisterExternalRootArgs,
+    RemoveExternalRootArgs,
 };
 use crate::core::instance_config::{instance_game_dir, resolve_instance_launch_config};
 use crate::core::java::{JavaManager, JavaResolution, JavaRuntime};
@@ -7416,6 +7417,28 @@ async fn list_external_instances(
 }
 
 #[command]
+async fn scan_external_instances_command(
+    app: tauri::AppHandle,
+    args: ExternalScanArgs,
+) -> Result<ExternalScanReport, String> {
+    let root = launcher_root(&app)?;
+    let mut options = ExternalScanOptions::default();
+    if let Some(mode) = args.mode {
+        options.mode = mode;
+    }
+    if let Some(depth_limit) = args.depth_limit {
+        options.depth_limit = depth_limit.min(10);
+    }
+    if let Some(include_all_volumes) = args.include_all_volumes {
+        options.include_all_volumes = include_all_volumes;
+    }
+    if let Some(include_manual_roots) = args.include_manual_roots {
+        options.include_manual_roots = include_manual_roots;
+    }
+    Ok(scan_external_instances(&root, options))
+}
+
+#[command]
 async fn list_external_roots(app: tauri::AppHandle) -> Result<Vec<ManualExternalRoot>, String> {
     let root = launcher_root(&app)?;
     let cache = read_external_discovery_cache(&root);
@@ -9468,6 +9491,7 @@ pub fn run() {
             list_instances,
             detect_minecraft_launchers,
             list_external_instances,
+            scan_external_instances_command,
             list_external_roots,
             register_external_root,
             remove_external_root,

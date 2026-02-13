@@ -28,6 +28,7 @@ import {
   type ExternalInstance,
   fetchExternalInstances,
   importExternalInstance,
+  scanExternalInstances,
 } from "../../services/externalInstanceService";
 import { fetchATLauncherPacks } from "../../services/atmlService";
 import {
@@ -80,33 +81,22 @@ const creatorSections = [
   "Importar",
 ];
 
-const serverImportFlows = [
-  {
-    title: "Crear servidor desde cero",
-    description:
-      "Asistente guiado con versión, loader, RAM, puerto, modo online y tipo de mundo.",
-    badge: "Nuevo",
-  },
-  {
-    title: "Convertir cliente → servidor",
-    description:
-      "Analiza la instancia, detecta loader, filtra mods client-only y genera estructura server-ready.",
-    badge: "Automático",
-  },
-  {
-    title: "Exportación profesional",
-    description:
-      "Empaqueta ZIP/TAR.GZ con scripts run.sh/run.bat, validaciones y optimización para hosting.",
-    badge: "Producción",
-  },
-];
+const importTabs = [
+  "Escaneo automático",
+  "Importar desde launcher detectado",
+  "Importar desde archivo (zip/mrpack/manifest)",
+  "Importar desde carpeta personalizada",
+  "Instancias enlazadas",
+] as const;
 
-const serverImportCapabilities = [
-  "Detección automática de loader (Fabric/Forge/NeoForge/Quilt).",
-  "Filtrado inteligente de mods por entorno (cliente/servidor/universal).",
-  "Validaciones de RAM, puerto, dependencias y conflictos de loader.",
-  "Generación de instance_server.json, README y paquete portable.",
-];
+type ImportTab = (typeof importTabs)[number];
+
+const importFlowStates = [
+  "Pendiente",
+  "Validando",
+  "Listo",
+  "Error",
+] as const;
 
 const instanceConfigTabs = [
   "General",
@@ -302,6 +292,12 @@ export const InstancePanel = ({
   const [loaderError, setLoaderError] = useState<string | null>(null);
   const [importUrl, setImportUrl] = useState("");
   const [importFileName, setImportFileName] = useState("");
+  const [activeImportTab, setActiveImportTab] = useState<ImportTab>("Escaneo automático");
+  const [scanDepthLimit, setScanDepthLimit] = useState(4);
+  const [scanAllVolumes, setScanAllVolumes] = useState(false);
+  const [scanStatusText, setScanStatusText] = useState("Pendiente");
+  const [scanCancelled, setScanCancelled] = useState(false);
+  const [scanStats, setScanStats] = useState<string | null>(null);
   const [externalInstances, setExternalInstances] = useState<ExternalInstance[]>([]);
   const [externalStatus, setExternalStatus] = useState<
     "idle" | "loading" | "ready" | "error"
@@ -2705,16 +2701,41 @@ export const InstancePanel = ({
     );
   };
 
-  const handleExternalScan = async () => {
+  const handleExternalScan = async (mode: "quick" | "advanced" = "quick") => {
     setExternalStatus("loading");
     setExternalError(null);
+    setScanCancelled(false);
+    setScanStatusText("Validando");
+    setScanStats(null);
     try {
-      const results = await fetchExternalInstances();
-      setExternalInstances(results);
+      const report =
+        mode === "quick"
+          ? {
+              mode,
+              instances: await fetchExternalInstances(),
+              stats: { rootsScanned: 0, rootsDetected: 0, visitedDirs: 0, elapsedMs: 0 },
+            }
+          : await scanExternalInstances({
+              mode,
+              depthLimit: scanDepthLimit,
+              includeAllVolumes: scanAllVolumes,
+              includeManualRoots: true,
+            });
+      if (scanCancelled) {
+        setScanStatusText("Pendiente");
+        setExternalStatus("idle");
+        return;
+      }
+      setExternalInstances(report.instances);
       setExternalStatus("ready");
+      setScanStatusText("Listo");
+      setScanStats(
+        `Raíces: ${report.stats.rootsScanned} · detectadas: ${report.stats.rootsDetected} · dirs: ${report.stats.visitedDirs} · ${report.stats.elapsedMs} ms`,
+      );
     } catch (error) {
       setExternalInstances([]);
       setExternalStatus("error");
+      setScanStatusText("Error");
       setExternalError(
         error instanceof Error
           ? error.message
@@ -2723,16 +2744,15 @@ export const InstancePanel = ({
     }
   };
 
+  const handleCancelScan = () => {
+    setScanCancelled(true);
+    setScanStatusText("Pendiente");
+    setExternalStatus("idle");
+  };
+
   const handleImportFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     setImportFileName(file ? file.name : "");
-  };
-
-  const handleServerFlowPreview = (flowName: string) => {
-    setInstanceLaunchStatus(
-      selectedInstance?.id,
-      `Flujo "${flowName}" listo para integración en esta ventana de importación.`,
-    );
   };
 
   const mapLocalInstanceToUi = (imported: {
@@ -3009,117 +3029,107 @@ export const InstancePanel = ({
     }
 
     if (activeCreatorSection === "Importar") {
-    
-
-  return (
+      return (
         <div className="instance-creator__panel">
           <div className="instance-import__hero">
             <img src={importGuide} alt="Guía de importación" />
             <div>
-              <h5>Centro de Importación y Servidores</h5>
+              <h5>Centro modular de importación</h5>
               <p>
-                Importa modpacks, detecta instancias externas y prepara flujos de
-                servidor en una vista profesional y ordenada.
+                Flujo guiado: detección → validación → modo copia/enlace →
+                adaptación interna → verificación final.
               </p>
             </div>
           </div>
-          <div className="instance-import__server-blueprint">
-            <div className="instance-import__header">
-              <h6>Arquitectura de servidor integrada en importación</h6>
-              <span>Planificador visual</span>
-            </div>
-            <div className="instance-import__flow-grid">
-              {serverImportFlows.map((flow) => (
-                <article key={flow.title} className="instance-import__flow-card">
-                  <header>
-                    <strong>{flow.title}</strong>
-                    <span>{flow.badge}</span>
-                  </header>
-                  <p>{flow.description}</p>
-                  <button
-                    type="button"
-                    onClick={() => handleServerFlowPreview(flow.title)}
-                  >
-                    Ver en esta ventana
-                  </button>
-                </article>
-              ))}
-            </div>
-            <ul>
-              {serverImportCapabilities.map((capability) => (
-                <li key={capability}>{capability}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="instance-import__row">
-            <label htmlFor="import-url">Importación rápida por archivo o enlace</label>
-            <div className="instance-import__controls">
-              <input
-                id="import-url"
-                type="url"
-                placeholder="https://..."
-                value={importUrl}
-                onChange={(event) => setImportUrl(event.target.value)}
-              />
-              <label className="instance-import__file">
-                <input
-                  type="file"
-                  accept=".zip,.mrpack"
-                  onChange={handleImportFileChange}
-                />
-                Navegar
-              </label>
-              <button type="button" onClick={() => void handleImportArchive()}>
-                Importar archivo
+          <div className="instance-import__tabs">
+            {importTabs.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                className={activeImportTab === tab ? "instance-import__tab instance-import__tab--active" : "instance-import__tab"}
+                onClick={() => setActiveImportTab(tab)}
+              >
+                {tab}
               </button>
-            </div>
-            {importFileName ? (
-              <span className="instance-import__filename">Archivo: {importFileName}</span>
-            ) : null}
+            ))}
           </div>
           <div className="instance-import__supported">
-            <h6>Formatos soportados y origen</h6>
-            <ul>
-              <li>Modpacks de CurseForge (ZIP / curseforge:// URL).</li>
-              <li>Modpacks de Modrinth (ZIP y mrpack).</li>
-              <li>Instancias exportadas de Prism, PolyMC o MultiMC (ZIP).</li>
-              <li>Modpacks de Technic (ZIP).</li>
-            </ul>
+            <strong>Estado del módulo:</strong> {scanStatusText} · {importFlowStates.join(" / ")}
+            {scanStats ? <p>{scanStats}</p> : null}
           </div>
-          <div className="instance-import__external">
-            <div className="instance-import__header">
-              <h6>Instancias detectadas en otros launchers</h6>
-              <button type="button" onClick={handleExternalScan}>
-                Buscar instancias
-              </button>
-            </div>
-            {externalStatus === "loading" ? (
-              <p>Buscando instancias en Minecraft oficial, Prism, Modrinth y CurseForge...</p>
-            ) : null}
-            {externalError ? (
-              <p className="instance-import__error">{externalError}</p>
-            ) : null}
-            {externalInstances.length ? (
-              <div className="instance-import__list">
-                {externalInstances.map((instance) => (
-                  <div key={instance.id} className="instance-import__item">
-                    <div>
-                      <strong>{instance.name}</strong>
-                      <span>
-                        {instance.launcher} · {instance.version} · {instance.loaderName} {instance.loaderVersion}
-                      </span>
-                      <span>{instance.details ?? instance.path}</span>
-                    </div>
-                    <button type="button" onClick={() => void handleImportDetectedInstance(instance)}>
-                      Vincular
-                    </button>
-                  </div>
-                ))}
+
+          {activeImportTab === "Escaneo automático" ? (
+            <div className="instance-import__external">
+              <div className="instance-import__header">
+                <h6>Escaneo configurable</h6>
+                <div className="instance-import__actions">
+                  <button type="button" onClick={() => void handleExternalScan("quick")}>Búsqueda rápida</button>
+                  <button type="button" onClick={() => void handleExternalScan("advanced")}>Búsqueda avanzada</button>
+                  <button type="button" onClick={handleCancelScan}>Cancelar</button>
+                </div>
               </div>
-            ) : externalStatus === "ready" ? (
-              <p>No se encontraron instancias externas.</p>
-            ) : null}
-          </div>
+              <div className="instance-import__controls">
+                <label>
+                  Profundidad
+                  <input type="number" min={1} max={10} value={scanDepthLimit} onChange={(event) => setScanDepthLimit(Number(event.target.value) || 4)} />
+                </label>
+                <label>
+                  <input type="checkbox" checked={scanAllVolumes} onChange={(event) => setScanAllVolumes(event.target.checked)} />
+                  Incluir volúmenes montados externos
+                </label>
+              </div>
+            </div>
+          ) : null}
+
+          {activeImportTab === "Importar desde archivo (zip/mrpack/manifest)" ? (
+            <div className="instance-import__row">
+              <label htmlFor="import-url">Importación por archivo o enlace</label>
+              <div className="instance-import__controls">
+                <input id="import-url" type="url" placeholder="https://..." value={importUrl} onChange={(event) => setImportUrl(event.target.value)} />
+                <label className="instance-import__file">
+                  <input type="file" accept=".zip,.mrpack" onChange={handleImportFileChange} />
+                  Navegar
+                </label>
+                <button type="button" onClick={() => void handleImportArchive()}>Importar archivo</button>
+              </div>
+              {importFileName ? <span className="instance-import__filename">Archivo: {importFileName}</span> : null}
+            </div>
+          ) : null}
+
+          {activeImportTab === "Importar desde launcher detectado" || activeImportTab === "Instancias enlazadas" || activeImportTab === "Escaneo automático" ? (
+            <div className="instance-import__external">
+              {externalStatus === "loading" ? <p>Escaneando launchers y estructuras válidas...</p> : null}
+              {externalError ? <p className="instance-import__error">{externalError}</p> : null}
+              {externalInstances.length ? (
+                <div className="instance-import__list">
+                  {externalInstances.map((instance) => (
+                    <div key={instance.signature} className="instance-import__item">
+                      <div>
+                        <strong>{instance.name}</strong>
+                        <span>{instance.launcher} · {instance.version} · {instance.loaderName} {instance.loaderVersion}</span>
+                        <span>{instance.details ?? instance.path}</span>
+                      </div>
+                      <button type="button" onClick={() => void handleImportDetectedInstance(instance)}>
+                        {activeImportTab === "Instancias enlazadas" ? "Vincular" : "Importar"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : externalStatus === "ready" ? (
+                <p>No se encontraron instancias externas.</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {activeImportTab === "Importar desde carpeta personalizada" ? (
+            <div className="instance-import__supported">
+              <h6>Carpetas personalizadas</h6>
+              <p>
+                Añade rutas en Ajustes/raíces externas y vuelve a ejecutar el escaneo.
+                Se validarán estructuras .minecraft, versions, libraries, mods, config y saves.
+              </p>
+            </div>
+          ) : null}
         </div>
       );
     }
