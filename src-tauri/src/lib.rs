@@ -477,7 +477,7 @@ fn http_client_with_tuning(tuning: &NetworkTuning) -> Result<reqwest::Client, St
         .timeout(Duration::from_secs(tuning.request_timeout_secs.max(1)))
         .pool_max_idle_per_host(32)
         .tcp_keepalive(Duration::from_secs(30))
-        .user_agent("Interface/1.0")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) InterfaceLauncher/1.0")
         .build()
         .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))
 }
@@ -494,7 +494,7 @@ static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         )))
         .pool_max_idle_per_host(32)
         .tcp_keepalive(std::time::Duration::from_secs(30))
-        .user_agent("Interface/1.0")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) InterfaceLauncher/1.0")
         .build()
         .expect("No se pudo preparar cliente HTTP global")
 });
@@ -5102,8 +5102,9 @@ async fn preflight_maven_availability(client: &reqwest::Client, urls: &[String])
             .iter()
             .find_map(|url| parse_maven_coordinate_from_url(url))
             .unwrap_or_else(|| "coordenada Maven desconocida".to_string());
+        let attempted_urls = maven_urls.join(" | ");
         return Some(format!(
-            "La librería {coordinate} no existe en los repositorios Maven consultados (todos devolvieron 404 en preflight). Revisa metadata del version.json/loader/install_profile, reglas por OS y overrides de versión."
+            "La librería {coordinate} no existe en los repositorios Maven consultados (todos devolvieron 404 en preflight). URLs probadas: {attempted_urls}. Revisa metadata del version.json/loader/install_profile, reglas por OS y overrides de versión."
         ));
     }
 
@@ -6059,7 +6060,7 @@ async fn fetch_json_with_fallback(urls: &[String], context: &str) -> Result<Valu
             "FRUTI_ENDPOINT_REQUEST_TIMEOUT_SECS",
             30,
         )))
-        .user_agent("Interface/1.0")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) InterfaceLauncher/1.0")
         .build()
         .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
     let mut last_error = None;
