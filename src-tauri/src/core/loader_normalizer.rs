@@ -18,9 +18,9 @@ pub(crate) fn normalize_loader_profile(profile: &mut Value, minecraft_version: &
         );
     } else {
         let launch_target = if loader == "neoforge" {
-            "neoforge_client"
+            "neoforgeclient"
         } else {
-            "forge_client"
+            "forgeclient"
         };
         let has_launch_target = profile_obj
             .get("launchTarget")
@@ -99,7 +99,7 @@ mod tests {
         );
         assert_eq!(
             profile.get("launchTarget").and_then(Value::as_str),
-            Some("forge_client")
+            Some("forgeclient")
         );
         assert_eq!(
             profile.get("mainClass").and_then(Value::as_str),
