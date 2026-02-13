@@ -14,6 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::Url;
 
 use fs2::available_space;
 use once_cell::sync::Lazy;
@@ -5046,7 +5047,7 @@ async fn download_with_retries(
 }
 
 fn parse_maven_coordinate_from_url(url: &str) -> Option<String> {
-    let parsed = url::Url::parse(url).ok()?;
+    let parsed = Url::parse(url).ok()?;
     let segments = parsed
         .path_segments()?
         .filter(|segment| !segment.is_empty())
