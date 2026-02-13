@@ -15,6 +15,7 @@ pub mod launcher;
 pub mod launcher_discovery;
 pub mod loader_normalizer;
 pub mod loaders;
+pub mod maven_loader;
 pub mod modloader_resolver;
 pub mod mods;
 pub mod network;

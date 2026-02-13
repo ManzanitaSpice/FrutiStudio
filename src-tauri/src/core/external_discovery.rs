@@ -245,7 +245,10 @@ fn scan_extra_roots(depth_limit: usize) -> Vec<PathBuf> {
                 continue;
             }
             if let Some(name) = current.file_name().and_then(|value| value.to_str()) {
-                if excludes.iter().any(|excluded| name.eq_ignore_ascii_case(excluded)) {
+                if excludes
+                    .iter()
+                    .any(|excluded| name.eq_ignore_ascii_case(excluded))
+                {
                     continue;
                 }
             }
@@ -430,7 +433,8 @@ pub(crate) fn scan_external_instances(
 
     if options.include_all_volumes || options.mode.eq_ignore_ascii_case("advanced") {
         for root in scan_extra_roots(options.depth_limit.max(2)) {
-            let launcher = detect_launcher_signature(&root).unwrap_or_else(|| "minecraft".to_string());
+            let launcher =
+                detect_launcher_signature(&root).unwrap_or_else(|| "minecraft".to_string());
             scan_roots.push((launcher, root, "volume-scan".to_string()));
         }
     }
