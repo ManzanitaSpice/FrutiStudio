@@ -22,6 +22,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
+use sha2::Sha256;
 use tauri::command;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -58,6 +59,10 @@ use crate::core::launcher_discovery::{
     expected_main_class_for_loader,
 };
 use crate::core::loader_normalizer::normalize_loader_profile as normalize_loader_profile_core;
+use crate::core::maven_loader::{
+    default_repositories, parse_install_profile_libraries, repositories_for_library,
+    resolve_transitive_dependencies, MavenCoordinate,
+};
 use crate::core::mods::ModDownloadIntegrity;
 use crate::core::network::{
     CurseforgeDownloadResolution, CurseforgeFileEnvelope, CurseforgeFingerprintsEnvelope,
@@ -2780,6 +2785,7 @@ struct ResolvedLibraryArtifact {
     path: PathBuf,
     urls: Vec<String>,
     sha1: Option<String>,
+    sha256: Option<String>,
     include_in_classpath: bool,
 }
 
@@ -2805,18 +2811,22 @@ fn resolve_library_artifacts(
             continue;
         }
 
-        let mut push_artifact =
-            |path: PathBuf, url: Option<&str>, sha1: Option<&str>, include_in_classpath: bool| {
-                if !seen.insert(path.clone()) {
-                    return;
-                }
-                artifacts.push(ResolvedLibraryArtifact {
-                    urls: url.map(mirror_candidates_for_url).unwrap_or_default(),
-                    sha1: sha1.map(str::to_string),
-                    include_in_classpath,
-                    path,
-                });
-            };
+        let mut push_artifact = |path: PathBuf,
+                                 url: Option<&str>,
+                                 sha1: Option<&str>,
+                                 sha256: Option<&str>,
+                                 include_in_classpath: bool| {
+            if !seen.insert(path.clone()) {
+                return;
+            }
+            artifacts.push(ResolvedLibraryArtifact {
+                urls: url.map(mirror_candidates_for_url).unwrap_or_default(),
+                sha1: sha1.map(str::to_string),
+                sha256: sha256.map(str::to_string),
+                include_in_classpath,
+                path,
+            });
+        };
 
         if let Some(downloads) = library.get("downloads") {
             if let Some(artifact) = downloads.get("artifact") {
@@ -2836,6 +2846,7 @@ fn resolve_library_artifacts(
                         target,
                         artifact.get("url").and_then(Value::as_str),
                         artifact.get("sha1").and_then(Value::as_str),
+                        artifact.get("sha256").and_then(Value::as_str),
                         true,
                     );
                 }
@@ -2851,6 +2862,7 @@ fn resolve_library_artifacts(
                         minecraft_root.join("libraries").join(path),
                         native.get("url").and_then(Value::as_str),
                         native.get("sha1").and_then(Value::as_str),
+                        native.get("sha256").and_then(Value::as_str),
                         false,
                     );
                 }
@@ -2867,7 +2879,13 @@ fn resolve_library_artifacts(
                     .trim_end_matches('/');
                 let rel_url = rel.to_string_lossy().replace('\\', "/");
                 let target = minecraft_root.join("libraries").join(&rel);
-                push_artifact(target, Some(&format!("{base_url}/{rel_url}")), None, true);
+                push_artifact(
+                    target,
+                    Some(&format!("{base_url}/{rel_url}")),
+                    None,
+                    None,
+                    true,
+                );
             }
         }
     }
@@ -2875,9 +2893,14 @@ fn resolve_library_artifacts(
     artifacts
 }
 
-fn artifact_valid_on_disk(path: &Path, sha1: Option<&str>) -> bool {
+fn artifact_valid_on_disk(path: &Path, sha1: Option<&str>, sha256: Option<&str>) -> bool {
     if !path.is_file() {
         return false;
+    }
+    if let Some(expected) = sha256.map(str::trim).filter(|value| !value.is_empty()) {
+        return file_sha256(path)
+            .map(|actual| actual.eq_ignore_ascii_case(expected))
+            .unwrap_or(false);
     }
     if let Some(expected) = sha1.map(str::trim).filter(|value| !value.is_empty()) {
         return file_sha1(path)
@@ -2901,49 +2924,95 @@ fn read_json_entry_from_zip(zip_path: &Path, entry_name: &str) -> Option<Value> 
 }
 
 fn collect_loader_installer_libraries(install_profile: &Value) -> Vec<Value> {
-    let mut output = Vec::new();
-    let mut seen = HashSet::new();
+    parse_install_profile_libraries(install_profile)
+}
 
-    for libraries in [
-        install_profile.get("libraries"),
-        install_profile
-            .get("versionInfo")
-            .and_then(|value| value.get("libraries")),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let Some(array) = libraries.as_array() else {
+async fn enrich_with_transitive_libraries(version_json: &mut Value) {
+    let Some(libraries) = version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+    else {
+        return;
+    };
+
+    let mut roots = Vec::new();
+    let mut repos = default_repositories();
+    for library in &libraries {
+        let Some(name) = library.get("name").and_then(Value::as_str) else {
             continue;
         };
-        for library in array {
-            let key = library
-                .get("name")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToString::to_string)
-                .or_else(|| {
-                    library
-                        .get("downloads")
-                        .and_then(|downloads| downloads.get("artifact"))
-                        .and_then(|artifact| artifact.get("path"))
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(ToString::to_string)
-                });
-
-            let Some(key) = key else {
-                continue;
-            };
-            if seen.insert(key) {
-                output.push(library.clone());
+        let Some(coordinate) = MavenCoordinate::parse(name) else {
+            continue;
+        };
+        roots.push(coordinate);
+        for repo in repositories_for_library(library, &repos) {
+            if !repos.contains(&repo) {
+                repos.push(repo);
             }
         }
     }
 
-    output
+    if roots.is_empty() {
+        return;
+    }
+
+    let client = match reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(env_u64(
+            "FRUTI_HTTP_CONNECT_TIMEOUT_SECS",
+            12,
+        )))
+        .timeout(Duration::from_secs(env_u64(
+            "FRUTI_HTTP_REQUEST_TIMEOUT_SECS",
+            35,
+        )))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return,
+    };
+
+    let resolved = resolve_transitive_dependencies(&client, &roots, &repos).await;
+    if resolved.len() <= roots.len() {
+        return;
+    }
+
+    let mut seen_names = HashSet::new();
+    for library in &libraries {
+        if let Some(name) = library.get("name").and_then(Value::as_str) {
+            seen_names.insert(name.to_string());
+        }
+    }
+
+    let mut additions = Vec::new();
+    for coordinate in resolved {
+        let name = if let Some(classifier) = coordinate.classifier {
+            format!(
+                "{}:{}:{}:{}@{}",
+                coordinate.group,
+                coordinate.artifact,
+                coordinate.version,
+                classifier,
+                coordinate.extension
+            )
+        } else if coordinate.extension != "jar" {
+            format!(
+                "{}:{}:{}@{}",
+                coordinate.group, coordinate.artifact, coordinate.version, coordinate.extension
+            )
+        } else {
+            format!(
+                "{}:{}:{}",
+                coordinate.group, coordinate.artifact, coordinate.version
+            )
+        };
+
+        if seen_names.insert(name.clone()) {
+            additions.push(serde_json::json!({ "name": name }));
+        }
+    }
+
+    merge_additional_libraries(version_json, &additions);
 }
 
 fn merge_additional_libraries(version_json: &mut Value, additional_libraries: &[Value]) {
@@ -4200,6 +4269,30 @@ fn file_sha1(path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+fn file_sha256(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| {
+        format!(
+            "No se pudo abrir archivo para SHA256 {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| {
+            format!(
+                "No se pudo leer archivo para SHA256 {}: {error}",
+                path.display()
+            )
+        })?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 fn normalized_sha1(expected_sha1: Option<&str>) -> Result<Option<String>, String> {
     let Some(raw) = expected_sha1 else {
         return Ok(None);
@@ -5270,9 +5363,13 @@ fn runtime_declared_libraries_complete(plan: &LaunchPlan) -> bool {
 
     let artifacts = resolve_library_artifacts(&runtime_json, Path::new(&plan.game_dir));
     !artifacts.is_empty()
-        && artifacts
-            .iter()
-            .all(|artifact| artifact_valid_on_disk(&artifact.path, artifact.sha1.as_deref()))
+        && artifacts.iter().all(|artifact| {
+            artifact_valid_on_disk(
+                &artifact.path,
+                artifact.sha1.as_deref(),
+                artifact.sha256.as_deref(),
+            )
+        })
 }
 
 fn resolve_bootstraplauncher_jar_from_version_json(version_json: &Path) -> Option<PathBuf> {
@@ -6649,6 +6746,8 @@ async fn bootstrap_instance_runtime(
     fs::create_dir_all(&natives_dir)
         .map_err(|error| format!("No se pudo crear natives dir: {error}"))?;
 
+    enrich_with_transitive_libraries(&mut effective_version_json).await;
+
     let resolved_artifacts = resolve_library_artifacts(&effective_version_json, &minecraft_root);
 
     let mut existing_artifacts = Vec::new();
@@ -6659,6 +6758,7 @@ async fn bootstrap_instance_runtime(
             serde_json::json!({
                 "path": artifact.path.to_string_lossy().to_string(),
                 "sha1": artifact.sha1,
+                "sha256": artifact.sha256,
                 "urls": artifact.urls,
                 "classpath": artifact.include_in_classpath,
             })
@@ -6666,12 +6766,17 @@ async fn bootstrap_instance_runtime(
         .collect::<Vec<_>>();
 
     for artifact in &resolved_artifacts {
-        if artifact_valid_on_disk(&artifact.path, artifact.sha1.as_deref()) {
+        if artifact_valid_on_disk(
+            &artifact.path,
+            artifact.sha1.as_deref(),
+            artifact.sha256.as_deref(),
+        ) {
             existing_artifacts.push(artifact.path.to_string_lossy().to_string());
         } else {
             missing_artifacts.push(serde_json::json!({
                 "path": artifact.path.to_string_lossy().to_string(),
                 "sha1": artifact.sha1,
+                "sha256": artifact.sha256,
                 "urls": artifact.urls,
             }));
         }
@@ -6693,14 +6798,15 @@ async fn bootstrap_instance_runtime(
     let mut library_downloads = Vec::new();
     for artifact in &resolved_artifacts {
         let sha1 = artifact.sha1.as_deref();
-        if artifact.urls.is_empty() && !artifact_valid_on_disk(&artifact.path, sha1) {
+        let sha256 = artifact.sha256.as_deref();
+        if artifact.urls.is_empty() && !artifact_valid_on_disk(&artifact.path, sha1, sha256) {
             return Err(format!(
                 "No se pudo resolver descarga para librería requerida: {}",
                 artifact.path.display()
             ));
         }
 
-        if !artifact_valid_on_disk(&artifact.path, sha1) {
+        if !artifact_valid_on_disk(&artifact.path, sha1, sha256) {
             let _ = fs::remove_file(&artifact.path);
             library_downloads.push(BinaryDownloadTask {
                 urls: artifact.urls.clone(),
@@ -6735,7 +6841,11 @@ async fn bootstrap_instance_runtime(
     }
 
     for artifact in &resolved_artifacts {
-        if !artifact_valid_on_disk(&artifact.path, artifact.sha1.as_deref()) {
+        if !artifact_valid_on_disk(
+            &artifact.path,
+            artifact.sha1.as_deref(),
+            artifact.sha256.as_deref(),
+        ) {
             return Err(format!(
                 "Dependencia declarada no está disponible en disco tras sincronización: {}",
                 artifact.path.display()
