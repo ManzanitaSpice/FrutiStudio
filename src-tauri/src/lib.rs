@@ -2891,6 +2891,156 @@ fn normalize_loader_profile(profile: &mut Value, minecraft_version: &str, loader
     normalize_loader_profile_core(profile, minecraft_version, loader);
 }
 
+fn read_json_entry_from_zip(zip_path: &Path, entry_name: &str) -> Option<Value> {
+    let file = fs::File::open(zip_path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+    let mut entry = archive.by_name(entry_name).ok()?;
+    let mut raw = String::new();
+    entry.read_to_string(&mut raw).ok()?;
+    serde_json::from_str::<Value>(&raw).ok()
+}
+
+fn collect_loader_installer_libraries(install_profile: &Value) -> Vec<Value> {
+    let mut output = Vec::new();
+    let mut seen = HashSet::new();
+
+    for libraries in [
+        install_profile.get("libraries"),
+        install_profile
+            .get("versionInfo")
+            .and_then(|value| value.get("libraries")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let Some(array) = libraries.as_array() else {
+            continue;
+        };
+        for library in array {
+            let key = library
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .or_else(|| {
+                    library
+                        .get("downloads")
+                        .and_then(|downloads| downloads.get("artifact"))
+                        .and_then(|artifact| artifact.get("path"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                });
+
+            let Some(key) = key else {
+                continue;
+            };
+            if seen.insert(key) {
+                output.push(library.clone());
+            }
+        }
+    }
+
+    output
+}
+
+fn merge_additional_libraries(version_json: &mut Value, additional_libraries: &[Value]) {
+    if additional_libraries.is_empty() {
+        return;
+    }
+
+    if !version_json.is_object() {
+        *version_json = serde_json::json!({});
+    }
+
+    if version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .is_none()
+    {
+        version_json["libraries"] = Value::Array(Vec::new());
+    }
+
+    let Some(target_libraries) = version_json
+        .get_mut("libraries")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+
+    let mut seen = HashSet::new();
+    for library in target_libraries.iter() {
+        if let Some(name) = library.get("name").and_then(Value::as_str) {
+            seen.insert(name.trim().to_string());
+        }
+    }
+
+    for library in additional_libraries {
+        let Some(name) = library.get("name").and_then(Value::as_str).map(str::trim) else {
+            continue;
+        };
+        if name.is_empty() || !seen.insert(name.to_string()) {
+            continue;
+        }
+        target_libraries.push(library.clone());
+    }
+}
+
+fn persist_loader_metadata_libraries(
+    minecraft_root: &Path,
+    profile_id: &str,
+    loader: &str,
+    loader_version: &str,
+    libraries: &[Value],
+) -> Result<(), String> {
+    if libraries.is_empty() {
+        return Ok(());
+    }
+
+    let metadata_path = minecraft_root
+        .join("versions")
+        .join(profile_id)
+        .join("fruti-loader-metadata.json");
+
+    let payload = serde_json::json!({
+        "loader": loader,
+        "loaderVersion": loader_version,
+        "libraries": libraries,
+    });
+
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&payload)
+            .map_err(|error| format!("No se pudo serializar metadata del loader: {error}"))?,
+    )
+    .map_err(|error| {
+        format!(
+            "No se pudo guardar metadata del loader {}: {error}",
+            metadata_path.display()
+        )
+    })
+}
+
+fn load_loader_metadata_libraries(minecraft_root: &Path, profile_id: &str) -> Vec<Value> {
+    let metadata_path = minecraft_root
+        .join("versions")
+        .join(profile_id)
+        .join("fruti-loader-metadata.json");
+    let Ok(raw) = fs::read_to_string(metadata_path) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&raw) else {
+        return Vec::new();
+    };
+    value
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
 fn persist_loader_profile_json(
     minecraft_root: &Path,
     minecraft_version: &str,
@@ -3603,6 +3753,16 @@ async fn install_forge_like_loader(
     )
     .await?;
 
+    let installer_profile_libraries = [
+        "install_profile.json",
+        "data/install_profile.json",
+        "version.json",
+    ]
+    .iter()
+    .find_map(|entry| read_json_entry_from_zip(&installer_cache_target, entry))
+    .map(|profile| collect_loader_installer_libraries(&profile))
+    .unwrap_or_default();
+
     let installer_target = minecraft_root.join("installers").join(&installer_file_name);
     if let Some(parent) = installer_target.parent() {
         fs::create_dir_all(parent)
@@ -3736,7 +3896,16 @@ async fn install_forge_like_loader(
         ));
     }
 
-    Ok(installed_profile_id.unwrap_or_else(|| resolved_version.clone()))
+    let installed_profile_id = installed_profile_id.unwrap_or_else(|| resolved_version.clone());
+    persist_loader_metadata_libraries(
+        minecraft_root,
+        &installed_profile_id,
+        loader,
+        &resolved_version,
+        &installer_profile_libraries,
+    )?;
+
+    Ok(installed_profile_id)
 }
 
 fn expected_forge_like_profile_ids(
@@ -6383,6 +6552,12 @@ async fn bootstrap_instance_runtime(
         resolve_complete_version_json(&minecraft_root, &launch_version_name, &base_version_json)
             .unwrap_or(effective_version_json);
 
+    if loader == "forge" || loader == "neoforge" {
+        let installer_metadata_libraries =
+            load_loader_metadata_libraries(&minecraft_root, &launch_version_name);
+        merge_additional_libraries(&mut effective_version_json, &installer_metadata_libraries);
+    }
+
     let launch_jar_id = effective_version_json
         .get("jar")
         .and_then(Value::as_str)
@@ -6475,10 +6650,43 @@ async fn bootstrap_instance_runtime(
         .map_err(|error| format!("No se pudo crear natives dir: {error}"))?;
 
     let resolved_artifacts = resolve_library_artifacts(&effective_version_json, &minecraft_root);
+
+    let mut existing_artifacts = Vec::new();
+    let mut missing_artifacts = Vec::new();
+    let expected_artifacts = resolved_artifacts
+        .iter()
+        .map(|artifact| {
+            serde_json::json!({
+                "path": artifact.path.to_string_lossy().to_string(),
+                "sha1": artifact.sha1,
+                "urls": artifact.urls,
+                "classpath": artifact.include_in_classpath,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for artifact in &resolved_artifacts {
+        if artifact_valid_on_disk(&artifact.path, artifact.sha1.as_deref()) {
+            existing_artifacts.push(artifact.path.to_string_lossy().to_string());
+        } else {
+            missing_artifacts.push(serde_json::json!({
+                "path": artifact.path.to_string_lossy().to_string(),
+                "sha1": artifact.sha1,
+                "urls": artifact.urls,
+            }));
+        }
+    }
+
     write_instance_state(
         instance_root,
         "downloading_libraries",
-        serde_json::json!({"step": "libraries", "total": resolved_artifacts.len()}),
+        serde_json::json!({
+            "step": "libraries",
+            "total": resolved_artifacts.len(),
+            "expectedArtifacts": expected_artifacts,
+            "existingArtifacts": existing_artifacts,
+            "missingArtifacts": missing_artifacts,
+        }),
     );
 
     let mut native_archives = Vec::new();
