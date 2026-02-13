@@ -102,6 +102,14 @@ pub(crate) fn forge_like_installer_urls(loader: &str, resolved_version: &str) ->
 
 pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
     let mut urls = vec![url.to_string()];
+    if let Some(rest) = url.strip_prefix("https://libraries.minecraft.net") {
+        if rest.starts_with("/net/neoforged/") {
+            urls.insert(
+                0,
+                format!("https://maven.neoforged.net/releases{rest}"),
+            );
+        }
+    }
     let mirrors = [
         (
             "https://libraries.minecraft.net",
@@ -140,6 +148,29 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
     }
 
     dedupe(urls)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mirror_candidates_for_url;
+
+    #[test]
+    fn neoforged_library_url_prioritizes_neoforge_maven() {
+        let urls = mirror_candidates_for_url(
+            "https://libraries.minecraft.net/net/neoforged/neoforge/21.1.0/neoforge-21.1.0.jar",
+        );
+
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some(
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.0/neoforge-21.1.0.jar"
+            )
+        );
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://libraries.minecraft.net/net/neoforged/neoforge/21.1.0/neoforge-21.1.0.jar"
+        }));
+    }
 }
 
 fn dedupe(urls: Vec<String>) -> Vec<String> {
