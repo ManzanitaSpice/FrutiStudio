@@ -8634,7 +8634,8 @@ async fn preflight_instance(
             }),
         );
         bootstrap_instance_runtime(&app, &instance_root, &instance).await?;
-        let rebuilt_plan = build_launch_command(&app, &instance_root, &instance)?;
+        build_launch_command(&app, &instance_root, &instance)?;
+        let rebuilt_plan = read_launch_plan(&instance_root)?;
         validation = validate_launch_plan(&instance_root, &rebuilt_plan);
     }
 
