@@ -97,12 +97,17 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
             format!("https://libraries.minecraft.net{rest}"),
             format!("https://maven.neoforged.net/releases{rest}"),
             format!("https://maven.minecraftforge.net{rest}"),
+            format!("https://repo.maven.apache.org/maven2{rest}"),
             format!("https://repo1.maven.org/maven2{rest}"),
             format!("https://bmclapi2.bangbang93.com/maven{rest}"),
         ];
 
         if rest.contains("/org/apache/") {
             prioritized.insert(0, format!("https://repo1.maven.org/maven2{rest}"));
+            prioritized.insert(0, format!("https://repo.maven.apache.org/maven2{rest}"));
+        } else if rest.contains("/org/jetbrains/") {
+            prioritized.insert(0, format!("https://repo1.maven.org/maven2{rest}"));
+            prioritized.insert(0, format!("https://repo.maven.apache.org/maven2{rest}"));
         } else if rest.starts_with("/net/neoforged/") || rest.starts_with("/cpw/mods/") {
             prioritized.insert(0, format!("https://maven.neoforged.net/releases{rest}"));
         } else if rest.starts_with("/net/minecraftforge/") {
@@ -117,6 +122,7 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
             "https://libraries.minecraft.net",
             [
                 "https://bmclapi2.bangbang93.com/maven",
+                "https://repo.maven.apache.org/maven2",
                 "https://repo1.maven.org/maven2",
             ],
         ),
@@ -193,12 +199,30 @@ mod tests {
         assert_eq!(
             urls.first().map(String::as_str),
             Some(
-                "https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar",
+                "https://repo.maven.apache.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar",
             )
         );
         assert!(urls.iter().any(|value| {
             value
                 == "https://libraries.minecraft.net/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar"
+        }));
+    }
+
+    #[test]
+    fn jetbrains_library_url_prioritizes_maven_central() {
+        let urls = mirror_candidates_for_url(
+            "https://libraries.minecraft.net/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar",
+        );
+
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some(
+                "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar",
+            )
+        );
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar"
         }));
     }
 }

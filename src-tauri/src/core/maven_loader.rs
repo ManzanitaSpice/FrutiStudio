@@ -116,6 +116,9 @@ fn official_repository_for_group(group: &str) -> Option<&'static str> {
     {
         return Some("https://maven.neoforged.net/releases");
     }
+    if group == "org.jetbrains" || group.starts_with("org.jetbrains.") {
+        return Some("https://repo.maven.apache.org/maven2");
+    }
 
     None
 }
@@ -152,6 +155,7 @@ pub fn default_repositories() -> Vec<String> {
         "https://maven.neoforged.net/releases".to_string(),
         "https://maven.fabricmc.net".to_string(),
         "https://maven.quiltmc.org/repository/release".to_string(),
+        "https://repo.maven.apache.org/maven2".to_string(),
     ]
 }
 

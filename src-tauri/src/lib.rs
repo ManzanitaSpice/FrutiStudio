@@ -2408,6 +2408,9 @@ fn default_library_base_url(name: Option<&str>) -> &'static str {
     if group == "org.quiltmc" || group.starts_with("org.quiltmc.") {
         return "https://maven.quiltmc.org/repository/release/";
     }
+    if group == "org.jetbrains" || group.starts_with("org.jetbrains.") {
+        return "https://repo.maven.apache.org/maven2/";
+    }
 
     "https://libraries.minecraft.net/"
 }
