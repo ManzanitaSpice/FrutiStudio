@@ -2383,6 +2383,30 @@ fn maven_path(name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+fn default_library_base_url(name: Option<&str>) -> &'static str {
+    let Some(name) = name else {
+        return "https://libraries.minecraft.net/";
+    };
+
+    let mut parts = name.split(':');
+    let group = parts.next().unwrap_or_default();
+
+    if group == "net.neoforged" || group.starts_with("net.neoforged.") {
+        return "https://maven.neoforged.net/releases/";
+    }
+    if group == "net.minecraftforge" || group.starts_with("net.minecraftforge.") {
+        return "https://maven.minecraftforge.net/";
+    }
+    if group == "net.fabricmc" || group.starts_with("net.fabricmc.") {
+        return "https://maven.fabricmc.net/";
+    }
+    if group == "org.quiltmc" || group.starts_with("org.quiltmc.") {
+        return "https://maven.quiltmc.org/repository/release/";
+    }
+
+    "https://libraries.minecraft.net/"
+}
+
 fn minecraft_rule_allows_current_os(rule: &Value) -> bool {
     let os_name = rule
         .get("os")
@@ -2875,7 +2899,7 @@ fn resolve_library_artifacts(
                 let base_url = library
                     .get("url")
                     .and_then(Value::as_str)
-                    .unwrap_or("https://libraries.minecraft.net/")
+                    .unwrap_or_else(|| default_library_base_url(Some(name)))
                     .trim_end_matches('/');
                 let rel_url = rel.to_string_lossy().replace('\\', "/");
                 let target = minecraft_root.join("libraries").join(&rel);
@@ -10468,6 +10492,28 @@ mod tests {
     #[test]
     fn maven_path_rejects_invalid_coordinate_arity() {
         assert!(maven_path("too:many:segments:for:one:artifact").is_none());
+    }
+
+    #[test]
+    fn resolve_library_artifacts_uses_neoforge_maven_for_neoforged_coords_without_url() {
+        let version_json = serde_json::json!({
+            "libraries": [
+                {"name": "net.neoforged:minecraft-dependencies:1.21.11"}
+            ]
+        });
+
+        let artifacts = resolve_library_artifacts(&version_json, Path::new("/tmp/test-instance"));
+        let urls = artifacts
+            .first()
+            .map(|artifact| artifact.urls.clone())
+            .unwrap_or_default();
+
+        assert!(
+            urls.iter().any(|url| url == "https://maven.neoforged.net/releases/net/neoforged/minecraft-dependencies/1.21.11/minecraft-dependencies-1.21.11.jar")
+        );
+        assert!(
+            !urls.iter().any(|url| url == "https://libraries.minecraft.net/net/neoforged/minecraft-dependencies/1.21.11/minecraft-dependencies-1.21.11.jar")
+        );
     }
 
     #[test]
