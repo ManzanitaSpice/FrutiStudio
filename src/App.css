@@ -5904,3 +5904,65 @@ select:focus-visible {
 .topbar__button, .topbar__search-submit { white-space: nowrap; }
 .topbar__nav { align-items: center; }
 
+
+
+/* Fix: modal layering + explorer card readability */
+.instance-editor__backdrop,
+.dialog-backdrop {
+  z-index: 2200 !important;
+}
+
+.product-dialog__checklist-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.explorer-layout__cards {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.explorer-item--card {
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.explorer-item--card .explorer-item__icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
+}
+
+.explorer-item__meta--rich {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 14px;
+  margin-top: 10px;
+  font-size: 0.92rem;
+}
+
+.explorer-item__meta--rich .explorer-item__source {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@media (max-width: 900px) {
+  .product-dialog__checklist-intro {
+    grid-template-columns: 1fr;
+  }
+
+  .explorer-item--card {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .explorer-item--card .explorer-item__icon {
+    width: 72px;
+    height: 72px;
+  }
+
+  .explorer-item__meta--rich {
+    grid-template-columns: 1fr;
+  }
+}

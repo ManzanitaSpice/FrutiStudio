@@ -4220,13 +4220,13 @@ async fn download_with_retries(
                                             }
                                         }
                                         Err(remove_error) => {
-                                            last_error = Some(remove_error);
+                                            last_error.get_or_insert(remove_error);
                                         }
                                     }
                                 }
 
                                 if is_windows_access_denied(&rename_error) {
-                                    last_error = Some(access_denied_hint(
+                                    last_error.get_or_insert(access_denied_hint(
                                         path,
                                         "mover temporal a destino",
                                         &rename_error,
@@ -8427,7 +8427,7 @@ async fn launch_instance(
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        info!("Lanzando Java con comando completo: {}", launch_cmd_preview);
+        println!("Lanzando Java con comando completo: {}", launch_cmd_preview);
 
         let mut child = cmd
             .spawn()

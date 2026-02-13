@@ -34,6 +34,21 @@ interface ExplorerPanelProps {
   externalQueryToken?: number;
 }
 
+const formatFileSize = (bytes?: number) => {
+  if (!bytes || bytes <= 0) {
+    return "N/D";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = value >= 100 || unit === 0 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(digits)} ${units[unit]}`;
+};
+
 const oneLine = (text: string) => {
   const sanitized = text.replace(/\s+/g, " ").trim();
   if (sanitized.length <= 110) {
@@ -473,7 +488,7 @@ export const ExplorerPanel = ({
                             <span>Targets: {item.type}</span>
                             <span>Descargas: {item.downloads}</span>
                             <span>Última actualización: {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "N/D"}</span>
-                            <span>Peso: N/D</span>
+                            <span>Peso: {formatFileSize(item.fileSizeBytes)}</span>
                             <span>Loader: {item.loaders[0] ?? "N/D"}</span>
                             <span>Minecraft: {item.versions[0] ?? "N/D"}</span>
                             <span className="explorer-item__source">{item.source}</span>

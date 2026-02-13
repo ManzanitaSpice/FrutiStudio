@@ -39,6 +39,7 @@ export interface ExplorerItem {
   loaders: string[];
   thumbnail?: string;
   url?: string;
+  fileSizeBytes?: number;
 }
 
 export interface ExplorerResult {
@@ -96,6 +97,7 @@ interface ModrinthSearchHit {
   versions?: string[];
   date_modified?: string;
   categories?: string[];
+  latest_version?: string;
 }
 
 interface ModrinthSearchResponse {
@@ -125,12 +127,26 @@ interface ModrinthVersionResponse {
   date_published?: string;
   game_versions?: string[];
   loaders?: string[];
-  files?: Array<{ url?: string }>;
+  files?: Array<{ url?: string; size?: number }>;
   dependencies?: Array<{
     project_id?: string;
     version_id?: string;
     dependency_type?: "required" | "optional" | "incompatible" | "embedded";
   }>;
+}
+
+interface CurseforgeLatestFile {
+  id?: number;
+  displayName?: string;
+  fileName?: string;
+  downloadUrl?: string;
+  gameVersions?: string[];
+  sortableGameVersions?: Array<{ gameVersionName?: string }>;
+  dependencies?: Array<{ modId?: number; relationType?: number }>;
+  fileDate?: string;
+  releaseType?: number;
+  modLoader?: number;
+  fileLength?: number;
 }
 
 interface CurseforgeSearchItem {
@@ -144,6 +160,7 @@ interface CurseforgeSearchItem {
   logo?: { thumbnailUrl?: string; url?: string };
   links?: { websiteUrl?: string };
   latestFilesIndexes?: Array<{ gameVersion?: string; modLoader?: number }>;
+  latestFiles?: CurseforgeLatestFile[];
 }
 
 interface CurseforgeSearchResponse {
@@ -159,18 +176,7 @@ interface CurseforgeSearchResponse {
 interface CurseforgeModResponse {
   data: CurseforgeSearchItem & {
     screenshots?: Array<{ url?: string; thumbnailUrl?: string }>;
-    latestFiles?: Array<{
-      id?: number;
-      displayName?: string;
-      fileName?: string;
-      downloadUrl?: string;
-      gameVersions?: string[];
-      sortableGameVersions?: Array<{ gameVersionName?: string }>;
-      dependencies?: Array<{ modId?: number; relationType?: number }>;
-      fileDate?: string;
-      releaseType?: number;
-      modLoader?: number;
-    }>;
+    latestFiles?: CurseforgeLatestFile[];
   };
 }
 
@@ -385,6 +391,28 @@ const fetchModrinthPage = async (filters: ExplorerFilters): Promise<ExplorerResu
     { ttl: 45_000 },
   );
 
+  const latestVersionIds = (data.hits ?? [])
+    .map((hit) => hit.latest_version)
+    .filter((value): value is string => Boolean(value));
+  const sizeByVersionId = new Map<string, number>();
+
+  if (latestVersionIds.length) {
+    const versionPayload = await apiFetch<ModrinthVersionResponse[]>(
+      `${MODRINTH_BASE}/versions?ids=${encodeURIComponent(JSON.stringify(latestVersionIds))}`,
+      { ttl: 45_000 },
+    ).catch(() => []);
+
+    versionPayload.forEach((version) => {
+      const largestFile = Math.max(
+        0,
+        ...(version.files ?? []).map((file) => file.size ?? 0),
+      );
+      if (largestFile > 0) {
+        sizeByVersionId.set(version.id, largestFile);
+      }
+    });
+  }
+
   const items = (data.hits ?? []).map((hit) => ({
     id: `modrinth-${hit.project_id}`,
     projectId: hit.project_id,
@@ -400,6 +428,9 @@ const fetchModrinthPage = async (filters: ExplorerFilters): Promise<ExplorerResu
     loaders: hit.categories ?? [],
     thumbnail: hit.icon_url,
     url: `https://modrinth.com/${hit.project_type}/${hit.slug}`,
+    fileSizeBytes: hit.latest_version
+      ? sizeByVersionId.get(hit.latest_version)
+      : undefined,
   }));
 
   const total = data.total_hits ?? items.length;
@@ -474,6 +505,7 @@ const fetchCurseforgePage = async (filters: ExplorerFilters): Promise<ExplorerRe
       ),
       thumbnail: item.logo?.thumbnailUrl ?? item.logo?.url,
       url: item.links?.websiteUrl,
+      fileSizeBytes: item.latestFiles?.[0]?.fileLength,
     }));
 
   const total = response.pagination?.totalCount ?? items.length;
