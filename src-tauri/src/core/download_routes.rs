@@ -214,18 +214,18 @@ mod tests {
     #[test]
     fn jetbrains_library_url_prioritizes_maven_central() {
         let urls = mirror_candidates_for_url(
-            "https://libraries.minecraft.net/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar",
+            "https://libraries.minecraft.net/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar",
         );
 
         assert_eq!(
             urls.first().map(String::as_str),
             Some(
-                "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar",
+                "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar",
             )
         );
         assert!(urls.iter().any(|value| {
             value
-                == "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar"
+                == "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
         }));
     }
 }
