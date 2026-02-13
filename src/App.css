@@ -6053,3 +6053,75 @@ select:focus-visible {
   .settings-tabs { position: static; flex-direction: row; flex-wrap: wrap; }
   .explorer-detail-view__header { grid-template-columns: 1fr; }
 }
+
+/* 2026-02 launcher workflow redesign */
+.instance-workspace-page {
+  width: 100%;
+  min-height: calc(var(--app-height) - 190px);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 92%, #070a10 8%), var(--color-surface));
+  box-shadow: 0 24px 44px rgba(0, 0, 0, 0.42);
+  padding: 14px;
+}
+
+.instance-workspace-page .product-dialog {
+  width: 100%;
+  max-width: none;
+  min-height: calc(var(--app-height) - 230px);
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 96%, #05070c 4%);
+}
+
+.instance-download__pipeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.instance-download__pipeline span {
+  border: 1px solid var(--color-border);
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-surface-strong) 80%, transparent);
+}
+
+.instance-download__pipeline span.is-active {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 42%, transparent);
+}
+
+.instance-download__pipeline span.is-done {
+  color: #86efac;
+  border-color: color-mix(in srgb, #22c55e 40%, var(--color-border));
+}
+
+.instance-download__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin-bottom: 12px;
+}
+
+.instance-download__metrics p {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.instance-catalog__results .instance-editor__table-row {
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  background: color-mix(in srgb, var(--color-surface-strong) 82%, transparent);
+  margin-bottom: 8px;
+  padding: 10px 12px;
+}
+
+.instance-catalog__results .instance-editor__table-row img {
+  border-radius: 4px !important;
+  border: 1px solid var(--color-border);
+}

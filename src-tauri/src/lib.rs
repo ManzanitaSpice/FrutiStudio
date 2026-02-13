@@ -3319,7 +3319,10 @@ fn validate_loader_profile_json(
     Ok(())
 }
 
-async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) -> Option<String> {
+async fn resolve_latest_loader_version(
+    loader: &str,
+    minecraft_version: &str,
+) -> Result<Option<String>, String> {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(env_u64(
             "FRUTI_ENDPOINT_CONNECT_TIMEOUT_SECS",
@@ -3330,7 +3333,7 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
             25,
         )))
         .build()
-        .ok()?;
+        .map_err(|error| format!("No se pudo inicializar cliente HTTP: {error}"))?;
     let user_agent = "FrutiLauncher/1.0 (+https://github.com/fruti-studio)";
 
     if loader == "forge" {
@@ -3349,7 +3352,7 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
                         .and_then(|v| v.get(&key_recommended).or_else(|| v.get(&key_latest)))
                         .and_then(|v| v.as_str())
                     {
-                        return Some(format!("{minecraft_version}-{version}"));
+                        return Ok(Some(format!("{minecraft_version}-{version}")));
                     }
                 }
             }
@@ -3360,15 +3363,24 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
 
     let neoforge_channel = neoforge_channel_for_minecraft(minecraft_version);
 
+    let mut metadata_reachable = false;
+    let mut network_errors = Vec::new();
+
     for url in metadata_urls {
-        let Ok(resp) = client
+        let resp = match client
             .get(url)
             .header(reqwest::header::USER_AGENT, user_agent)
             .send()
             .await
-        else {
-            continue;
+        {
+            Ok(response) => response,
+            Err(error) => {
+                network_errors.push(format!("{url}: {error}"));
+                continue;
+            }
         };
+
+        metadata_reachable = true;
         let Ok(xml) = resp.text().await else {
             continue;
         };
@@ -3388,11 +3400,18 @@ async fn resolve_latest_loader_version(loader: &str, minecraft_version: &str) ->
         });
         matches.sort_by(|left, right| compare_numeric_versions(left, right));
         if let Some(last) = matches.last() {
-            return Some(last.clone());
+            return Ok(Some(last.clone()));
         }
     }
 
-    None
+    if !metadata_reachable {
+        return Err(format!(
+            "Error de red al consultar metadata oficial de {loader}: {}",
+            network_errors.join(" | ")
+        ));
+    }
+
+    Ok(None)
 }
 
 fn neoforge_channel_for_minecraft(minecraft_version: &str) -> String {
@@ -3521,9 +3540,14 @@ async fn install_forge_like_loader(
     let resolved_version = if requested.is_empty() || requested.eq_ignore_ascii_case("latest") {
         resolve_latest_loader_version(loader, minecraft_version)
             .await
+            .map_err(|error| {
+                format!(
+                    "No se pudo consultar metadata de compatibilidad para {loader} en Minecraft {minecraft_version}: {error}"
+                )
+            })?
             .ok_or_else(|| {
                 format!(
-                    "No se pudo resolver una versión {loader} para Minecraft {minecraft_version}."
+                    "No se encontró una versión compatible real de {loader} para Minecraft {minecraft_version} en la metadata oficial."
                 )
             })?
     } else {
@@ -3540,16 +3564,12 @@ async fn install_forge_like_loader(
 
     let installer_urls = download_routes::forge_like_installer_urls(loader, &resolved_version);
     let compatibility = download_routes::loader_compatibility_routes();
-    let compatible = compatibility.iter().any(|entry| {
+    let has_published_route = compatibility.iter().any(|entry| {
         entry.loader == loader
             && minecraft_version.starts_with(entry.minecraft_prefix)
             && entry.jar_published
     });
-    if !compatible {
-        return Err(format!(
-            "No hay ruta de compatibilidad publicada para loader {loader} en Minecraft {minecraft_version}"
-        ));
-    }
+
     write_instance_state(
         instance_root,
         "loader_compatibility_checked",
@@ -3557,6 +3577,8 @@ async fn install_forge_like_loader(
             "loader": loader,
             "minecraftVersion": minecraft_version,
             "resolvedVersion": resolved_version,
+            "publishedRoute": has_published_route,
+            "status": if has_published_route { "publicado" } else { "resuelto-dinamicamente" },
             "metadataEndpoints": compatibility
                 .iter()
                 .filter(|entry| entry.loader == loader)
