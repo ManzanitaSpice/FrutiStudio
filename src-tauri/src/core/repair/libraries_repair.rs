@@ -4,11 +4,10 @@ use std::path::Path;
 use std::process::Command;
 
 pub fn repair_libraries(
-    minecraft_root: &Path,
+    libraries_root: &Path,
     can_repair: bool,
     issues: &mut Vec<String>,
 ) -> Result<u32, String> {
-    let libraries_root = minecraft_root.join("libraries");
     if !libraries_root.exists() {
         if can_repair {
             fs::create_dir_all(&libraries_root)

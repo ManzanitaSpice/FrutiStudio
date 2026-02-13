@@ -70,6 +70,8 @@ pub async fn repair_instance(
         ..RepairReport::default()
     };
 
+    let libraries_root = resolve_shared_libraries_root(instance_root, minecraft_root);
+
     if mode == RepairMode::Completa {
         wipe_runtime_dirs(minecraft_root, &mut report.issues_detected)?;
     }
@@ -100,7 +102,7 @@ pub async fn repair_instance(
             &mut report.issues_detected,
         )?;
         report.libraries_fixed += repair_libraries(
-            minecraft_root,
+            &libraries_root,
             mode != RepairMode::SoloVerificar,
             &mut report.issues_detected,
         )?;
@@ -169,8 +171,9 @@ fn run_intelligent_repair(
     report: &mut RepairReport,
 ) -> Result<(), RepairError> {
     let mut precheck_issues = Vec::new();
+    let libraries_root = resolve_shared_libraries_root(instance_root, minecraft_root);
     report.version_fixed = repair_version(minecraft_root, version_id, false, &mut precheck_issues)?;
-    report.libraries_fixed += repair_libraries(minecraft_root, false, &mut precheck_issues)?;
+    report.libraries_fixed += repair_libraries(&libraries_root, false, &mut precheck_issues)?;
     report.assets_fixed += repair_assets(minecraft_root, false, &mut precheck_issues)?;
     report.mods_fixed += repair_mods(minecraft_root, false, &mut precheck_issues)?;
 
@@ -195,7 +198,7 @@ fn run_intelligent_repair(
             &mut report.issues_detected,
         )? || report.version_fixed;
         report.libraries_fixed +=
-            repair_libraries(minecraft_root, true, &mut report.issues_detected)?;
+            repair_libraries(&libraries_root, true, &mut report.issues_detected)?;
         report.assets_fixed += repair_assets(minecraft_root, true, &mut report.issues_detected)?;
     }
 
@@ -243,6 +246,14 @@ fn has_repairs(report: &RepairReport) -> bool {
         || report.config_regenerated
         || report.world_backed_up
         || report.version_fixed
+}
+
+fn resolve_shared_libraries_root(instance_root: &Path, minecraft_root: &Path) -> PathBuf {
+    instance_root
+        .parent()
+        .and_then(|path| path.parent())
+        .map(|root| root.join("libraries"))
+        .unwrap_or_else(|| minecraft_root.join("libraries"))
 }
 
 fn optimize_runtime(instance_root: &Path, minecraft_root: &Path) -> Result<(), RepairError> {

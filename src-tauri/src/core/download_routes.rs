@@ -117,6 +117,23 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
         urls = prioritized;
     }
 
+    if let Some(rest) = url.strip_prefix("https://repo.maven.apache.org/maven2")
+        .or_else(|| url.strip_prefix("https://repo1.maven.org/maven2"))
+    {
+        let is_kotlin = rest.starts_with("/org/jetbrains/kotlin/")
+            || rest.starts_with("/org/jetbrains/kotlinx/");
+        if is_kotlin {
+            let mut prioritized = vec![
+                format!("https://repo.maven.apache.org/maven2{rest}"),
+                format!("https://repo1.maven.org/maven2{rest}"),
+                format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev{rest}"),
+                format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap{rest}"),
+                format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap{rest}"),
+            ];
+            urls = prioritized;
+        }
+    }
+
     let mirrors: [(&str, &[&str]); 4] = [
         (
             "https://libraries.minecraft.net",
@@ -289,6 +306,9 @@ pub(crate) fn endpoint_label(url: &str) -> &'static str {
     }
     if url.contains("libraries.minecraft.net") {
         return "minecraft-libraries";
+    }
+    if url.contains("maven.pkg.jetbrains.space/kotlin") {
+        return "jetbrains-kotlin";
     }
     "generic"
 }

@@ -544,6 +544,10 @@ fn launcher_global_download_cache_dir() -> PathBuf {
         .join("sha1")
 }
 
+fn launcher_libraries_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(launcher_root(app)?.join("libraries"))
+}
+
 fn launcher_asset_indexes_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(launcher_persistent_cache_root(app)?
         .join("assets")
@@ -2823,7 +2827,7 @@ struct ResolvedLibraryArtifact {
 
 fn resolve_library_artifacts(
     version_json: &Value,
-    minecraft_root: &Path,
+    libraries_root: &Path,
 ) -> Vec<ResolvedLibraryArtifact> {
     let os_native_key = match current_minecraft_os() {
         "windows" => "natives-windows",
@@ -2873,7 +2877,7 @@ fn resolve_library_artifacts(
                             .and_then(maven_path)
                     });
                 if let Some(rel) = rel {
-                    let target = minecraft_root.join("libraries").join(rel);
+                    let target = libraries_root.join(rel);
                     push_artifact(
                         target,
                         artifact.get("url").and_then(Value::as_str),
@@ -2891,7 +2895,7 @@ fn resolve_library_artifacts(
             }) {
                 if let Some(path) = native.get("path").and_then(Value::as_str) {
                     push_artifact(
-                        minecraft_root.join("libraries").join(path),
+                        libraries_root.join(path),
                         native.get("url").and_then(Value::as_str),
                         native.get("sha1").and_then(Value::as_str),
                         native.get("sha256").and_then(Value::as_str),
@@ -2910,7 +2914,7 @@ fn resolve_library_artifacts(
                     .unwrap_or_else(|| default_library_base_url(Some(name)))
                     .trim_end_matches('/');
                 let rel_url = rel.to_string_lossy().replace('\\', "/");
-                let target = minecraft_root.join("libraries").join(&rel);
+                let target = libraries_root.join(&rel);
                 push_artifact(
                     target,
                     Some(&format!("{base_url}/{rel_url}")),
@@ -3299,7 +3303,11 @@ fn instance_runtime_exists(instance_root: &Path, loader: &str) -> bool {
         .map(Path::to_path_buf);
     if let Some(launcher_root) = launcher_root {
         if (loader == "forge" || loader == "neoforge")
-            && !forge_like_runtime_libraries_present(&runtime_json, &launcher_root, loader)
+            && !forge_like_runtime_libraries_present(
+                &runtime_json,
+                &launcher_root.join("libraries"),
+                loader,
+            )
         {
             return false;
         }
@@ -3317,7 +3325,7 @@ fn instance_runtime_exists(instance_root: &Path, loader: &str) -> bool {
             .any(|expected| runtime_main_class.eq_ignore_ascii_case(expected))
 }
 
-fn library_target_path(minecraft_root: &Path, library: &Value) -> Option<PathBuf> {
+fn library_target_path(libraries_root: &Path, library: &Value) -> Option<PathBuf> {
     library
         .get("downloads")
         .and_then(|downloads| downloads.get("artifact"))
@@ -3330,12 +3338,12 @@ fn library_target_path(minecraft_root: &Path, library: &Value) -> Option<PathBuf
                 .and_then(Value::as_str)
                 .and_then(maven_path)
         })
-        .map(|relative| minecraft_root.join("libraries").join(relative))
+        .map(|relative| libraries_root.join(relative))
 }
 
 fn forge_like_runtime_libraries_present(
     runtime_json: &Value,
-    minecraft_root: &Path,
+    libraries_root: &Path,
     loader: &str,
 ) -> bool {
     let Some(libraries) = runtime_json.get("libraries").and_then(Value::as_array) else {
@@ -3362,7 +3370,7 @@ fn forge_like_runtime_libraries_present(
                     .and_then(Value::as_str)
                     .is_some_and(|name| name.starts_with(prefix))
             })
-            .and_then(|library| library_target_path(minecraft_root, library))
+            .and_then(|library| library_target_path(libraries_root, library))
             .is_some_and(|path| {
                 fs::metadata(path)
                     .map(|meta| meta.is_file() && meta.len() > 0)
@@ -5361,13 +5369,19 @@ fn looks_like_minecraft_version_jar(path: &Path) -> bool {
 
 fn scan_runtime_integrity(
     game_dir: &Path,
+    libraries_dir: &Path,
     minecraft_version: Option<&str>,
 ) -> RuntimeIntegrityReport {
     let mut report = RuntimeIntegrityReport::default();
     let mut seen_corrupt = HashSet::new();
 
-    for scope in ["libraries", "versions", "mods"] {
-        let root = game_dir.join(scope);
+    let scan_targets = [
+        ("libraries", libraries_dir.to_path_buf()),
+        ("versions", game_dir.join("versions")),
+        ("mods", game_dir.join("mods")),
+    ];
+
+    for (scope, root) in scan_targets {
         if !root.exists() {
             continue;
         }
@@ -5519,7 +5533,7 @@ fn runtime_declared_libraries_complete(plan: &LaunchPlan) -> bool {
         Err(_) => return false,
     };
 
-    let artifacts = resolve_library_artifacts(&runtime_json, Path::new(&plan.game_dir));
+    let artifacts = resolve_library_artifacts(&runtime_json, Path::new(&plan.libraries_dir));
     !artifacts.is_empty()
         && artifacts.iter().all(|artifact| {
             artifact_valid_on_disk(
@@ -5530,7 +5544,10 @@ fn runtime_declared_libraries_complete(plan: &LaunchPlan) -> bool {
         })
 }
 
-fn resolve_bootstraplauncher_jar_from_version_json(version_json: &Path) -> Option<PathBuf> {
+fn resolve_bootstraplauncher_jar_from_version_json(
+    version_json: &Path,
+    libraries_dir: &Path,
+) -> Option<PathBuf> {
     let raw = fs::read_to_string(version_json).ok()?;
     let json = serde_json::from_str::<Value>(&raw).ok()?;
     let libraries = json.get("libraries")?.as_array()?;
@@ -5550,11 +5567,7 @@ fn resolve_bootstraplauncher_jar_from_version_json(version_json: &Path) -> Optio
             .map(PathBuf::from);
 
         let rel_path = explicit_path.or_else(|| maven_path(name).map(PathBuf::from))?;
-        let base = version_json
-            .parent()
-            .and_then(Path::parent)
-            .and_then(Path::parent)?;
-        return Some(base.join("libraries").join(rel_path));
+        return Some(libraries_dir.join(rel_path));
     }
 
     None
@@ -6306,7 +6319,9 @@ async fn bootstrap_instance_runtime(
     hydrate_from_detected_launcher(&minecraft_root, version)?;
 
     let assets_objects_dir = minecraft_root.join("assets").join("objects");
-    let libraries_dir = minecraft_root.join("libraries");
+    let libraries_dir = launcher_libraries_root(app)?;
+    fs::create_dir_all(&libraries_dir)
+        .map_err(|error| format!("No se pudo asegurar libraries global: {error}"))?;
     let versions_dir = minecraft_root.join("versions");
     let mods_dir = minecraft_root.join("mods");
     let cleaned_assets = remove_partial_files(&assets_objects_dir)?;
@@ -6906,7 +6921,7 @@ async fn bootstrap_instance_runtime(
 
     enrich_with_transitive_libraries(&mut effective_version_json).await;
 
-    let resolved_artifacts = resolve_library_artifacts(&effective_version_json, &minecraft_root);
+    let resolved_artifacts = resolve_library_artifacts(&effective_version_json, &libraries_dir);
 
     let mut existing_artifacts = Vec::new();
     let mut missing_artifacts = Vec::new();
@@ -7104,10 +7119,7 @@ async fn bootstrap_instance_runtime(
     };
     let game_dir = minecraft_root.to_string_lossy().to_string();
     let assets_root = minecraft_root.join("assets").to_string_lossy().to_string();
-    let library_directory = minecraft_root
-        .join("libraries")
-        .to_string_lossy()
-        .to_string();
+    let library_directory = libraries_dir.to_string_lossy().to_string();
     let classpath_value = classpath_entries_raw.join(&cp_separator.to_string());
 
     let replacements = HashMap::from([
@@ -7216,10 +7228,7 @@ async fn bootstrap_instance_runtime(
         classpath_separator: cp_separator.to_string(),
         game_dir: minecraft_root.to_string_lossy().to_string(),
         assets_dir: minecraft_root.join("assets").to_string_lossy().to_string(),
-        libraries_dir: minecraft_root
-            .join("libraries")
-            .to_string_lossy()
-            .to_string(),
+        libraries_dir: library_directory.clone(),
         natives_dir: natives_dir.to_string_lossy().to_string(),
         version_json: persisted_runtime_version_json.to_string_lossy().to_string(),
         asset_index: asset_index_id.to_string(),
@@ -7468,6 +7477,17 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let logs_dir = instance_root.join("logs");
     let crash_reports_dir = Path::new(&plan.game_dir).join("crash-reports");
     let version_jar_path = resolve_minecraft_client_jar_path(plan);
+    let expected_libraries_dir = instance_root
+        .parent()
+        .and_then(|path| path.parent())
+        .map(|root| root.join("libraries"));
+    let libraries_dir_matches_launcher = expected_libraries_dir
+        .as_ref()
+        .map(|expected| {
+            canonical_or_original(expected)
+                == canonical_or_original(Path::new(&plan.libraries_dir))
+        })
+        .unwrap_or(true);
     let minecraft_jar_size_ok = fs::metadata(&version_jar_path)
         .map(|meta| meta.is_file() && meta.len() >= MIN_MINECRAFT_JAR_SIZE_BYTES)
         .unwrap_or(false);
@@ -7502,7 +7522,10 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     let has_loader_runtime_jar =
         classpath_has_loader_runtime(plan.loader.as_str(), &plan.classpath_entries);
     let forge_bootstrap_jar = if plan.loader == "forge" || plan.loader == "neoforge" {
-        resolve_bootstraplauncher_jar_from_version_json(Path::new(&plan.version_json))
+        resolve_bootstraplauncher_jar_from_version_json(
+            Path::new(&plan.version_json),
+            Path::new(&plan.libraries_dir),
+        )
     } else {
         None
     };
@@ -7532,6 +7555,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
     );
     let runtime_integrity = scan_runtime_integrity(
         Path::new(&plan.game_dir),
+        Path::new(&plan.libraries_dir),
         Path::new(&plan.version_json)
             .file_stem()
             .and_then(|value| value.to_str()),
@@ -7610,6 +7634,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ("game_dir", Path::new(&plan.game_dir).exists()),
         ("assets_dir", Path::new(&plan.assets_dir).exists()),
         ("libraries_dir", Path::new(&plan.libraries_dir).exists()),
+        ("libraries_globales", libraries_dir_matches_launcher),
         (
             "loader_instalado_si_aplica",
             if plan.loader == "vanilla" {
@@ -8279,8 +8304,6 @@ fn ensure_instance_layout(instance_root: &Path) -> Result<(), String> {
     }
     fs::create_dir_all(minecraft_root.join("versions"))
         .map_err(|error| format!("No se pudo asegurar minecraft/versions: {error}"))?;
-    fs::create_dir_all(minecraft_root.join("libraries"))
-        .map_err(|error| format!("No se pudo asegurar minecraft/libraries: {error}"))?;
     fs::create_dir_all(minecraft_root.join("assets").join("objects"))
         .map_err(|error| format!("No se pudo asegurar minecraft/assets/objects: {error}"))?;
     fs::create_dir_all(minecraft_root.join("assets").join("indexes"))
@@ -8895,7 +8918,9 @@ async fn prepare_instance_runtime(
         );
     }
 
-    let integrity_report = scan_runtime_integrity(&minecraft_root, Some(&instance.version));
+    let libraries_root = launcher_libraries_root(app)?;
+    let integrity_report =
+        scan_runtime_integrity(&minecraft_root, &libraries_root, Some(&instance.version));
     if !integrity_report.ok() {
         for path in &integrity_report.corrupt_files {
             let _ = fs::remove_file(path);
@@ -8969,6 +8994,7 @@ fn validation_requires_runtime_repair(errors: &[String]) -> bool {
             || normalized.contains("classpath incompleto")
             || normalized.contains("runtime_preparado")
             || normalized.contains("libraries_missing")
+            || normalized.contains("libraries_globales")
             || normalized.contains("version_json_missing")
             || normalized.contains("version_jar_missing")
     })
@@ -10307,6 +10333,7 @@ mod tests {
             .as_nanos();
         let base = std::env::temp_dir().join(format!("frutistudio-test-jar-path-{unique}"));
         let game_dir = base.join("game");
+        let libraries_dir = base.join("libraries");
         let version_dir = game_dir.join("versions").join("1.21.4");
         let version_json = version_dir.join("runtime-profile.json");
         let version_jar = version_dir.join("1.21.4.jar");
@@ -10333,7 +10360,7 @@ mod tests {
             },
             game_dir: game_dir.to_string_lossy().to_string(),
             assets_dir: game_dir.join("assets").to_string_lossy().to_string(),
-            libraries_dir: game_dir.join("libraries").to_string_lossy().to_string(),
+            libraries_dir: libraries_dir.to_string_lossy().to_string(),
             natives_dir: game_dir.join("natives").to_string_lossy().to_string(),
             version_json: version_json.to_string_lossy().to_string(),
             asset_index: "19".to_string(),
@@ -10367,7 +10394,7 @@ mod tests {
         let game_dir = base.join("game");
         let assets_dir = game_dir.join("assets");
         let assets_objects = assets_dir.join("objects");
-        let libraries_dir = game_dir.join("libraries");
+        let libraries_dir = base.join("libraries");
         let natives_dir = game_dir.join("natives");
         let version_dir = game_dir.join("versions").join("1.21.4");
         let version_json = version_dir.join("1.21.4.json");
@@ -10690,7 +10717,7 @@ mod tests {
             ]
         });
 
-        let artifacts = resolve_library_artifacts(&version_json, Path::new("/tmp/test-instance"));
+        let artifacts = resolve_library_artifacts(&version_json, Path::new("/tmp/test-libraries"));
         let urls = artifacts
             .first()
             .map(|artifact| artifact.urls.clone())
@@ -11011,7 +11038,7 @@ mod tests {
         fs::write(libraries_dir.join("broken.jar.part"), b"partial").expect("partial");
         fs::write(versions_dir.join("1.21.4.jar"), b"small").expect("tiny jar");
 
-        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
+        let report = scan_runtime_integrity(&game_dir, &libraries_dir, Some("1.21.1"));
         assert!(!report.ok());
         assert!(!report.corrupt_files.is_empty());
 
@@ -11025,6 +11052,7 @@ mod tests {
             .expect("epoch")
             .as_nanos();
         let game_dir = std::env::temp_dir().join(format!("frutistudio-integrity-ok-{unique}"));
+        let libraries_dir = game_dir.join("libraries");
         let mods_dir = game_dir.join("mods");
         fs::create_dir_all(&mods_dir).expect("mods dir");
 
@@ -11039,7 +11067,7 @@ mod tests {
             .expect("zip write metadata");
         zip.finish().expect("zip finish");
 
-        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
+        let report = scan_runtime_integrity(&game_dir, &libraries_dir, Some("1.21.1"));
         assert!(report.ok());
 
         fs::remove_dir_all(game_dir).expect("cleanup");
@@ -11052,8 +11080,8 @@ mod tests {
             .expect("epoch")
             .as_nanos();
         let game_dir = std::env::temp_dir().join(format!("frutistudio-integrity-lib-ok-{unique}"));
-        let library_dir = game_dir
-            .join("libraries")
+        let libraries_dir = game_dir.join("libraries");
+        let library_dir = libraries_dir
             .join("com")
             .join("example")
             .join("tiny")
@@ -11074,7 +11102,7 @@ mod tests {
         zip.write_all(&payload).expect("zip write class");
         zip.finish().expect("zip finish");
 
-        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
+        let report = scan_runtime_integrity(&game_dir, &libraries_dir, Some("1.21.1"));
         assert!(report.ok());
 
         fs::remove_dir_all(game_dir).expect("cleanup");
@@ -11088,6 +11116,7 @@ mod tests {
             .as_nanos();
         let game_dir =
             std::env::temp_dir().join(format!("frutistudio-integrity-client-marker-{unique}"));
+        let libraries_dir = game_dir.join("libraries");
         let versions_dir = game_dir.join("versions").join("1.21.4");
         fs::create_dir_all(&versions_dir).expect("versions dir");
 
@@ -11102,7 +11131,7 @@ mod tests {
             .expect("manifest content");
         writer.finish().expect("finish jar");
 
-        let report = scan_runtime_integrity(&game_dir, Some("1.21.1"));
+        let report = scan_runtime_integrity(&game_dir, &libraries_dir, Some("1.21.1"));
         assert!(!report.ok());
         assert!(report
             .issues

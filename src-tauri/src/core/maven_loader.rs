@@ -156,6 +156,9 @@ pub fn default_repositories() -> Vec<String> {
         "https://maven.fabricmc.net".to_string(),
         "https://maven.quiltmc.org/repository/release".to_string(),
         "https://repo.maven.apache.org/maven2".to_string(),
+        "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev".to_string(),
+        "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap".to_string(),
+        "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap".to_string(),
     ]
 }
 
