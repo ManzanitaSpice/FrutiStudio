@@ -78,7 +78,10 @@ pub(crate) fn sanitize_version_json_library_typos(version_json: &mut Value, mc_v
 /// Patrón: la versión MC correcta tiene un dígito extra pegado al final,
 /// p.ej. "1.21.11" cuando debería ser "1.21.1". Esto puede ocurrir en el campo
 /// `name`, en `downloads.artifact.path` y en `downloads.artifact.url`.
-fn sanitize_library_version_typos(profile_obj: &mut serde_json::Map<String, Value>, mc_version: &str) {
+fn sanitize_library_version_typos(
+    profile_obj: &mut serde_json::Map<String, Value>,
+    mc_version: &str,
+) {
     // Genera posibles typos: "1.21.1" → ["1.21.10", "1.21.11", ..., "1.21.19"]
     let typo_candidates: Vec<String> = (0..=9)
         .map(|digit| format!("{mc_version}{digit}"))
@@ -120,8 +123,7 @@ fn sanitize_library_version_typos(profile_obj: &mut serde_json::Map<String, Valu
                     if let Some(text) = field_val.as_str() {
                         for typo in &typo_candidates {
                             if text.contains(typo.as_str()) {
-                                *field_val =
-                                    Value::String(text.replace(typo.as_str(), mc_version));
+                                *field_val = Value::String(text.replace(typo.as_str(), mc_version));
                                 break;
                             }
                         }
@@ -241,18 +243,14 @@ mod tests {
             libs[0]["downloads"]["artifact"]["path"].as_str().unwrap(),
             "net/minecraftforge/forge/1.21.1-61.0.8/forge-1.21.1-61.0.8-client.jar"
         );
-        assert!(
-            libs[0]["downloads"]["artifact"]["url"]
-                .as_str()
-                .unwrap()
-                .contains("1.21.1-61.0.8")
-        );
-        assert!(
-            !libs[0]["downloads"]["artifact"]["url"]
-                .as_str()
-                .unwrap()
-                .contains("1.21.11")
-        );
+        assert!(libs[0]["downloads"]["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .contains("1.21.1-61.0.8"));
+        assert!(!libs[0]["downloads"]["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .contains("1.21.11"));
         // Unrelated lib should be untouched
         assert_eq!(libs[1]["name"].as_str().unwrap(), "org.lwjgl:lwjgl:3.3.3");
     }
@@ -298,11 +296,9 @@ mod tests {
             libs[2]["downloads"]["artifact"]["path"].as_str().unwrap(),
             "net/neoforged/minecraft-dependencies/1.21.1/minecraft-dependencies-1.21.1.jar"
         );
-        assert!(
-            !libs[2]["downloads"]["artifact"]["url"]
-                .as_str()
-                .unwrap()
-                .contains("1.21.11")
-        );
+        assert!(!libs[2]["downloads"]["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .contains("1.21.11"));
     }
 }

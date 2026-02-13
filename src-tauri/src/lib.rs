@@ -3823,26 +3823,6 @@ async fn resolve_latest_fabric_like_loader_version(
         .map(|value| value.to_string())
 }
 
-fn read_log_tail(path: &Path, max_lines: usize) -> String {
-    if max_lines == 0 {
-        return String::new();
-    }
-
-    let Ok(content) = fs::read_to_string(path) else {
-        return String::new();
-    };
-
-    content
-        .lines()
-        .rev()
-        .take(max_lines)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 async fn install_forge_like_loader(
     app: &tauri::AppHandle,
     instance_root: &Path,
@@ -3927,15 +3907,45 @@ async fn install_forge_like_loader(
     )
     .await?;
 
-    let installer_profile_libraries = [
+    let installer_payload = [
         "install_profile.json",
         "data/install_profile.json",
         "version.json",
     ]
     .iter()
     .find_map(|entry| read_json_entry_from_zip(&installer_cache_target, entry))
-    .map(|profile| collect_loader_installer_libraries(&profile))
-    .unwrap_or_default();
+    .ok_or_else(|| {
+        format!(
+            "No se encontró install_profile.json/version.json en el instalador descargado {}.",
+            installer_cache_target.display()
+        )
+    })?;
+
+    let installer_profile_libraries = collect_loader_installer_libraries(&installer_payload);
+
+    let mut profile_json = installer_payload
+        .get("versionInfo")
+        .cloned()
+        .unwrap_or_else(|| installer_payload.clone());
+
+    if !profile_json.is_object() {
+        return Err(format!(
+            "El install_profile de {loader} {resolved_version} no contiene versionInfo válido."
+        ));
+    }
+
+    if let Some(profile_obj) = profile_json.as_object_mut() {
+        let has_libraries = profile_obj
+            .get("libraries")
+            .and_then(Value::as_array)
+            .is_some_and(|entries| !entries.is_empty());
+        if !has_libraries && !installer_profile_libraries.is_empty() {
+            profile_obj.insert(
+                "libraries".to_string(),
+                Value::Array(installer_profile_libraries.clone()),
+            );
+        }
+    }
 
     let installer_target = minecraft_root.join("installers").join(&installer_file_name);
     if let Some(parent) = installer_target.parent() {
@@ -3950,127 +3960,29 @@ async fn install_forge_like_loader(
         )
     })?;
 
-    let required_java_major = JavaManager::required_major_for_minecraft(minecraft_version);
-    let runtime_manager = RuntimeManager::new(app)?;
-    let java_bin = runtime_manager
-        .ensure_runtime_for_java_major(required_java_major)
-        .await
-        .map(|path| path.to_string_lossy().to_string())
-        .map_err(|_| {
-            let loader_name = if loader == "neoforge" {
-                "NeoForge"
-            } else {
-                "Forge"
-            };
-            format!(
-                "No se encontró Java embebido compatible para instalar {loader_name} (requerido Java {required_java_major})."
-            )
-        })?;
+    let installed_profile_id = persist_loader_profile_json(
+        minecraft_root,
+        minecraft_version,
+        loader,
+        &resolved_version,
+        &profile_json,
+    )?;
 
-    let install_flag = if loader == "neoforge" {
-        "--install-client"
-    } else {
-        "--installClient"
-    };
-    let installer_logs_dir = instance_root.join("logs");
-    fs::create_dir_all(&installer_logs_dir)
-        .map_err(|error| format!("No se pudo crear carpeta de logs del instalador: {error}"))?;
-    let installer_stdout = installer_logs_dir.join("loader-installer.stdout.log");
-    let installer_stderr = installer_logs_dir.join("loader-installer.stderr.log");
-    let installer_stdout_file = fs::File::create(&installer_stdout)
-        .map_err(|error| format!("No se pudo crear log stdout del instalador: {error}"))?;
-    let installer_stderr_file = fs::File::create(&installer_stderr)
-        .map_err(|error| format!("No se pudo crear log stderr del instalador: {error}"))?;
-
-    let mut installer = Command::new(&java_bin)
-        .current_dir(minecraft_root)
-        .arg("-jar")
-        .arg(&installer_target)
-        .arg(install_flag)
-        .arg(minecraft_root)
-        .stdout(Stdio::from(installer_stdout_file))
-        .stderr(Stdio::from(installer_stderr_file))
-        .spawn()
-        .map_err(|error| format!("No se pudo ejecutar el instalador {loader}: {error}"))?;
-
-    let start = std::time::Instant::now();
-    let install_timeout = Duration::from_secs(600);
-    let mut next_progress_emit = Duration::from_secs(0);
-    loop {
-        if let Some(status) = installer
-            .try_wait()
-            .map_err(|error| format!("No se pudo monitorear instalador {loader}: {error}"))?
-        {
-            if !status.success() {
-                let exit_code = status.code().unwrap_or(-1);
-                let stderr_tail = read_log_tail(&installer_stderr, 20);
-                let stdout_tail = read_log_tail(&installer_stdout, 20);
-                let mut detail = String::new();
-                if !stderr_tail.trim().is_empty() {
-                    detail.push_str(&format!("\n\nÚltimas líneas stderr:\n{stderr_tail}"));
-                }
-                if !stdout_tail.trim().is_empty() {
-                    detail.push_str(&format!("\n\nÚltimas líneas stdout:\n{stdout_tail}"));
-                }
-                return Err(format!(
-                    "Falló la instalación de {loader} {resolved_version} (código {exit_code}). Logs: {}, {}.{}",
-                    installer_stdout.display(),
-                    installer_stderr.display(),
-                    detail
-                ));
-            }
-            break;
-        }
-
-        let elapsed = start.elapsed();
-        if elapsed >= next_progress_emit {
-            write_instance_state(
-                instance_root,
-                "installing_loader",
-                serde_json::json!({
-                    "loader": loader,
-                    "version": resolved_version,
-                    "step": "forge_like_wait",
-                    "elapsedSeconds": elapsed.as_secs(),
-                    "timeoutSeconds": install_timeout.as_secs(),
-                    "stdout": installer_stdout.to_string_lossy().to_string(),
-                    "stderr": installer_stderr.to_string_lossy().to_string()
-                }),
-            );
-            next_progress_emit += Duration::from_secs(5);
-        }
-
-        if start.elapsed() >= install_timeout {
-            let _ = installer.kill();
-            return Err(format!(
-                "El instalador de {loader} {resolved_version} excedió el tiempo límite ({}s).",
-                install_timeout.as_secs()
-            ));
-        }
-
-        std::thread::sleep(Duration::from_millis(400));
+    if !expected_id_candidates.contains(&installed_profile_id) {
+        write_instance_state(
+            instance_root,
+            "loader_profile_id_resolved",
+            serde_json::json!({
+                "loader": loader,
+                "minecraftVersion": minecraft_version,
+                "resolvedVersion": resolved_version,
+                "profileId": installed_profile_id,
+                "expectedCandidates": expected_id_candidates,
+                "source": "install_profile"
+            }),
+        );
     }
 
-    let installed_profile_id = expected_id_candidates.iter().find_map(|candidate| {
-        let path = minecraft_root
-            .join("versions")
-            .join(candidate)
-            .join(format!("{candidate}.json"));
-        path.exists().then_some(candidate.to_string())
-    });
-
-    let installed_profile_id = installed_profile_id.or_else(|| {
-        discover_forge_like_profile_id(minecraft_root, loader, minecraft_version, &resolved_version)
-    });
-
-    if installed_profile_id.is_none() {
-        return Err(format!(
-            "El instalador de {loader} terminó pero no creó un profile esperado ({:?}).",
-            expected_id_candidates
-        ));
-    }
-
-    let installed_profile_id = installed_profile_id.unwrap_or_else(|| resolved_version.clone());
     persist_loader_metadata_libraries(
         minecraft_root,
         &installed_profile_id,
