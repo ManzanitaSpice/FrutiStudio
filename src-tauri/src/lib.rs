@@ -4797,6 +4797,11 @@ async fn download_with_retries(
     }
 
     let client = http_client_with_tuning(tuning)?;
+
+    if let Some(message) = preflight_maven_availability(&client, urls).await {
+        return Err(message);
+    }
+
     let mut traces: Vec<DownloadTrace> = Vec::new();
 
     let partial_path = download_partial_path(path);
@@ -5038,6 +5043,70 @@ async fn download_with_retries(
         last_error.unwrap_or_else(|| "desconocido".to_string()),
         trace_summary
     ))
+}
+
+fn parse_maven_coordinate_from_url(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    let segments = parsed
+        .path_segments()?
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if segments.len() < 4 {
+        return None;
+    }
+    let file = *segments.last()?;
+    let version = *segments.get(segments.len() - 2)?;
+    let artifact = *segments.get(segments.len() - 3)?;
+    let group = segments[..segments.len() - 3].join(".");
+    if !file.starts_with(&format!("{artifact}-{version}")) {
+        return None;
+    }
+    Some(format!("{group}:{artifact}:{version}"))
+}
+
+fn is_maven_artifact_url(url: &str) -> bool {
+    url.contains("/maven2/")
+        || url.contains("libraries.minecraft.net/")
+        || url.contains("maven.minecraftforge.net/")
+        || url.contains("maven.neoforged.net/")
+        || url.contains("maven.fabricmc.net/")
+        || url.contains("maven.quiltmc.org/")
+        || url.contains("maven.pkg.jetbrains.space/")
+}
+
+async fn preflight_maven_availability(client: &reqwest::Client, urls: &[String]) -> Option<String> {
+    let maven_urls = urls
+        .iter()
+        .map(String::as_str)
+        .filter(|url| is_maven_artifact_url(url))
+        .collect::<Vec<_>>();
+    if maven_urls.is_empty() || maven_urls.len() != urls.len() {
+        return None;
+    }
+
+    let mut checked = 0usize;
+    let mut missing = 0usize;
+    for url in &maven_urls {
+        let Ok(response) = client.head(*url).send().await else {
+            continue;
+        };
+        checked += 1;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            missing += 1;
+        }
+    }
+
+    if checked > 0 && checked == missing {
+        let coordinate = maven_urls
+            .iter()
+            .find_map(|url| parse_maven_coordinate_from_url(url))
+            .unwrap_or_else(|| "coordenada Maven desconocida".to_string());
+        return Some(format!(
+            "La librería {coordinate} no existe en los repositorios Maven consultados (todos devolvieron 404 en preflight). Revisa metadata del version.json/loader/install_profile, reglas por OS y overrides de versión."
+        ));
+    }
+
+    None
 }
 
 async fn download_many_with_limit<F>(
@@ -10762,6 +10831,25 @@ mod tests {
         assert!(
             !urls.iter().any(|url| url == "https://libraries.minecraft.net/net/neoforged/minecraft-dependencies/1.21.11/minecraft-dependencies-1.21.11.jar")
         );
+    }
+
+    #[test]
+    fn parse_maven_coordinate_from_url_extracts_standard_maven_layout() {
+        let coordinate = parse_maven_coordinate_from_url(
+            "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar",
+        );
+        assert_eq!(
+            coordinate.as_deref(),
+            Some("org.jetbrains.kotlin:kotlin-stdlib-common:1.9.22")
+        );
+    }
+
+    #[test]
+    fn parse_maven_coordinate_from_url_rejects_non_matching_filename() {
+        let coordinate = parse_maven_coordinate_from_url(
+            "https://repo.maven.apache.org/maven2/org/example/demo/1.0.0/another-1.0.0.jar",
+        );
+        assert!(coordinate.is_none());
     }
 
     #[test]
