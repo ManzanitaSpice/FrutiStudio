@@ -92,45 +92,66 @@ pub(crate) fn forge_like_installer_urls(loader: &str, resolved_version: &str) ->
 
 pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
     let mut urls = vec![url.to_string()];
+    let includes_experimental_jetbrains = is_experimental_jetbrains_url(url);
+
     if let Some(rest) = url.strip_prefix("https://libraries.minecraft.net") {
-        let mut prioritized = vec![
-            format!("https://libraries.minecraft.net{rest}"),
-            format!("https://maven.neoforged.net/releases{rest}"),
-            format!("https://maven.minecraftforge.net{rest}"),
-            format!("https://repo.maven.apache.org/maven2{rest}"),
-            format!("https://repo1.maven.org/maven2{rest}"),
-            format!("https://bmclapi2.bangbang93.com/maven{rest}"),
-        ];
+        let mut prioritized = vec![format!("https://libraries.minecraft.net{rest}")];
 
         if rest.contains("/org/apache/") {
-            prioritized.insert(0, format!("https://repo1.maven.org/maven2{rest}"));
             prioritized.insert(0, format!("https://repo.maven.apache.org/maven2{rest}"));
+            prioritized.insert(1, format!("https://repo1.maven.org/maven2{rest}"));
         } else if rest.contains("/org/jetbrains/") {
-            prioritized.insert(0, format!("https://repo1.maven.org/maven2{rest}"));
             prioritized.insert(0, format!("https://repo.maven.apache.org/maven2{rest}"));
+            prioritized.insert(1, format!("https://repo1.maven.org/maven2{rest}"));
         } else if rest.starts_with("/net/neoforged/") || rest.starts_with("/cpw/mods/") {
             prioritized.insert(0, format!("https://maven.neoforged.net/releases{rest}"));
         } else if rest.starts_with("/net/minecraftforge/") {
             prioritized.insert(0, format!("https://maven.minecraftforge.net{rest}"));
         }
 
+        prioritized.push(format!("https://repo.maven.apache.org/maven2{rest}"));
+        prioritized.push(format!("https://repo1.maven.org/maven2{rest}"));
+        prioritized.push(format!("https://maven.neoforged.net/releases{rest}"));
+        prioritized.push(format!("https://maven.minecraftforge.net{rest}"));
+        prioritized.push(format!("https://bmclapi2.bangbang93.com/maven{rest}"));
+
         urls = prioritized;
     }
 
-    if let Some(rest) = url.strip_prefix("https://repo.maven.apache.org/maven2")
+    if let Some(rest) = url
+        .strip_prefix("https://repo.maven.apache.org/maven2")
         .or_else(|| url.strip_prefix("https://repo1.maven.org/maven2"))
     {
         let is_kotlin = rest.starts_with("/org/jetbrains/kotlin/")
             || rest.starts_with("/org/jetbrains/kotlinx/");
         if is_kotlin {
-            let mut prioritized = vec![
+            urls = vec![
                 format!("https://repo.maven.apache.org/maven2{rest}"),
                 format!("https://repo1.maven.org/maven2{rest}"),
-                format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev{rest}"),
-                format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap{rest}"),
-                format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap{rest}"),
             ];
-            urls = prioritized;
+        }
+    }
+
+    if let Some(rest) = url
+        .strip_prefix("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev")
+        .or_else(|| url.strip_prefix("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap"))
+        .or_else(|| url.strip_prefix("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap"))
+    {
+        urls = vec![
+            url.to_string(),
+            format!("https://repo.maven.apache.org/maven2{rest}"),
+            format!("https://repo1.maven.org/maven2{rest}"),
+        ];
+        if includes_experimental_jetbrains {
+            urls.push(format!(
+                "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev{rest}"
+            ));
+            urls.push(format!(
+                "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap{rest}"
+            ));
+            urls.push(format!(
+                "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap{rest}"
+            ));
         }
     }
 
@@ -245,6 +266,24 @@ mod tests {
                 == "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
         }));
     }
+
+    #[test]
+    fn jetbrains_experimental_url_falls_back_to_maven_central() {
+        let urls = mirror_candidates_for_url(
+            "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar",
+        );
+
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some(
+                "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar",
+            )
+        );
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar"
+        }));
+    }
 }
 
 fn dedupe(urls: Vec<String>) -> Vec<String> {
@@ -255,6 +294,12 @@ fn dedupe(urls: Vec<String>) -> Vec<String> {
             !normalized.is_empty() && seen.insert(normalized.to_string())
         })
         .collect()
+}
+
+fn is_experimental_jetbrains_url(url: &str) -> bool {
+    url.contains("maven.pkg.jetbrains.space/kotlin/p/kotlin/dev")
+        || url.contains("maven.pkg.jetbrains.space/kotlin/p/kotlin/eap")
+        || url.contains("maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap")
 }
 
 pub(crate) fn loader_compatibility_routes() -> Vec<LoaderCompatibilityRoute> {

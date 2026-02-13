@@ -145,6 +145,11 @@ pub fn repositories_for_library(library: &Value, declared: &[String]) -> Vec<Str
     if repos.is_empty() {
         repos = default_repositories();
     }
+
+    if !library_declares_experimental_jetbrains_repo(library) {
+        repos.retain(|repo| !is_experimental_jetbrains_repo(repo));
+    }
+
     repos
 }
 
@@ -156,10 +161,23 @@ pub fn default_repositories() -> Vec<String> {
         "https://maven.fabricmc.net".to_string(),
         "https://maven.quiltmc.org/repository/release".to_string(),
         "https://repo.maven.apache.org/maven2".to_string(),
-        "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev".to_string(),
-        "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap".to_string(),
-        "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap".to_string(),
+        "https://repo1.maven.org/maven2".to_string(),
     ]
+}
+
+fn library_declares_experimental_jetbrains_repo(library: &Value) -> bool {
+    library
+        .get("url")
+        .and_then(Value::as_str)
+        .map(is_experimental_jetbrains_repo)
+        .unwrap_or(false)
+}
+
+fn is_experimental_jetbrains_repo(repo: &str) -> bool {
+    let normalized = repo.trim().trim_end_matches('/');
+    normalized.starts_with("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev")
+        || normalized.starts_with("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap")
+        || normalized.starts_with("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap")
 }
 
 pub fn parse_install_profile_libraries(install_profile: &Value) -> Vec<Value> {
@@ -367,7 +385,9 @@ fn parse_dependencies_from_pom(raw: &str) -> Vec<MavenCoordinate> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_dependencies_from_pom;
+    use serde_json::json;
+
+    use super::{default_repositories, parse_dependencies_from_pom, repositories_for_library};
 
     #[test]
     fn parse_dependencies_strips_xml_comments_in_versions() {
@@ -386,5 +406,33 @@ mod tests {
         let deps = parse_dependencies_from_pom(pom);
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].version, "1.8.10");
+    }
+
+    #[test]
+    fn default_repositories_keep_stable_sources_only() {
+        let repositories = default_repositories();
+        assert!(repositories
+            .iter()
+            .all(|repo| !repo.contains("maven.pkg.jetbrains.space/kotlin/p/kotlin/")));
+        assert!(repositories
+            .iter()
+            .any(|repo| repo == "https://repo.maven.apache.org/maven2"));
+    }
+
+    #[test]
+    fn repositories_for_library_keep_declared_experimental_repo() {
+        let library = json!({
+            "name": "org.jetbrains.kotlin:kotlin-stdlib:2.1.0",
+            "url": "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/"
+        });
+
+        let repositories = repositories_for_library(&library, &default_repositories());
+        assert_eq!(
+            repositories.first().map(String::as_str),
+            Some("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap")
+        );
+        assert!(repositories
+            .iter()
+            .any(|repo| repo == "https://repo.maven.apache.org/maven2"));
     }
 }
