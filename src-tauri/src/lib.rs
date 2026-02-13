@@ -1974,6 +1974,29 @@ fn with_instance_lock<T>(id: &str, f: impl FnOnce() -> Result<T, String>) -> Res
     result
 }
 
+struct InstanceOperationGuard {
+    id: String,
+}
+
+impl Drop for InstanceOperationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut locks) = INSTANCE_LOCKS.lock() {
+            locks.remove(&self.id);
+        }
+    }
+}
+
+fn try_acquire_instance_operation_lock(id: &str) -> Result<InstanceOperationGuard, String> {
+    let mut locks = INSTANCE_LOCKS
+        .lock()
+        .map_err(|_| "No se pudo obtener el lock".to_string())?;
+    if locks.contains(id) {
+        return Err("La instancia está bloqueada por otra operación crítica.".to_string());
+    }
+    locks.insert(id.to_string());
+    Ok(InstanceOperationGuard { id: id.to_string() })
+}
+
 fn command_available(command: &str) -> bool {
     Command::new("sh")
         .arg("-c")
@@ -2708,6 +2731,160 @@ fn resolve_loader_profile_chain_json(
     }
 
     Some(merged)
+}
+
+fn resolve_complete_version_json(
+    minecraft_root: &Path,
+    version_id: &str,
+    fallback_base: &Value,
+) -> Option<Value> {
+    let mut merged = read_version_json_by_id(minecraft_root, version_id)?;
+    let mut visited = HashSet::from([version_id.to_string()]);
+
+    loop {
+        let parent_id = merged
+            .get("inheritsFrom")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+
+        let Some(parent_id) = parent_id else {
+            break;
+        };
+
+        if !visited.insert(parent_id.clone()) {
+            return None;
+        }
+
+        let parent_json = if let Some(value) = read_version_json_by_id(minecraft_root, &parent_id) {
+            value
+        } else if fallback_base
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id == parent_id)
+        {
+            fallback_base.clone()
+        } else {
+            return None;
+        };
+
+        merged = merge_version_json(&parent_json, &merged);
+    }
+
+    Some(merged)
+}
+
+#[derive(Clone)]
+struct ResolvedLibraryArtifact {
+    path: PathBuf,
+    urls: Vec<String>,
+    sha1: Option<String>,
+    include_in_classpath: bool,
+}
+
+fn resolve_library_artifacts(
+    version_json: &Value,
+    minecraft_root: &Path,
+) -> Vec<ResolvedLibraryArtifact> {
+    let os_native_key = match current_minecraft_os() {
+        "windows" => "natives-windows",
+        "osx" => "natives-osx",
+        _ => "natives-linux",
+    };
+    let mut artifacts = Vec::new();
+    let mut seen = HashSet::new();
+
+    for library in version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if !library_allowed_for_current_os(&library) {
+            continue;
+        }
+
+        let mut push_artifact =
+            |path: PathBuf, url: Option<&str>, sha1: Option<&str>, include_in_classpath: bool| {
+                if !seen.insert(path.clone()) {
+                    return;
+                }
+                artifacts.push(ResolvedLibraryArtifact {
+                    urls: url.map(mirror_candidates_for_url).unwrap_or_default(),
+                    sha1: sha1.map(str::to_string),
+                    include_in_classpath,
+                    path,
+                });
+            };
+
+        if let Some(downloads) = library.get("downloads") {
+            if let Some(artifact) = downloads.get("artifact") {
+                let rel = artifact
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        library
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .and_then(maven_path)
+                    });
+                if let Some(rel) = rel {
+                    let target = minecraft_root.join("libraries").join(rel);
+                    push_artifact(
+                        target,
+                        artifact.get("url").and_then(Value::as_str),
+                        artifact.get("sha1").and_then(Value::as_str),
+                        true,
+                    );
+                }
+            }
+
+            if let Some(native) = downloads.get("classifiers").and_then(|classifiers| {
+                classifiers
+                    .get(os_native_key)
+                    .or_else(|| classifiers.get("natives-windows-64"))
+            }) {
+                if let Some(path) = native.get("path").and_then(Value::as_str) {
+                    push_artifact(
+                        minecraft_root.join("libraries").join(path),
+                        native.get("url").and_then(Value::as_str),
+                        native.get("sha1").and_then(Value::as_str),
+                        false,
+                    );
+                }
+            }
+            continue;
+        }
+
+        if let Some(name) = library.get("name").and_then(Value::as_str) {
+            if let Some(rel) = maven_path(name) {
+                let base_url = library
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("https://libraries.minecraft.net/")
+                    .trim_end_matches('/');
+                let rel_url = rel.to_string_lossy().replace('\\', "/");
+                let target = minecraft_root.join("libraries").join(&rel);
+                push_artifact(target, Some(&format!("{base_url}/{rel_url}")), None, true);
+            }
+        }
+    }
+
+    artifacts
+}
+
+fn artifact_valid_on_disk(path: &Path, sha1: Option<&str>) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    if let Some(expected) = sha1.map(str::trim).filter(|value| !value.is_empty()) {
+        return file_sha1(path)
+            .map(|actual| actual.eq_ignore_ascii_case(expected))
+            .unwrap_or(false);
+    }
+    true
 }
 
 fn normalize_loader_profile(profile: &mut Value, minecraft_version: &str, loader: &str) {
@@ -4865,6 +5042,23 @@ fn classpath_entries_complete(plan: &LaunchPlan) -> bool {
         })
 }
 
+fn runtime_declared_libraries_complete(plan: &LaunchPlan) -> bool {
+    let runtime_json_raw = match fs::read_to_string(&plan.version_json) {
+        Ok(raw) => raw,
+        Err(_) => return false,
+    };
+    let runtime_json: Value = match serde_json::from_str(&runtime_json_raw) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    let artifacts = resolve_library_artifacts(&runtime_json, Path::new(&plan.game_dir));
+    !artifacts.is_empty()
+        && artifacts
+            .iter()
+            .all(|artifact| artifact_valid_on_disk(&artifact.path, artifact.sha1.as_deref()))
+}
+
 fn resolve_bootstraplauncher_jar_from_version_json(version_json: &Path) -> Option<PathBuf> {
     let raw = fs::read_to_string(version_json).ok()?;
     let json = serde_json::from_str::<Value>(&raw).ok()?;
@@ -6183,6 +6377,29 @@ async fn bootstrap_instance_runtime(
         }
     }
 
+    effective_version_json =
+        resolve_complete_version_json(&minecraft_root, &launch_version_name, &base_version_json)
+            .unwrap_or(effective_version_json);
+    libraries = effective_version_json
+        .get("libraries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    main_class = effective_version_json
+        .get("mainClass")
+        .and_then(|v| v.as_str())
+        .unwrap_or("net.minecraft.client.main.Main")
+        .to_string();
+    game_arguments = effective_version_json
+        .get("arguments")
+        .and_then(|v| v.get("game"))
+        .cloned()
+        .unwrap_or(Value::Array(Vec::new()));
+    jvm_arguments = effective_version_json
+        .get("arguments")
+        .and_then(|v| v.get("jvm"))
+        .cloned()
+        .unwrap_or(Value::Array(Vec::new()));
     if game_arguments.as_array().is_none() {
         if let Some(legacy_args) = effective_version_json
             .get("minecraftArguments")
@@ -6210,108 +6427,41 @@ async fn bootstrap_instance_runtime(
     let natives_dir = instance_root.join("natives");
     fs::create_dir_all(&natives_dir)
         .map_err(|error| format!("No se pudo crear natives dir: {error}"))?;
-    let os_native_key = match current_minecraft_os() {
-        "windows" => "natives-windows",
-        "osx" => "natives-osx",
-        _ => "natives-linux",
-    };
 
+    let resolved_artifacts = resolve_library_artifacts(&effective_version_json, &minecraft_root);
     write_instance_state(
         instance_root,
         "downloading_libraries",
-        serde_json::json!({"step": "libraries", "total": libraries.len()}),
+        serde_json::json!({"step": "libraries", "total": resolved_artifacts.len()}),
     );
 
     let mut native_archives = Vec::new();
     let mut library_downloads = Vec::new();
-    for library in libraries {
-        if !library_allowed_for_current_os(&library) {
-            continue;
-        }
-        let mut artifact_resolved = false;
-
-        if let Some(downloads) = library.get("downloads") {
-            if let Some(artifact) = downloads.get("artifact") {
-                let url = artifact.get("url").and_then(|v| v.as_str());
-                let path = artifact
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .map(PathBuf::from)
-                    .or_else(|| {
-                        library
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .and_then(maven_path)
-                    });
-                if let (Some(url), Some(rel)) = (url, path) {
-                    let target = minecraft_root.join("libraries").join(rel);
-                    let urls = mirror_candidates_for_url(url);
-                    library_downloads.push(BinaryDownloadTask {
-                        urls,
-                        path: target.clone(),
-                        sha1: artifact
-                            .get("sha1")
-                            .and_then(|value| value.as_str())
-                            .map(|value| value.to_string()),
-                        label: format!("Librería {}", target.display()),
-                        validate_zip: should_validate_zip_from_path(&target),
-                    });
-                    if classpath_seen.insert(target.clone()) {
-                        classpath_entries.push(target);
-                    }
-                    artifact_resolved = true;
-                }
-            }
-
-            if let Some(classifiers) = downloads.get("classifiers") {
-                if let Some(native) = classifiers
-                    .get(os_native_key)
-                    .or_else(|| classifiers.get("natives-windows-64"))
-                {
-                    if let (Some(url), Some(path)) = (
-                        native.get("url").and_then(|v| v.as_str()),
-                        native.get("path").and_then(|v| v.as_str()),
-                    ) {
-                        let native_jar = minecraft_root.join("libraries").join(path);
-                        library_downloads.push(BinaryDownloadTask {
-                            urls: mirror_candidates_for_url(url),
-                            path: native_jar.clone(),
-                            sha1: native
-                                .get("sha1")
-                                .and_then(|value| value.as_str())
-                                .map(|value| value.to_string()),
-                            label: format!("Native {}", native_jar.display()),
-                            validate_zip: should_validate_zip_from_path(&native_jar),
-                        });
-                        native_archives.push(native_jar);
-                    }
-                }
-            }
+    for artifact in &resolved_artifacts {
+        let sha1 = artifact.sha1.as_deref();
+        if artifact.urls.is_empty() && !artifact_valid_on_disk(&artifact.path, sha1) {
+            return Err(format!(
+                "No se pudo resolver descarga para librería requerida: {}",
+                artifact.path.display()
+            ));
         }
 
-        if !artifact_resolved {
-            let maven_name = library.get("name").and_then(|v| v.as_str());
-            let base_url = library
-                .get("url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("https://libraries.minecraft.net/")
-                .trim_end_matches('/');
+        if !artifact_valid_on_disk(&artifact.path, sha1) {
+            let _ = fs::remove_file(&artifact.path);
+            library_downloads.push(BinaryDownloadTask {
+                urls: artifact.urls.clone(),
+                path: artifact.path.clone(),
+                sha1: artifact.sha1.clone(),
+                label: format!("Librería {}", artifact.path.display()),
+                validate_zip: should_validate_zip_from_path(&artifact.path),
+            });
+        }
 
-            if let Some(rel) = maven_name.and_then(maven_path) {
-                let rel_url = rel.to_string_lossy().replace('\\', "/");
-                let target = minecraft_root.join("libraries").join(&rel);
-                let url = format!("{base_url}/{rel_url}");
-                library_downloads.push(BinaryDownloadTask {
-                    urls: mirror_candidates_for_url(&url),
-                    path: target.clone(),
-                    sha1: None,
-                    label: format!("Librería {}", target.display()),
-                    validate_zip: should_validate_zip_from_path(&target),
-                });
-                if classpath_seen.insert(target.clone()) {
-                    classpath_entries.push(target);
-                }
-            }
+        if artifact.include_in_classpath && classpath_seen.insert(artifact.path.clone()) {
+            classpath_entries.push(artifact.path.clone());
+        }
+        if !artifact.include_in_classpath {
+            native_archives.push(artifact.path.clone());
         }
     }
 
@@ -6325,7 +6475,18 @@ async fn bootstrap_instance_runtime(
     download_binaries_with_limit(library_downloads, library_concurrency).await?;
 
     for native_jar in native_archives {
-        extract_native_library(&native_jar, &natives_dir)?;
+        if native_jar.exists() {
+            extract_native_library(&native_jar, &natives_dir)?;
+        }
+    }
+
+    for artifact in &resolved_artifacts {
+        if !artifact_valid_on_disk(&artifact.path, artifact.sha1.as_deref()) {
+            return Err(format!(
+                "Dependencia declarada no está disponible en disco tras sincronización: {}",
+                artifact.path.display()
+            ));
+        }
     }
 
     if classpath_seen.insert(client_jar.clone()) {
@@ -6797,7 +6958,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         .map(|entry| Path::new(entry))
         .collect();
     let classpath_complete = !plan.classpath_entries.is_empty() && classpath_entries_complete(plan);
-    let classpath_libraries_ok = classpath_entries_complete(plan);
+    let classpath_libraries_ok = runtime_declared_libraries_complete(plan);
     let version_jar_canonical = canonical_or_original(&version_jar_path);
     let classpath_has_mc_jar = classpath_entries_paths
         .iter()
@@ -6891,6 +7052,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         ("classpath_completo", classpath_complete),
         ("classpath_incluye_jar_minecraft", classpath_has_mc_jar),
         ("libraries_descargadas_compatibles", classpath_libraries_ok),
+        ("libraries_ready", classpath_libraries_ok),
         ("runtime_sin_archivos_corruptos", runtime_integrity.ok()),
         ("assets_index", !plan.asset_index.trim().is_empty()),
         (
@@ -8249,6 +8411,8 @@ async fn repair_instance(
         return Err("No hay una instancia válida seleccionada para reparar.".to_string());
     }
 
+    let _instance_lock = try_acquire_instance_operation_lock(&instance_id)?;
+
     let mode = parse_repair_mode(args.repair_mode);
     let reinstall = matches!(mode, RepairMode::Completa);
     let (instance_root, instance) =
@@ -8323,6 +8487,8 @@ async fn preflight_instance(
     if instance_id.is_empty() {
         return Err("No hay una instancia válida seleccionada para validar.".to_string());
     }
+
+    let _instance_lock = try_acquire_instance_operation_lock(&instance_id)?;
 
     let (instance_root, _) =
         prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
