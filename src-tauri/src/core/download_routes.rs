@@ -107,6 +107,22 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
                 2,
                 format!("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies{rest}"),
             );
+            if rest.starts_with("/org/jetbrains/kotlin/")
+                || rest.starts_with("/org/jetbrains/kotlinx/")
+            {
+                prioritized.insert(
+                    2,
+                    format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap{rest}"),
+                );
+                prioritized.insert(
+                    3,
+                    format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev{rest}"),
+                );
+                prioritized.insert(
+                    4,
+                    format!("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap{rest}"),
+                );
+            }
         } else if rest.starts_with("/net/neoforged/") || rest.starts_with("/cpw/mods/") {
             prioritized.insert(0, format!("https://maven.neoforged.net/releases{rest}"));
         } else if rest.starts_with("/net/minecraftforge/") {
@@ -277,6 +293,38 @@ mod tests {
         assert!(urls.iter().any(|value| {
             value
                 == "https://packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
+        }));
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
+        }));
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
+        }));
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar"
+        }));
+    }
+
+    #[test]
+    fn kotlin_library_url_includes_kotlin_space_mirrors() {
+        let urls = mirror_candidates_for_url(
+            "https://libraries.minecraft.net/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar",
+        );
+
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar"
+        }));
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar"
+        }));
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://maven.pkg.jetbrains.space/kotlin/p/kotlin/eap/org/jetbrains/kotlin/kotlin-stdlib-common/2.1.0/kotlin-stdlib-common-2.1.0.jar"
         }));
     }
 
