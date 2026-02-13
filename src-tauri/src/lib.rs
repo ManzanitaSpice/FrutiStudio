@@ -2829,6 +2829,7 @@ fn instance_runtime_exists(instance_root: &Path, loader: &str) -> bool {
                     lib.get("name").and_then(Value::as_str).is_some_and(|name| {
                         name.contains("net.neoforged:neoforge")
                             || name.contains("net.neoforged:fml")
+                            || name.contains("net.neoforged:fancymodloader")
                     })
                 })
             })
@@ -4008,7 +4009,11 @@ fn classpath_has_loader_runtime(loader: &str, entries: &[String]) -> bool {
         }
         "neoforge" => {
             classpath_contains_loader_artifact(entries, "bootstraplauncher")
-                && has_any(&["net/neoforged/neoforge", "net/neoforged/fml"])
+                && has_any(&[
+                    "net/neoforged/neoforge",
+                    "net/neoforged/fml",
+                    "net/neoforged/fancymodloader",
+                ])
         }
         _ => true,
     }
@@ -9377,6 +9382,16 @@ mod tests {
     }
 
     #[test]
+    fn classpath_loader_detection_accepts_neoforge_fancymodloader_runtime() {
+        let entries = vec![
+            "/home/user/.minecraft/libraries/cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar".to_string(),
+            "/home/user/.minecraft/libraries/net/neoforged/fancymodloader/4.0.31/fancymodloader-4.0.31.jar".to_string(),
+        ];
+
+        assert!(classpath_has_loader_runtime("neoforge", &entries));
+    }
+
+    #[test]
     fn resolve_minecraft_client_jar_path_falls_back_to_game_version_jar() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -10251,6 +10266,12 @@ mod tests {
                 {"name": "net.neoforged:neoforge:21.1.5"}
             ]
         });
+
+        let neoforge_fml = serde_json::json!({
+            "libraries": [
+                {"name": "net.neoforged:fancymodloader:4.0.31"}
+            ]
+        });
         let vanilla = serde_json::json!({
             "libraries": [
                 {"name": "com.mojang:brigadier:1.0.18"}
@@ -10260,6 +10281,10 @@ mod tests {
         assert_eq!(detect_loader_from_version_json(&fabric), Some("fabric"));
         assert_eq!(detect_loader_from_version_json(&forge), Some("forge"));
         assert_eq!(detect_loader_from_version_json(&neoforge), Some("neoforge"));
+        assert_eq!(
+            detect_loader_from_version_json(&neoforge_fml),
+            Some("neoforge")
+        );
         assert_eq!(detect_loader_from_version_json(&vanilla), Some("vanilla"));
     }
 
