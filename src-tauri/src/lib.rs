@@ -59,7 +59,10 @@ use crate::core::launcher_discovery::{
     accepted_main_classes_for_loader, detect_loader_from_version_json,
     detect_minecraft_launcher_installations,
 };
-use crate::core::loader_normalizer::normalize_loader_profile as normalize_loader_profile_core;
+use crate::core::loader_normalizer::{
+    normalize_loader_profile as normalize_loader_profile_core,
+    sanitize_version_json_library_typos,
+};
 use crate::core::maven_loader::{
     default_repositories, parse_install_profile_libraries, repositories_for_library,
     resolve_transitive_dependencies, MavenCoordinate,
@@ -860,7 +863,10 @@ fn normalize_launcher_root_candidate(base_path: &Path) -> PathBuf {
 
     if matches!(
         file_name.as_deref(),
-        Some("frutilauncheroficial") | Some("frutilauncherofficial")
+        Some("frutilauncheroficial")
+            | Some("frutilauncherofficial")
+            | Some("interfaceoficial")
+            | Some("interfaceofficial")
     ) {
         base_path.to_path_buf()
     } else {
@@ -1357,7 +1363,7 @@ async fn launcher_factory_reset(
 
     let mut cleared_roots = Vec::new();
     let mut removed_entries = Vec::new();
-    let mut reset_relative_targets = vec![
+    let reset_relative_targets = vec![
         PathBuf::from("cache"),
         PathBuf::from("temp"),
         PathBuf::from("http_cache"),
@@ -1370,11 +1376,16 @@ async fn launcher_factory_reset(
         PathBuf::from("logs"),
         PathBuf::from(".cache"),
         PathBuf::from("minecraft"),
+        PathBuf::from("instances"),
+        PathBuf::from("mods"),
+        PathBuf::from("resourcepacks"),
+        PathBuf::from("shaderpacks"),
+        PathBuf::from("texturepacks"),
+        PathBuf::from("saves"),
+        PathBuf::from("screenshots"),
+        PathBuf::from("config"),
+        PathBuf::from(".runtime"),
     ];
-
-    if !args.preserve_external_instances.unwrap_or(true) {
-        reset_relative_targets.push(PathBuf::from("instances"));
-    }
 
     for root in roots {
         validate_factory_reset_target(&root)?;
@@ -1388,14 +1399,33 @@ async fn launcher_factory_reset(
                 }
             }
 
-            if root.exists()
-                && root
+            // Elimina archivos sueltos en la raíz (json, txt, log, etc.)
+            if let Ok(entries) = fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Ok(()) = fs::remove_file(&path) {
+                            removed_entries.push(path.display().to_string());
+                            touched_root = true;
+                        }
+                    }
+                }
+            }
+
+            // Si la carpeta quedó vacía (o ya vaciamos todo), la eliminamos
+            if root.exists() {
+                let is_empty = root
                     .read_dir()
                     .map(|mut entries| entries.next().is_none())
-                    .unwrap_or(false)
-            {
-                delete_reset_target(&root, &mut removed_entries)?;
-                touched_root = true;
+                    .unwrap_or(false);
+                if is_empty {
+                    delete_reset_target(&root, &mut removed_entries)?;
+                    touched_root = true;
+                } else {
+                    // Forzar eliminación de toda la raíz para no dejar nada
+                    delete_reset_target(&root, &mut removed_entries)?;
+                    touched_root = true;
+                }
             }
 
             if touched_root {
@@ -4497,19 +4527,58 @@ fn ensure_writable_dir(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path)
         .map_err(|error| format!("No se pudo asegurar carpeta {}: {error}", path.display()))?;
     let probe_path = path.join(".fruti-write-test");
-    fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&probe_path)
-        .map_err(|error| {
-            format!(
+
+    let try_write = || {
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&probe_path)
+    };
+
+    match try_write() {
+        Ok(_) => {
+            let _ = fs::remove_file(&probe_path);
+            return Ok(());
+        }
+        Err(error) if is_windows_access_denied(&error) => {
+            // Intenta matar procesos zombie de Java/Minecraft y reintentar
+            let killed = kill_running_minecraft_processes();
+            if !killed.is_empty() {
+                println!(
+                    "[ensure_writable_dir] Acceso denegado en {}. Se mataron procesos zombie: {:?}. Reintentando...",
+                    path.display(),
+                    killed
+                );
+                // Pausa breve para que Windows libere los handles
+                std::thread::sleep(Duration::from_millis(800));
+
+                match try_write() {
+                    Ok(_) => {
+                        let _ = fs::remove_file(&probe_path);
+                        return Ok(());
+                    }
+                    Err(retry_error) => {
+                        return Err(format!(
+                            "No hay permisos de escritura en {} incluso tras cerrar procesos zombie ({:?}): {retry_error}. Ejecuta Interface como administrador y revisa antivirus/Acceso controlado a carpetas.",
+                            normalized_display_path(path),
+                            killed
+                        ));
+                    }
+                }
+            }
+            return Err(format!(
                 "No hay permisos de escritura en {}: {error}. Cierra procesos Java/Minecraft/antivirus que usen la carpeta, ejecuta Interface como administrador y revisa antivirus/Acceso controlado a carpetas.",
                 normalized_display_path(path)
-            )
-        })?;
-    let _ = fs::remove_file(probe_path);
-    Ok(())
+            ));
+        }
+        Err(error) => {
+            return Err(format!(
+                "No hay permisos de escritura en {}: {error}. Cierra procesos Java/Minecraft/antivirus que usen la carpeta, ejecuta Interface como administrador y revisa antivirus/Acceso controlado a carpetas.",
+                normalized_display_path(path)
+            ));
+        }
+    }
 }
 
 fn ensure_writable_file(path: &Path) -> Result<(), String> {
@@ -6141,8 +6210,28 @@ fn extract_native_library(jar_path: &Path, natives_dir: &Path) -> Result<(), Str
             fs::create_dir_all(parent)
                 .map_err(|error| format!("No se pudo preparar carpeta de nativos: {error}"))?;
         }
-        let mut output = fs::File::create(&target)
-            .map_err(|error| format!("No se pudo crear nativo {}: {error}", target.display()))?;
+        let mut output = match fs::File::create(&target) {
+            Ok(file) => file,
+            Err(error) if is_windows_access_denied(&error) => {
+                // Proceso zombie puede estar bloqueando el nativo
+                let killed = kill_running_minecraft_processes();
+                if !killed.is_empty() {
+                    std::thread::sleep(Duration::from_millis(800));
+                }
+                fs::File::create(&target).map_err(|retry_error| {
+                    format!(
+                        "No se pudo crear nativo {} (incluso tras cerrar procesos zombie): {retry_error}",
+                        target.display()
+                    )
+                })?
+            }
+            Err(error) => {
+                return Err(format!(
+                    "No se pudo crear nativo {}: {error}",
+                    target.display()
+                ));
+            }
+        };
         std::io::copy(&mut entry, &mut output).map_err(|error| {
             format!(
                 "No se pudo extraer nativo {} a {}: {error}",
@@ -6925,6 +7014,10 @@ async fn bootstrap_instance_runtime(
             load_loader_metadata_libraries(&minecraft_root, &launch_version_name);
         merge_additional_libraries(&mut effective_version_json, &installer_metadata_libraries);
     }
+
+    // Sanitiza typos de versión MC en coordenadas maven de todas las libraries
+    // (corrige p.ej. 1.21.11 → 1.21.1 en name, path y url de cada library).
+    sanitize_version_json_library_typos(&mut effective_version_json, version);
 
     let launch_jar_id = effective_version_json
         .get("jar")
@@ -9099,6 +9192,7 @@ fn validation_requires_runtime_repair(errors: &[String]) -> bool {
             || normalized.contains("runtime_preparado")
             || normalized.contains("libraries_missing")
             || normalized.contains("libraries_globales")
+            || normalized.contains("json_version_minecraft")
             || normalized.contains("version_json_missing")
             || normalized.contains("version_jar_missing")
     })
@@ -9116,6 +9210,7 @@ fn parse_repair_mode(value: Option<String>) -> RepairMode {
         "solo_mods" | "mods" => RepairMode::SoloMods,
         "reinstalar_loader" | "loader" => RepairMode::ReinstalarLoader,
         "reparar_y_optimizar" | "optimize" => RepairMode::RepararYOptimizar,
+        "verificar_integridad" | "integrity" | "cache_json" => RepairMode::VerificarIntegridad,
         _ => RepairMode::Inteligente,
     }
 }
@@ -9146,13 +9241,20 @@ async fn repair_instance(
     let minecraft_root = instance_game_dir(&instance_root);
     let summary = crate::core::repair::repair_manager::repair_instance(
         &instance.id,
-        mode,
+        mode.clone(),
         &instance_root,
         &minecraft_root,
         &instance.version,
         instance.loader_name.as_deref(),
     )
     .await?;
+
+    // Tras "Verificar integridad" se borran los JSON cacheados, así que hay que
+    // re-construir el runtime desde cero antes de validar.
+    if mode == RepairMode::VerificarIntegridad {
+        bootstrap_instance_runtime(&app, &instance_root, &instance).await?;
+        let _ = build_launch_command(&app, &instance_root, &instance)?;
+    }
 
     let mut launch_plan = read_launch_plan(&instance_root)?;
     let mut validation = validate_launch_plan(&instance_root, &launch_plan);
@@ -9214,6 +9316,18 @@ async fn preflight_instance(
         return Err("No hay una instancia válida seleccionada para validar.".to_string());
     }
 
+    // Matar procesos zombie de Java/Minecraft antes de empezar para evitar
+    // bloqueos de archivos en la carpeta de librerías.
+    let killed_before_preflight = kill_running_minecraft_processes();
+    if !killed_before_preflight.is_empty() {
+        println!(
+            "[preflight] Se cerraron procesos zombie antes del preflight: {:?}",
+            killed_before_preflight
+        );
+        // Breve pausa para que Windows libere handles
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
     let _instance_lock = try_acquire_instance_operation_lock(&instance_id)?;
 
     let (instance_root, instance) =
@@ -9221,7 +9335,7 @@ async fn preflight_instance(
     write_instance_state(
         &instance_root,
         "preflight",
-        serde_json::json!({"instance": instance_id}),
+        serde_json::json!({"instance": instance_id, "killedZombies": killed_before_preflight}),
     );
 
     let launch_plan = match read_launch_plan(&instance_root) {
@@ -10188,6 +10302,16 @@ async fn create_instance_shortcut(
     Ok(shortcut_path.display().to_string())
 }
 
+#[command]
+async fn kill_zombie_java_processes() -> Result<Vec<String>, String> {
+    let killed = kill_running_minecraft_processes();
+    if !killed.is_empty() {
+        // Pausa para que Windows libere handles
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Ok(killed)
+}
+
 pub fn run() {
     #[cfg(all(target_os = "windows", not(debug_assertions)))]
     if let Err(error) = ensure_launcher_elevation() {
@@ -10227,6 +10351,7 @@ pub fn run() {
             repair_instance,
             repair_everything_runtime,
             preflight_instance,
+            kill_zombie_java_processes,
             launch_instance,
             read_instance_runtime_logs,
             manage_modpack,
@@ -10569,7 +10694,7 @@ mod tests {
     fn upsert_game_arg_updates_existing_value() {
         let mut args = vec!["--username".to_string(), "Steve".to_string()];
         upsert_game_arg(&mut args, "--username", "Alex".to_string());
-        upsert_game_arg(&mut args, "--version", "1.21.11".to_string());
+        upsert_game_arg(&mut args, "--version", "1.21.1".to_string());
 
         assert_eq!(
             args,
@@ -10577,7 +10702,7 @@ mod tests {
                 "--username".to_string(),
                 "Alex".to_string(),
                 "--version".to_string(),
-                "1.21.11".to_string(),
+                "1.21.1".to_string(),
             ]
         );
     }
@@ -10817,7 +10942,7 @@ mod tests {
     fn resolve_library_artifacts_uses_neoforge_maven_for_neoforged_coords_without_url() {
         let version_json = serde_json::json!({
             "libraries": [
-                {"name": "net.neoforged:minecraft-dependencies:1.21.11"}
+                {"name": "net.neoforged:minecraft-dependencies:1.21.1"}
             ]
         });
 
@@ -10828,10 +10953,10 @@ mod tests {
             .unwrap_or_default();
 
         assert!(
-            urls.iter().any(|url| url == "https://maven.neoforged.net/releases/net/neoforged/minecraft-dependencies/1.21.11/minecraft-dependencies-1.21.11.jar")
+            urls.iter().any(|url| url == "https://maven.neoforged.net/releases/net/neoforged/minecraft-dependencies/1.21.1/minecraft-dependencies-1.21.1.jar")
         );
         assert!(
-            !urls.iter().any(|url| url == "https://libraries.minecraft.net/net/neoforged/minecraft-dependencies/1.21.11/minecraft-dependencies-1.21.11.jar")
+            !urls.iter().any(|url| url == "https://libraries.minecraft.net/net/neoforged/minecraft-dependencies/1.21.1/minecraft-dependencies-1.21.1.jar")
         );
     }
 

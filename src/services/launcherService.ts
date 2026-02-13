@@ -11,3 +11,6 @@ export const launcherFactoryReset = async (confirmationPhrase: string) =>
       confirmationPhrase,
     },
   });
+
+export const killZombieJavaProcesses = async () =>
+  invokeWithHandling<string[]>("kill_zombie_java_processes");

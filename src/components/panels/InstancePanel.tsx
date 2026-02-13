@@ -879,6 +879,7 @@ export const InstancePanel = ({
       solo_mods: "Reparar solo mods",
       reinstalar_loader: "Reinstalar loader",
       reparar_y_optimizar: "Reparar y optimizar",
+      verificar_integridad: "Verificar integridad (limpiar JSON)",
     }[mode];
     try {
       setInstanceLaunchStatus(selectedInstance.id, `Ejecutando ${modeLabel}...`);
@@ -3656,6 +3657,12 @@ export const InstancePanel = ({
                         >
                           Limpiar caché + optimizar
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void runRepairFlow("verificar_integridad")}
+                        >
+                          Verificar integridad (JSON)
+                        </button>
                       </div>
                     ) : null}
 
@@ -3713,6 +3720,7 @@ export const InstancePanel = ({
                     ["solo_mods", "Reparar solo Mods"],
                     ["reinstalar_loader", "Reinstalar Loader"],
                     ["reparar_y_optimizar", "🛡 Reparar y Optimizar"],
+                    ["verificar_integridad", "🔎 Verificar integridad (limpiar JSON)"],
                   ].map(([value, label]) => (
                     <label key={value}>
                       <input

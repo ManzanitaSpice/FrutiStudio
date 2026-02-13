@@ -72,8 +72,6 @@ pub(crate) struct BaseDirValidationResult {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LauncherFactoryResetArgs {
     pub(crate) confirmation_phrase: String,
-    #[serde(default)]
-    pub(crate) preserve_external_instances: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]

@@ -10,7 +10,8 @@ export type RepairMode =
   | "solo_verificar"
   | "solo_mods"
   | "reinstalar_loader"
-  | "reparar_y_optimizar";
+  | "reparar_y_optimizar"
+  | "verificar_integridad";
 
 export interface RepairReport {
   librariesFixed: number;

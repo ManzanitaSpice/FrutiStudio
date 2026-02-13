@@ -23,6 +23,7 @@ pub enum RepairMode {
     SoloMods,
     ReinstalarLoader,
     RepararYOptimizar,
+    VerificarIntegridad,
 }
 
 impl Default for RepairMode {
@@ -76,7 +77,14 @@ pub async fn repair_instance(
         wipe_runtime_dirs(minecraft_root, &mut report.issues_detected)?;
     }
 
-    if mode == RepairMode::Inteligente {
+    if mode == RepairMode::VerificarIntegridad {
+        report.version_fixed = clear_version_json_cache(
+            instance_root,
+            minecraft_root,
+            version_id,
+            &mut report.issues_detected,
+        )?;
+    } else if mode == RepairMode::Inteligente {
         run_intelligent_repair(
             instance_root,
             minecraft_root,
@@ -246,6 +254,89 @@ fn has_repairs(report: &RepairReport) -> bool {
         || report.config_regenerated
         || report.world_backed_up
         || report.version_fixed
+}
+
+fn clear_version_json_cache(
+    instance_root: &Path,
+    minecraft_root: &Path,
+    version_id: &str,
+    issues: &mut Vec<String>,
+) -> Result<bool, RepairError> {
+    let mut cleared = false;
+
+    // 1. Runtime version.json cacheado por instancia
+    let runtime_json = instance_root.join(".runtime").join("version.json");
+    if runtime_json.exists() {
+        fs::remove_file(&runtime_json).map_err(|error| {
+            format!(
+                "No se pudo limpiar runtime version.json ({}): {error}",
+                runtime_json.display()
+            )
+        })?;
+        issues.push("Se eliminó cache runtime .runtime/version.json".to_string());
+        cleared = true;
+    }
+
+    // 2. Version JSON oficial (versions/<mc>/<mc>.json)
+    let version_json = minecraft_root
+        .join("versions")
+        .join(version_id)
+        .join(format!("{version_id}.json"));
+    if version_json.exists() {
+        fs::remove_file(&version_json).map_err(|error| {
+            format!(
+                "No se pudo limpiar version.json ({}): {error}",
+                version_json.display()
+            )
+        })?;
+        issues.push(format!(
+            "Se eliminó cache versions/{version_id}/{version_id}.json"
+        ));
+        cleared = true;
+    }
+
+    // 3. Launch plan y launch command cacheados (contienen rutas de libraries resueltas)
+    for cached_file in ["launch-plan.json", "launch-command.txt", "instance_integrity.json"] {
+        let path = instance_root.join(cached_file);
+        if path.exists() {
+            let _ = fs::remove_file(&path);
+            issues.push(format!("Se eliminó cache {cached_file}"));
+            cleared = true;
+        }
+    }
+
+    // 4. Loader profile JSONs (versions/<loader-profile>/<loader-profile>.json)
+    //    Pueden contener coordenadas maven con versiones incorrectas.
+    let versions_dir = minecraft_root.join("versions");
+    if versions_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&versions_dir) {
+            for entry in entries.flatten() {
+                let dir_name = entry.file_name();
+                let dir_name_str = dir_name.to_string_lossy();
+                // Solo perfiles de loader que contienen la versión MC base
+                if dir_name_str.contains(version_id)
+                    && dir_name_str != version_id
+                    && entry.path().is_dir()
+                {
+                    let profile_json =
+                        entry.path().join(format!("{}.json", dir_name_str));
+                    if profile_json.exists() {
+                        let _ = fs::remove_file(&profile_json);
+                        issues.push(format!(
+                            "Se eliminó perfil de loader versions/{dir_name_str}/{dir_name_str}.json"
+                        ));
+                        cleared = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if !cleared {
+        issues.push("No se encontraron JSON locales para limpiar.".to_string());
+    }
+
+    Ok(cleared)
 }
 
 fn resolve_shared_libraries_root(instance_root: &Path, minecraft_root: &Path) -> PathBuf {

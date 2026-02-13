@@ -186,7 +186,7 @@ export const SettingsPanel = () => {
     }
 
     const accepted = window.confirm(
-      "Esta acción reinstalará Interface desde cero y limpiará runtime, versiones, librerías, assets, cachés y base de datos local sin tocar instancias externas. ¿Deseas continuar?",
+      "⚠️ Esta acción BORRARÁ TODO: instancias, mods, versiones, librerías, assets, cachés, configuración y base de datos. El launcher quedará 100% limpio como recién instalado. ¿Deseas continuar?",
     );
     if (!accepted) {
       return;
@@ -197,7 +197,7 @@ export const SettingsPanel = () => {
       const result = await launcherFactoryReset(factoryResetPhrase);
       const removed = [...result.clearedRoots, ...result.removedEntries].length;
       window.alert(
-        `Reinstalación completada. Se limpiaron ${removed} rutas. El Interface se recargará para iniciar desde cero.`,
+        `Reinstalación completada. Se eliminaron ${removed} rutas. El Interface se recargará para iniciar desde cero.`,
       );
       window.location.reload();
     } catch (error) {
@@ -382,8 +382,9 @@ export const SettingsPanel = () => {
               <div className="settings-card__header">
                 <h3>Reinstalación completa (desde 0)</h3>
                 <p>
-                  Limpia carpeta de Interface, instancias y datos locales para recuperar
-                  un estado limpio ante corrupción de archivos o configuraciones dañadas.
+                  Borra TODO el contenido del launcher: instancias, mods, versiones,
+                  librerías, assets, cachés, configuración y base de datos. El launcher
+                  quedará limpio como recién instalado.
                 </p>
               </div>
               <label className="settings-card__field">
