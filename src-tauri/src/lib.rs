@@ -5590,6 +5590,26 @@ fn resolve_minecraft_client_jar_path(plan: &LaunchPlan) -> PathBuf {
         return default_path;
     }
 
+    if let Ok(raw) = fs::read_to_string(&plan.version_json) {
+        if let Ok(json) = serde_json::from_str::<Value>(&raw) {
+            let hinted = json
+                .get("jar")
+                .or_else(|| json.get("inheritsFrom"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            if let Some(hinted) = hinted {
+                let hinted_path = Path::new(&plan.game_dir)
+                    .join("versions")
+                    .join(hinted)
+                    .join(format!("{hinted}.jar"));
+                if hinted_path.is_file() {
+                    return hinted_path;
+                }
+            }
+        }
+    }
+
     let launch_version = extract_or_fallback_arg(&plan.game_args, "--version", "");
     if !launch_version.trim().is_empty() {
         let from_version_arg = Path::new(&plan.game_dir)
@@ -7035,6 +7055,13 @@ async fn bootstrap_instance_runtime(
 
     if classpath_seen.insert(launch_jar_path.clone()) {
         classpath_entries.push(launch_jar_path.clone());
+    }
+    let base_jar_path = minecraft_root
+        .join("versions")
+        .join(version)
+        .join(format!("{version}.jar"));
+    if base_jar_path.exists() && classpath_seen.insert(base_jar_path.clone()) {
+        classpath_entries.push(base_jar_path);
     }
 
     let java_major = launch_config.java_version_required.unwrap_or_else(|| {
