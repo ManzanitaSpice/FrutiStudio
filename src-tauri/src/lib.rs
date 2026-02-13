@@ -3764,8 +3764,22 @@ fn expected_forge_like_profile_ids(
     }
 
     if loader == "neoforge" {
+        let without_mc_prefix = trimmed
+            .strip_prefix(&format!("{minecraft_version}-"))
+            .unwrap_or(trimmed)
+            .to_string();
+        let without_loader_prefix = without_mc_prefix
+            .strip_prefix("neoforge-")
+            .unwrap_or(&without_mc_prefix)
+            .to_string();
+
         candidates.push(format!("{minecraft_version}-neoforge-{trimmed}"));
         candidates.push(format!("{minecraft_version}-{trimmed}"));
+        candidates.push(format!("{minecraft_version}-neoforge-{without_mc_prefix}"));
+        candidates.push(format!("{minecraft_version}-{without_mc_prefix}"));
+        candidates.push(format!("neoforge-{trimmed}"));
+        candidates.push(format!("neoforge-{without_loader_prefix}"));
+        candidates.push(without_mc_prefix);
     }
 
     dedupe_non_empty(candidates)
@@ -3793,8 +3807,10 @@ fn discover_forge_like_profile_id(
     let loader_lower = loader.to_lowercase();
     let mc_prefix = format!("{minecraft_version}-").to_lowercase();
 
-    let mut strong_matches: Vec<String> = Vec::new();
-    let mut relaxed_matches: Vec<String> = Vec::new();
+    let mut strong_matches_with_mc: Vec<String> = Vec::new();
+    let mut strong_matches_generic: Vec<String> = Vec::new();
+    let mut relaxed_matches_with_mc: Vec<String> = Vec::new();
+    let mut relaxed_matches_generic: Vec<String> = Vec::new();
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -3809,29 +3825,40 @@ fn discover_forge_like_profile_id(
             continue;
         };
         let id_lower = id.to_lowercase();
-        if !id_lower.starts_with(&mc_prefix) {
-            continue;
-        }
         if !id_lower.contains(&loader_lower) {
             continue;
         }
         let profile_json = path.join(format!("{id}.json"));
-        if profile_json.exists() {
-            if id_lower.contains(&resolved_lower) {
-                strong_matches.push(id);
-            } else {
-                relaxed_matches.push(id);
-            }
+        if !profile_json.exists() {
+            continue;
+        }
+
+        let starts_with_mc = id_lower.starts_with(&mc_prefix);
+        let strong_match = id_lower.contains(&resolved_lower);
+        if strong_match && starts_with_mc {
+            strong_matches_with_mc.push(id);
+        } else if strong_match {
+            strong_matches_generic.push(id);
+        } else if starts_with_mc {
+            relaxed_matches_with_mc.push(id);
+        } else {
+            relaxed_matches_generic.push(id);
         }
     }
 
-    if !strong_matches.is_empty() {
-        strong_matches.sort_by(|left, right| compare_numeric_versions(left, right));
-        return strong_matches.pop();
+    for matches in [
+        &mut strong_matches_with_mc,
+        &mut strong_matches_generic,
+        &mut relaxed_matches_with_mc,
+        &mut relaxed_matches_generic,
+    ] {
+        if !matches.is_empty() {
+            matches.sort_by(|left, right| compare_numeric_versions(left, right));
+            return matches.pop();
+        }
     }
 
-    relaxed_matches.sort_by(|left, right| compare_numeric_versions(left, right));
-    relaxed_matches.pop()
+    None
 }
 
 fn ensure_forge_preflight_files(
@@ -8442,6 +8469,19 @@ fn explain_validation_errors(errors: &[String]) -> String {
     friendly.join("; ")
 }
 
+fn validation_requires_runtime_repair(errors: &[String]) -> bool {
+    errors.iter().any(|error| {
+        let normalized = error.to_ascii_lowercase();
+        normalized.contains("forge_bootstraplauncher_jar_presente")
+            || normalized.contains("forge_bootstraplauncher_en_classpath")
+            || normalized.contains("classpath incompleto")
+            || normalized.contains("runtime_preparado")
+            || normalized.contains("libraries_missing")
+            || normalized.contains("version_json_missing")
+            || normalized.contains("version_jar_missing")
+    })
+}
+
 fn parse_repair_mode(value: Option<String>) -> RepairMode {
     match value
         .unwrap_or_else(|| "inteligente".to_string())
@@ -8494,12 +8534,7 @@ async fn repair_instance(
 
     let mut launch_plan = read_launch_plan(&instance_root)?;
     let mut validation = validate_launch_plan(&instance_root, &launch_plan);
-    if !validation.ok
-        && validation
-            .errors
-            .iter()
-            .any(|error| error.contains("forge_bootstraplauncher_jar_presente"))
-    {
+    if !validation.ok && validation_requires_runtime_repair(&validation.errors) {
         bootstrap_instance_runtime(&app, &instance_root, &instance).await?;
         let _ = build_launch_command(&app, &instance_root, &instance)?;
         launch_plan = read_launch_plan(&instance_root)?;
@@ -8559,7 +8594,7 @@ async fn preflight_instance(
 
     let _instance_lock = try_acquire_instance_operation_lock(&instance_id)?;
 
-    let (instance_root, _) =
+    let (instance_root, instance) =
         prepare_instance_runtime(&app, &instance_id, false, true, true).await?;
     write_instance_state(
         &instance_root,
@@ -8587,7 +8622,23 @@ async fn preflight_instance(
         }
     };
 
-    Ok(validate_launch_plan(&instance_root, &launch_plan))
+    let mut validation = validate_launch_plan(&instance_root, &launch_plan);
+    if !validation.ok && validation_requires_runtime_repair(&validation.errors) {
+        write_instance_state(
+            &instance_root,
+            "preflight_auto_repair",
+            serde_json::json!({
+                "instance": instance.id,
+                "reason": "validation_requires_runtime_repair",
+                "errors": validation.errors,
+            }),
+        );
+        bootstrap_instance_runtime(&app, &instance_root, &instance).await?;
+        let rebuilt_plan = build_launch_command(&app, &instance_root, &instance)?;
+        validation = validate_launch_plan(&instance_root, &rebuilt_plan);
+    }
+
+    Ok(validation)
 }
 
 #[command]

@@ -29,7 +29,12 @@ const loaders = ["", "forge", "fabric", "quilt", "neoforge"];
 
 type ExplorerViewMode = "cards" | "list" | "table";
 type SortDirection = "desc" | "asc";
-type ExplorerDetailTab = "descripcion" | "actualizaciones" | "versiones" | "galeria" | "comentarios";
+type ExplorerDetailTab =
+  | "descripcion"
+  | "actualizaciones"
+  | "versiones"
+  | "galeria"
+  | "comentarios";
 
 interface ExplorerPanelProps {
   externalQuery?: string;
@@ -96,7 +101,6 @@ export const ExplorerPanel = ({
     y: number;
     item: ExplorerItem;
   } | null>(null);
-  const [showAdvancedFilter, setShowAdvancedFilter] = useState(true);
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [viewMode, setViewMode] = useState<ExplorerViewMode>("cards");
   const [detailTab, setDetailTab] = useState<ExplorerDetailTab>("descripcion");
@@ -221,11 +225,13 @@ export const ExplorerPanel = ({
   const filteredVersions = useMemo(() => {
     if (!details) return [];
     return details.versions.filter((version) => {
-      const searchText = `${version.name} ${version.gameVersions.join(" ")} ${version.loaders.join(" ")}`
-        .toLowerCase();
+      const searchText =
+        `${version.name} ${version.gameVersions.join(" ")} ${version.loaders.join(" ")}`.toLowerCase();
       if (versionQuery && !searchText.includes(versionQuery.toLowerCase())) return false;
-      if (versionLoaderFilter && !version.loaders.includes(versionLoaderFilter)) return false;
-      if (versionMcFilter && !version.gameVersions.includes(versionMcFilter)) return false;
+      if (versionLoaderFilter && !version.loaders.includes(versionLoaderFilter))
+        return false;
+      if (versionMcFilter && !version.gameVersions.includes(versionMcFilter))
+        return false;
       if (versionTypeFilter && version.releaseType !== versionTypeFilter) return false;
       return true;
     });
@@ -358,15 +364,34 @@ export const ExplorerPanel = ({
                   <div className="explorer-detail-view__meta">
                     <span>Autor: {selectedItem.author}</span>
                     <span>Categoría: {selectedItem.type}</span>
-                    <span>Loaders: {selectedItem.loaders.map((loader) => formatLoaderName(loader)).join(", ") || "N/D"}</span>
-                    <span>Versiones MC: {selectedItem.versions.slice(0, 4).join(", ") || "N/D"}</span>
-                    <span>Actualizado: {selectedItem.updatedAt ? new Date(selectedItem.updatedAt).toLocaleDateString() : "N/D"}</span>
+                    <span>
+                      Loaders:{" "}
+                      {selectedItem.loaders
+                        .map((loader) => formatLoaderName(loader))
+                        .join(", ") || "N/D"}
+                    </span>
+                    <span>
+                      Versiones MC:{" "}
+                      {selectedItem.versions.slice(0, 4).join(", ") || "N/D"}
+                    </span>
+                    <span>
+                      Actualizado:{" "}
+                      {selectedItem.updatedAt
+                        ? new Date(selectedItem.updatedAt).toLocaleDateString()
+                        : "N/D"}
+                    </span>
                   </div>
                   <div className="explorer-detail-view__actions">
-                    <button type="button" onClick={() => setInstallState({ item: selectedItem })}>
+                    <button
+                      type="button"
+                      onClick={() => setInstallState({ item: selectedItem })}
+                    >
                       Descargar para instancia
                     </button>
-                    <button type="button" onClick={() => setInstallState({ item: selectedItem })}>
+                    <button
+                      type="button"
+                      onClick={() => setInstallState({ item: selectedItem })}
+                    >
                       Crear instancia con este complemento
                     </button>
                     {selectedItem.url ? (
@@ -389,7 +414,11 @@ export const ExplorerPanel = ({
                   <button
                     key={key}
                     type="button"
-                    className={detailTab === key ? "explorer-detail-view__tab explorer-detail-view__tab--active" : "explorer-detail-view__tab"}
+                    className={
+                      detailTab === key
+                        ? "explorer-detail-view__tab explorer-detail-view__tab--active"
+                        : "explorer-detail-view__tab"
+                    }
                     onClick={() => setDetailTab(key as ExplorerDetailTab)}
                   >
                     {label}
@@ -402,16 +431,26 @@ export const ExplorerPanel = ({
                   <div
                     className="rich-description"
                     dangerouslySetInnerHTML={{
-                      __html: parseAndSanitizeRichText(details?.body ?? details?.description ?? selectedItem.description),
+                      __html: parseAndSanitizeRichText(
+                        details?.body ?? details?.description ?? selectedItem.description,
+                      ),
                     }}
                   />
                   <h4>Relacionados</h4>
                   <div className="explorer-related-carousel">
                     {items
-                      .filter((item) => item.id !== selectedItem.id && item.source === selectedItem.source)
+                      .filter(
+                        (item) =>
+                          item.id !== selectedItem.id &&
+                          item.source === selectedItem.source,
+                      )
                       .slice(0, 12)
                       .map((item) => (
-                        <button key={item.id} type="button" onClick={() => setSelectedItem(item)}>
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSelectedItem(item)}
+                        >
                           {item.name}
                         </button>
                       ))}
@@ -424,7 +463,11 @@ export const ExplorerPanel = ({
                   {(details?.versions ?? []).slice(0, 12).map((version) => (
                     <article key={version.id} className="explorer-version-item">
                       <strong>{version.name}</strong>
-                      <span>{version.publishedAt ? new Date(version.publishedAt).toLocaleDateString() : "Sin fecha"}</span>
+                      <span>
+                        {version.publishedAt
+                          ? new Date(version.publishedAt).toLocaleDateString()
+                          : "Sin fecha"}
+                      </span>
                       <span>{version.releaseType}</span>
                     </article>
                   ))}
@@ -440,19 +483,42 @@ export const ExplorerPanel = ({
                       value={versionQuery}
                       onChange={(event) => setVersionQuery(event.target.value)}
                     />
-                    <select value={versionLoaderFilter} onChange={(event) => setVersionLoaderFilter(event.target.value)}>
+                    <select
+                      value={versionLoaderFilter}
+                      onChange={(event) => setVersionLoaderFilter(event.target.value)}
+                    >
                       <option value="">Todos los loaders</option>
-                      {Array.from(new Set((details?.versions ?? []).flatMap((version) => version.loaders))).map((loader) => (
-                        <option key={loader} value={loader}>{formatLoaderName(loader)}</option>
+                      {Array.from(
+                        new Set(
+                          (details?.versions ?? []).flatMap((version) => version.loaders),
+                        ),
+                      ).map((loader) => (
+                        <option key={loader} value={loader}>
+                          {formatLoaderName(loader)}
+                        </option>
                       ))}
                     </select>
-                    <select value={versionMcFilter} onChange={(event) => setVersionMcFilter(event.target.value)}>
+                    <select
+                      value={versionMcFilter}
+                      onChange={(event) => setVersionMcFilter(event.target.value)}
+                    >
                       <option value="">Todas las versiones MC</option>
-                      {Array.from(new Set((details?.versions ?? []).flatMap((version) => version.gameVersions))).map((version) => (
-                        <option key={version} value={version}>{version}</option>
+                      {Array.from(
+                        new Set(
+                          (details?.versions ?? []).flatMap(
+                            (version) => version.gameVersions,
+                          ),
+                        ),
+                      ).map((version) => (
+                        <option key={version} value={version}>
+                          {version}
+                        </option>
                       ))}
                     </select>
-                    <select value={versionTypeFilter} onChange={(event) => setVersionTypeFilter(event.target.value)}>
+                    <select
+                      value={versionTypeFilter}
+                      onChange={(event) => setVersionTypeFilter(event.target.value)}
+                    >
                       <option value="">Todos los tipos</option>
                       <option value="release">Release</option>
                       <option value="beta">Beta</option>
@@ -461,19 +527,56 @@ export const ExplorerPanel = ({
                   </div>
 
                   {filteredVersions.map((version) => (
-                    <article key={version.id} className="explorer-version-item explorer-version-item--expandable">
-                      <button type="button" onClick={() => setExpandedVersionId((current) => current === version.id ? null : version.id)}>
+                    <article
+                      key={version.id}
+                      className="explorer-version-item explorer-version-item--expandable"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedVersionId((current) =>
+                            current === version.id ? null : version.id,
+                          )
+                        }
+                      >
                         <strong>{version.name}</strong>
-                        <span>{version.releaseType} · {version.publishedAt ? new Date(version.publishedAt).toLocaleDateString() : "Sin fecha"}</span>
+                        <span>
+                          {version.releaseType} ·{" "}
+                          {version.publishedAt
+                            ? new Date(version.publishedAt).toLocaleDateString()
+                            : "Sin fecha"}
+                        </span>
                       </button>
                       {expandedVersionId === version.id ? (
                         <div>
-                          <p>Loaders: {version.loaders.map((loader) => formatLoaderName(loader)).join(", ") || "N/D"}</p>
+                          <p>
+                            Loaders:{" "}
+                            {version.loaders
+                              .map((loader) => formatLoaderName(loader))
+                              .join(", ") || "N/D"}
+                          </p>
                           <p>Minecraft: {version.gameVersions.join(", ") || "N/D"}</p>
-                          <p>Dependencias: {version.dependencies?.join(", ") || "Sin dependencias"}</p>
+                          <p>
+                            Dependencias:{" "}
+                            {version.dependencies?.join(", ") || "Sin dependencias"}
+                          </p>
                           <div className="explorer-detail-view__actions">
-                            <button type="button" onClick={() => setInstallState({ item: selectedItem, version })}>Descargar a instancia</button>
-                            <button type="button" onClick={() => setInstallState({ item: selectedItem, version })}>Crear instancia con esta versión</button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setInstallState({ item: selectedItem, version })
+                              }
+                            >
+                              Descargar a instancia
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setInstallState({ item: selectedItem, version })
+                              }
+                            >
+                              Crear instancia con esta versión
+                            </button>
                           </div>
                         </div>
                       ) : null}
@@ -485,7 +588,11 @@ export const ExplorerPanel = ({
               {detailTab === "galeria" ? (
                 <div className="explorer-detail-view__panel explorer-gallery-grid">
                   {(details?.gallery ?? []).map((image) => (
-                    <button key={image} type="button" onClick={() => setGalleryItem(image)}>
+                    <button
+                      key={image}
+                      type="button"
+                      onClick={() => setGalleryItem(image)}
+                    >
                       <img src={image} alt={selectedItem.name} />
                     </button>
                   ))}
@@ -494,61 +601,63 @@ export const ExplorerPanel = ({
 
               {detailTab === "comentarios" ? (
                 <div className="explorer-detail-view__panel">
-                  <p>Los comentarios se cargan dinámicamente desde {selectedItem.source} en próximas iteraciones del API unificado.</p>
+                  <p>
+                    Los comentarios se cargan dinámicamente desde {selectedItem.source} en
+                    próximas iteraciones del API unificado.
+                  </p>
                 </div>
               ) : null}
             </section>
           ) : null}
-          {!selectedItem ? <div className="explorer-layout__toolbar explorer-layout__toolbar--top">
-            <div>
-              <h3>Explorador global · {filters.category}</h3>
-              <p>{total} resultados encontrados</p>
-              {loading && <small>Cargando resultados...</small>}
-              {error && <small className="explorer-layout__error">{error}</small>}
+          {!selectedItem ? (
+            <div className="explorer-layout__toolbar explorer-layout__toolbar--top">
+              <div>
+                <h3>Explorador global · {filters.category}</h3>
+                <p>{total} resultados encontrados</p>
+                {loading && <small>Cargando resultados...</small>}
+                {error && <small className="explorer-layout__error">{error}</small>}
+              </div>
+              <div className="explorer-layout__actions">
+                <label className="explorer-layout__sort">
+                  Ordenar
+                  <select
+                    value={filters.sort}
+                    onChange={(event) =>
+                      updateFilter(
+                        "sort",
+                        event.target.value as "popular" | "updated" | "relevance",
+                      )
+                    }
+                  >
+                    <option value="popular">Popularidad</option>
+                    <option value="updated">Actualización</option>
+                    <option value="relevance">Relevancia</option>
+                  </select>
+                </label>
+                <button type="button" onClick={() => setSortDirection("asc")}>
+                  Ascendente
+                </button>
+                <button type="button" onClick={() => setSortDirection("desc")}>
+                  Descendente
+                </button>
+                <label className="explorer-layout__sort">
+                  Vista
+                  <select
+                    value={viewMode}
+                    onChange={(event) =>
+                      setViewMode(event.target.value as "cards" | "list" | "table")
+                    }
+                  >
+                    <option value="cards">Tarjetas</option>
+                    <option value="list">Lista</option>
+                    <option value="table">Tabla</option>
+                  </select>
+                </label>
+              </div>
             </div>
-            <div className="explorer-layout__actions">
-              <button type="button" onClick={() => setShowAdvancedFilter((prev) => !prev)}>
-                Filtro avanzado ▾
-              </button>
-              <label className="explorer-layout__sort">
-                Ordenar
-                <select
-                  value={filters.sort}
-                  onChange={(event) =>
-                    updateFilter(
-                      "sort",
-                      event.target.value as "popular" | "updated" | "relevance",
-                    )
-                  }
-                >
-                  <option value="popular">Popularidad</option>
-                  <option value="updated">Actualización</option>
-                  <option value="relevance">Relevancia</option>
-                </select>
-              </label>
-              <button type="button" onClick={() => setSortDirection("asc")}>
-                Ascendente
-              </button>
-              <button type="button" onClick={() => setSortDirection("desc")}>
-                Descendente
-              </button>
-              <label className="explorer-layout__sort">
-                Vista
-                <select
-                  value={viewMode}
-                  onChange={(event) =>
-                    setViewMode(event.target.value as "cards" | "list" | "table")
-                  }
-                >
-                  <option value="cards">Tarjetas</option>
-                  <option value="list">Lista</option>
-                  <option value="table">Tabla</option>
-                </select>
-              </label>
-            </div>
-          </div> : null}
+          ) : null}
 
-          {showAdvancedFilter && !selectedItem ? (
+          {!selectedItem ? (
             <div className="explorer-layout__advanced-panel">
               <div className="explorer-layout__filters-header">
                 <h4>Filtro avanzado</h4>
@@ -641,70 +750,77 @@ export const ExplorerPanel = ({
             </div>
           ) : null}
 
-          {!selectedItem ? <div className={`explorer-layout__list explorer-layout__list--${viewMode}`}>
-            {Object.entries(grouped).map(([source, sourceItems]) =>
-              sourceItems.length ? (
-                <div key={source} className="explorer-layout__source-block">
-                  <h4>{source}</h4>
-                  <div className="explorer-layout__cards">
-                    {sourceItems.map((item) => (
-                      <article
-                        key={item.id}
-                        className="explorer-item explorer-item--card"
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setSelectedItem(item)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setSelectedItem(item);
-                          }
-                        }}
-                        onContextMenu={(event) => handleItemContextMenu(event, item)}
-                      >
-                        {item.thumbnail ? (
-                          <img
-                            className="explorer-item__icon"
-                            src={item.thumbnail}
-                            alt={item.name}
-                          />
-                        ) : (
-                          <img
-                            className="explorer-item__icon explorer-item__icon--fallback"
-                            src="/tauri.svg"
-                            alt="Logo Interface"
-                          />
-                        )}
-                        <div className="explorer-item__info">
-                          <h4 title={item.name}>{item.name}</h4>
-                          <p>{oneLine(item.description)}</p>
-                          <div className="explorer-item__meta explorer-item__meta--rich">
-                            <span>Autor: {item.author}</span>
-                            <span>Categoría: {item.type}</span>
-                            <span>Descargas: {item.downloads}</span>
-                            <span>Última actualización: {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "N/D"}</span>
-                            <span>Peso: {formatFileSize(item.fileSizeBytes)}</span>
-                            <span>Loader: {item.loaders[0] ?? "N/D"}</span>
-                            <span>Minecraft: {item.versions[0] ?? "N/D"}</span>
-                            <span className="explorer-item__source">{item.source}</span>
+          {!selectedItem ? (
+            <div className={`explorer-layout__list explorer-layout__list--${viewMode}`}>
+              {Object.entries(grouped).map(([source, sourceItems]) =>
+                sourceItems.length ? (
+                  <div key={source} className="explorer-layout__source-block">
+                    <h4>{source}</h4>
+                    <div className="explorer-layout__cards">
+                      {sourceItems.map((item) => (
+                        <article
+                          key={item.id}
+                          className="explorer-item explorer-item--card"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedItem(item)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setSelectedItem(item);
+                            }
+                          }}
+                          onContextMenu={(event) => handleItemContextMenu(event, item)}
+                        >
+                          {item.thumbnail ? (
+                            <img
+                              className="explorer-item__icon"
+                              src={item.thumbnail}
+                              alt={item.name}
+                            />
+                          ) : (
+                            <img
+                              className="explorer-item__icon explorer-item__icon--fallback"
+                              src="/tauri.svg"
+                              alt="Logo Interface"
+                            />
+                          )}
+                          <div className="explorer-item__info">
+                            <h4 title={item.name}>{item.name}</h4>
+                            <p>{oneLine(item.description)}</p>
+                            <div className="explorer-item__meta explorer-item__meta--rich">
+                              <span>Autor: {item.author}</span>
+                              <span>Categoría: {item.type}</span>
+                              <span>Descargas: {item.downloads}</span>
+                              <span>
+                                Última actualización:{" "}
+                                {item.updatedAt
+                                  ? new Date(item.updatedAt).toLocaleDateString()
+                                  : "N/D"}
+                              </span>
+                              <span>Peso: {formatFileSize(item.fileSizeBytes)}</span>
+                              <span>Loader: {item.loaders[0] ?? "N/D"}</span>
+                              <span>Minecraft: {item.versions[0] ?? "N/D"}</span>
+                              <span className="explorer-item__source">{item.source}</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="explorer-item__meta-footer">
-                          <span>{formatLoaderName(item.loaders[0])}</span>
-                          <span>v {item.versions[0] ?? "N/D"}</span>
-                        </div>
-                      </article>
-                    ))}
+                          <div className="explorer-item__meta-footer">
+                            <span>{formatLoaderName(item.loaders[0])}</span>
+                            <span>v {item.versions[0] ?? "N/D"}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
                   </div>
+                ) : null,
+              )}
+              {!items.length && !loading ? (
+                <div className="explorer-layout__empty">
+                  <p>No se encontraron resultados para esos filtros.</p>
                 </div>
-              ) : null,
-            )}
-            {!items.length && !loading ? (
-              <div className="explorer-layout__empty">
-                <p>No se encontraron resultados para esos filtros.</p>
-              </div>
-            ) : null}
-          </div> : null}
+              ) : null}
+            </div>
+          ) : null}
 
           {hasMore ? (
             <button

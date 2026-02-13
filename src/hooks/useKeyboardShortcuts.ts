@@ -13,6 +13,9 @@ export const useKeyboardShortcuts = ({
 }: ShortcutOptions) => {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (event.repeat) {
+        return;
+      }
       if (
         event.target instanceof HTMLElement &&
         ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName)
