@@ -820,6 +820,10 @@ select:focus-visible {
   min-height: 0;
 }
 
+.panel-view--instances-workspace {
+  gap: 0;
+}
+
 .instances-layout {
   display: grid;
   grid-template-columns: 1fr 230px;
@@ -6216,6 +6220,20 @@ select:focus-visible {
   );
   box-shadow: 0 24px 44px rgba(0, 0, 0, 0.42);
   padding: 14px;
+}
+
+.panel-view--instances-workspace .instance-workspace-page,
+.panel-view--instances-workspace .instance-creator--inline,
+.panel-view--instances-workspace .instance-editor-panel--page {
+  min-height: calc(var(--app-height) - 130px);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+  width: 100%;
+  max-width: none;
+  height: auto;
 }
 
 .instance-workspace-page .product-dialog {

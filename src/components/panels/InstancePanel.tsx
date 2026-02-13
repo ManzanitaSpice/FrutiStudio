@@ -3344,6 +3344,11 @@ export const InstancePanel = ({
     setCreatorOpen(false);
   };
 
+  const isWorkspaceView =
+    creatorOpen ||
+    launchChecklistOpen ||
+    (Boolean(selectedInstance) && (editorOpen || modDownloadOpen || modReviewOpen || repairModalOpen));
+
   const handleQuickLaunch = async (instance: Instance) => {
     if (startupProgressByInstance[instance.id]?.active || instance.isRunning) {
       onSelectInstance(instance.id);
@@ -3386,49 +3391,55 @@ export const InstancePanel = ({
 
   return (
     <section
-      className="panel-view panel-view--instances"
+      className={
+        isWorkspaceView
+          ? "panel-view panel-view--instances panel-view--instances-workspace"
+          : "panel-view panel-view--instances"
+      }
       onClick={(event) => {
         if (event.target === event.currentTarget && selectedInstance) {
           onClearSelection();
         }
       }}
     >
-      <div className="panel-view__header">
-        <div className="panel-view__actions">
-          <input
-            type="search"
-            placeholder="Buscar instancia, grupo, versión o loader..."
-            value={instanceSearch}
-            onChange={(event) => setInstanceSearch(event.target.value)}
-          />
-          <button type="button" onClick={openCreator}>
-            Crear instancia
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setCreatorOpen(true);
-              setActiveCreatorSection("Importar");
-            }}
-          >
-            Importar
-          </button>
-          <button
-            type="button"
-            className="panel-view__focus-toggle"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setContextMenu(null);
-              onToggleFocusMode();
-            }}
-            aria-label={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
-            title={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
-          >
-            {isFocusMode ? "⤢" : "⤡"}
-          </button>
+      {!isWorkspaceView ? (
+        <div className="panel-view__header">
+          <div className="panel-view__actions">
+            <input
+              type="search"
+              placeholder="Buscar instancia, grupo, versión o loader..."
+              value={instanceSearch}
+              onChange={(event) => setInstanceSearch(event.target.value)}
+            />
+            <button type="button" onClick={openCreator}>
+              Crear instancia
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreatorOpen(true);
+                setActiveCreatorSection("Importar");
+              }}
+            >
+              Importar
+            </button>
+            <button
+              type="button"
+              className="panel-view__focus-toggle"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setContextMenu(null);
+                onToggleFocusMode();
+              }}
+              aria-label={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
+              title={isFocusMode ? "Mostrar barras" : "Ocultar barras"}
+            >
+              {isFocusMode ? "⤢" : "⤡"}
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
       {!creatorOpen ? (
         <div
           className={
@@ -3726,11 +3737,8 @@ export const InstancePanel = ({
             </section>
           ) : null}
           {selectedInstance && editorOpen && (
-            <div className="instance-editor__backdrop" onClick={closeEditor}>
-              <section
-                className="instance-editor-panel"
-                onClick={(event) => event.stopPropagation()}
-              >
+            <section className="instance-workspace-page instance-workspace-page--editor">
+              <section className="instance-editor-panel instance-editor-panel--page">
                 <header className="instance-editor__header">
                   <div>
                     <h3>Editar {selectedInstance.name}</h3>
@@ -3993,8 +4001,8 @@ ${rows.join("\n")}`;
                   </div>
                 </div>
               </section>
-            </div>
-          )}{" "}
+            </section>
+          )}
         </div>
       ) : null}
 
