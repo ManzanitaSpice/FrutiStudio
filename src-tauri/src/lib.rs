@@ -2643,47 +2643,71 @@ fn resolve_loader_profile_json(
     candidates = dedupe_non_empty(candidates);
 
     for candidate in candidates {
-        let json_path = minecraft_root
-            .join("versions")
-            .join(&candidate)
-            .join(format!("{candidate}.json"));
-        if !json_path.exists() {
-            continue;
+        if let Some(resolved) = resolve_loader_profile_chain_json(
+            minecraft_root,
+            version,
+            &candidate,
+            base_version_json,
+        ) {
+            return Some(resolved);
         }
-        let Ok(raw) = fs::read_to_string(&json_path) else {
-            continue;
-        };
-        let Ok(loader_json) = serde_json::from_str::<Value>(&raw) else {
-            continue;
-        };
-
-        let inherits_from = loader_json
-            .get("inheritsFrom")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let parent = if inherits_from.is_empty() || inherits_from == version {
-            base_version_json.clone()
-        } else {
-            let parent_path = minecraft_root
-                .join("versions")
-                .join(&inherits_from)
-                .join(format!("{inherits_from}.json"));
-            if !parent_path.exists() {
-                base_version_json.clone()
-            } else {
-                fs::read_to_string(parent_path)
-                    .ok()
-                    .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-                    .unwrap_or_else(|| base_version_json.clone())
-            }
-        };
-
-        return Some(merge_version_json(&parent, &loader_json));
     }
 
     None
+}
+
+fn read_version_json_by_id(minecraft_root: &Path, version_id: &str) -> Option<Value> {
+    let json_path = minecraft_root
+        .join("versions")
+        .join(version_id)
+        .join(format!("{version_id}.json"));
+    fs::read_to_string(json_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+}
+
+fn resolve_loader_profile_chain_json(
+    minecraft_root: &Path,
+    vanilla_version: &str,
+    loader_profile_id: &str,
+    base_version_json: &Value,
+) -> Option<Value> {
+    let mut merged = read_version_json_by_id(minecraft_root, loader_profile_id)?;
+    let mut visited = HashSet::from([loader_profile_id.to_string()]);
+
+    loop {
+        let inherits_from = merged
+            .get("inheritsFrom")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+
+        let Some(parent_id) = inherits_from else {
+            break;
+        };
+
+        if parent_id == vanilla_version {
+            merged = merge_version_json(base_version_json, &merged);
+            break;
+        }
+
+        if !visited.insert(parent_id.clone()) {
+            return None;
+        }
+
+        let parent_json_opt = read_version_json_by_id(minecraft_root, &parent_id);
+        let parent_json = parent_json_opt
+            .clone()
+            .unwrap_or_else(|| base_version_json.clone());
+        merged = merge_version_json(&parent_json, &merged);
+
+        if parent_json_opt.is_none() {
+            break;
+        }
+    }
+
+    Some(merged)
 }
 
 fn normalize_loader_profile(profile: &mut Value, minecraft_version: &str, loader: &str) {
@@ -9640,6 +9664,110 @@ mod tests {
                 .and_then(Value::as_array)
                 .map(|entries| entries.len()),
             Some(2)
+        );
+
+        fs::remove_dir_all(minecraft_root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolve_loader_profile_json_merges_full_inherits_chain_for_forge_like_profiles() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let minecraft_root = std::env::temp_dir().join(format!("frutistudio-forge-chain-{unique}"));
+        let versions_dir = minecraft_root.join("versions");
+        let base_id = "1.20.1";
+        let parent_id = "forge-parent";
+        let profile_id = "1.20.1-forge-47.3.10";
+
+        fs::create_dir_all(versions_dir.join(base_id)).expect("base dir");
+        fs::create_dir_all(versions_dir.join(parent_id)).expect("parent dir");
+        fs::create_dir_all(versions_dir.join(profile_id)).expect("loader dir");
+
+        fs::write(
+            versions_dir.join(base_id).join(format!("{base_id}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": base_id,
+                "mainClass": "net.minecraft.client.main.Main",
+                "libraries": [{"name": "base-lib"}],
+                "arguments": {
+                    "game": ["--demo"]
+                }
+            }))
+            .expect("base json"),
+        )
+        .expect("write base json");
+
+        fs::write(
+            versions_dir
+                .join(parent_id)
+                .join(format!("{parent_id}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": parent_id,
+                "inheritsFrom": base_id,
+                "libraries": [{"name": "cpw.mods:bootstraplauncher:1.1.2"}],
+                "arguments": {
+                    "game": ["--fml.mcVersion", base_id]
+                }
+            }))
+            .expect("parent json"),
+        )
+        .expect("write parent json");
+
+        fs::write(
+            versions_dir
+                .join(profile_id)
+                .join(format!("{profile_id}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": profile_id,
+                "inheritsFrom": parent_id,
+                "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+                "libraries": [{"name": "net.minecraftforge:forge:1.20.1-47.3.10"}],
+                "arguments": {
+                    "game": ["--launchTarget", "forgeclient"]
+                }
+            }))
+            .expect("profile json"),
+        )
+        .expect("write profile json");
+
+        let base_version = serde_json::json!({
+            "id": base_id,
+            "mainClass": "net.minecraft.client.main.Main",
+            "libraries": [{"name": "base-lib"}],
+            "arguments": {
+                "game": ["--demo"]
+            }
+        });
+
+        let resolved = resolve_loader_profile_json(
+            &minecraft_root,
+            base_id,
+            "forge",
+            Some(profile_id),
+            &base_version,
+        )
+        .expect("resolved forge profile");
+
+        assert_eq!(
+            resolved.get("mainClass").and_then(Value::as_str),
+            Some("cpw.mods.bootstraplauncher.BootstrapLauncher")
+        );
+        assert_eq!(
+            resolved
+                .get("libraries")
+                .and_then(Value::as_array)
+                .map(|entries| entries.len()),
+            Some(3)
+        );
+        assert_eq!(
+            resolved
+                .get("arguments")
+                .and_then(|value| value.get("game"))
+                .and_then(Value::as_array)
+                .map(|entries| entries.len()),
+            Some(5)
         );
 
         fs::remove_dir_all(minecraft_root).expect("cleanup");
