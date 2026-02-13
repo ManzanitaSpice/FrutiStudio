@@ -2865,6 +2865,18 @@ fn instance_runtime_exists(instance_root: &Path, loader: &str) -> bool {
         return false;
     }
 
+    let launcher_root = instance_root
+        .parent()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf);
+    if let Some(launcher_root) = launcher_root {
+        if (loader == "forge" || loader == "neoforge")
+            && !forge_like_runtime_libraries_present(&runtime_json, &launcher_root, loader)
+        {
+            return false;
+        }
+    }
+
     expected_main_class_for_loader(loader)
         .map(|expected| {
             runtime_json
@@ -2873,6 +2885,60 @@ fn instance_runtime_exists(instance_root: &Path, loader: &str) -> bool {
                 .is_some_and(|main_class| main_class.trim() == expected)
         })
         .unwrap_or(true)
+}
+
+fn library_target_path(minecraft_root: &Path, library: &Value) -> Option<PathBuf> {
+    library
+        .get("downloads")
+        .and_then(|downloads| downloads.get("artifact"))
+        .and_then(|artifact| artifact.get("path"))
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .or_else(|| {
+            library
+                .get("name")
+                .and_then(Value::as_str)
+                .and_then(maven_path)
+        })
+        .map(|relative| minecraft_root.join("libraries").join(relative))
+}
+
+fn forge_like_runtime_libraries_present(
+    runtime_json: &Value,
+    minecraft_root: &Path,
+    loader: &str,
+) -> bool {
+    let Some(libraries) = runtime_json.get("libraries").and_then(Value::as_array) else {
+        return false;
+    };
+
+    let required_prefixes = if loader == "forge" {
+        vec![
+            "cpw.mods:bootstraplauncher:",
+            "net.minecraftforge:fmlloader:",
+            "net.minecraftforge:javafmllanguage:",
+            "net.minecraftforge:mclanguage:",
+        ]
+    } else {
+        vec!["cpw.mods:bootstraplauncher:"]
+    };
+
+    required_prefixes.into_iter().all(|prefix| {
+        libraries
+            .iter()
+            .find(|library| {
+                library
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| name.starts_with(prefix))
+            })
+            .and_then(|library| library_target_path(minecraft_root, library))
+            .is_some_and(|path| {
+                fs::metadata(path)
+                    .map(|meta| meta.is_file() && meta.len() > 0)
+                    .unwrap_or(false)
+            })
+    })
 }
 
 fn launch_plan_matches_persisted_runtime(instance_root: &Path, plan: &LaunchPlan) -> bool {
@@ -6730,7 +6796,7 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
         .iter()
         .map(|entry| Path::new(entry))
         .collect();
-    let classpath_complete = !plan.classpath_entries.is_empty();
+    let classpath_complete = !plan.classpath_entries.is_empty() && classpath_entries_complete(plan);
     let classpath_libraries_ok = classpath_entries_complete(plan);
     let version_jar_canonical = canonical_or_original(&version_jar_path);
     let classpath_has_mc_jar = classpath_entries_paths
@@ -10545,6 +10611,56 @@ mandatory=true
         assert!(!instance_runtime_exists(&instance_root, "fabric"));
 
         let _ = fs::remove_dir_all(&instance_root);
+    }
+
+    #[test]
+    fn instance_runtime_exists_forge_requires_runtime_jars_on_disk() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("epoch")
+            .as_nanos();
+        let launcher_root =
+            std::env::temp_dir().join(format!("frutistudio-runtime-forge-{unique}"));
+        let instance_root = launcher_root.join("instances").join("forge-instance");
+        let runtime_dir = instance_root.join(".runtime");
+        fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let runtime_version = serde_json::json!({
+            "id": "1.21.1-forge-61.0.8",
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "libraries": [
+                {"name": "cpw.mods:bootstraplauncher:1.1.2"},
+                {"name": "net.minecraftforge:fmlloader:1.21.1-61.0.8"},
+                {"name": "net.minecraftforge:javafmllanguage:1.21.1-61.0.8"},
+                {"name": "net.minecraftforge:mclanguage:1.21.1-61.0.8"}
+            ]
+        });
+        fs::write(
+            runtime_dir.join("version.json"),
+            serde_json::to_string_pretty(&runtime_version).expect("serialize runtime"),
+        )
+        .expect("write runtime version");
+
+        assert!(!instance_runtime_exists(&instance_root, "forge"));
+
+        let required_jars = [
+            "libraries/cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar",
+            "libraries/net/minecraftforge/fmlloader/1.21.1-61.0.8/fmlloader-1.21.1-61.0.8.jar",
+            "libraries/net/minecraftforge/javafmllanguage/1.21.1-61.0.8/javafmllanguage-1.21.1-61.0.8.jar",
+            "libraries/net/minecraftforge/mclanguage/1.21.1-61.0.8/mclanguage-1.21.1-61.0.8.jar",
+        ];
+
+        for rel in required_jars {
+            let path = launcher_root.join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create lib dir");
+            }
+            fs::write(path, b"jar").expect("write jar");
+        }
+
+        assert!(instance_runtime_exists(&instance_root, "forge"));
+
+        let _ = fs::remove_dir_all(&launcher_root);
     }
 
     #[test]
