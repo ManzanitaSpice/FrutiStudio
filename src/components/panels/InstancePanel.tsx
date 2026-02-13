@@ -91,12 +91,7 @@ const importTabs = [
 
 type ImportTab = (typeof importTabs)[number];
 
-const importFlowStates = [
-  "Pendiente",
-  "Validando",
-  "Listo",
-  "Error",
-] as const;
+const importFlowStates = ["Pendiente", "Validando", "Listo", "Error"] as const;
 
 const instanceConfigTabs = [
   "General",
@@ -194,7 +189,6 @@ const transientBackendStatuses = new Set([
   "launching",
 ]);
 
-
 const formatEta = (etaSeconds?: number): string | null => {
   if (typeof etaSeconds !== "number" || !Number.isFinite(etaSeconds) || etaSeconds <= 0) {
     return null;
@@ -279,7 +273,9 @@ export const InstancePanel = ({
   const [instanceVersion, setInstanceVersion] = useState("");
   const [instanceLoader, setInstanceLoader] = useState("Vanilla");
   const [instanceLoaderVersion, setInstanceLoaderVersion] = useState("");
-  const [creatorJavaMode, setCreatorJavaMode] = useState<"auto" | "embedded" | "manual">("embedded");
+  const [creatorJavaMode, setCreatorJavaMode] = useState<"auto" | "embedded" | "manual">(
+    "embedded",
+  );
   const [creatorJavaPath, setCreatorJavaPath] = useState("");
   const [versionFilters, setVersionFilters] = useState({
     release: true,
@@ -593,7 +589,6 @@ export const InstancePanel = ({
       return result.value;
     };
 
-
     const logBackendState = async () => {
       const statusMap: Record<string, { progress: number; label: string }> = {
         cleaning_partials: { progress: 15, label: "Limpiando descargas temporales" },
@@ -709,7 +704,10 @@ export const InstancePanel = ({
             if (!current?.active || !current.startedAt) {
               return prev;
             }
-            const elapsedSeconds = Math.max(1, Math.floor((Date.now() - current.startedAt) / 1000));
+            const elapsedSeconds = Math.max(
+              1,
+              Math.floor((Date.now() - current.startedAt) / 1000),
+            );
             const progress = Math.max(1, Math.min(99, Math.round(current.progress)));
             const estimatedTotalSeconds = Math.round((elapsedSeconds * 100) / progress);
             const etaSeconds = Math.max(1, estimatedTotalSeconds - elapsedSeconds);
@@ -779,7 +777,6 @@ export const InstancePanel = ({
         appendLog(`${check.ok ? "✔" : "✖"} ${check.name}`);
       });
     };
-
 
     try {
       const pollerPromise = pollBackendContinuously();
@@ -1327,7 +1324,6 @@ export const InstancePanel = ({
     selectedInstance,
   ]);
 
-
   useEffect(() => {
     if (!creatorOpen || versionsStatus !== "idle") {
       return;
@@ -1381,9 +1377,8 @@ export const InstancePanel = ({
     if (!filteredVersions.length) {
       return null;
     }
-  
 
-  return (
+    return (
       filteredVersions.find((version) => version.type === "release") ??
       filteredVersions[0]
     );
@@ -1686,7 +1681,10 @@ export const InstancePanel = ({
             (launchChecklistRunning ||
               startupProgressByInstance[selectedInstance.id]?.active);
 
-          if (transientBackendStatuses.has(backendStatus) && !shouldRespectTransientState) {
+          if (
+            transientBackendStatuses.has(backendStatus) &&
+            !shouldRespectTransientState
+          ) {
             clearStartupProgress(selectedInstance.id);
             setInstanceLaunchStatus(selectedInstance.id, "Esperando inicio manual");
             return;
@@ -1770,8 +1768,6 @@ export const InstancePanel = ({
       window.removeEventListener("keydown", handleEscape);
     };
   }, [contextMenu]);
-
-
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -2126,17 +2122,23 @@ export const InstancePanel = ({
     void loadCatalogMods();
   }, [catalogType, modDownloadOpen, modProvider]);
 
-  const installProgress = modInstallTotal > 0 ? Math.round((modInstallCurrent / modInstallTotal) * 100) : 0;
-  const selectedTotalSizeBytes = selectedCatalogMods.reduce((acc, current) => acc + (current.fileSizeBytes ?? 0), 0);
-  const elapsedSeconds = modInstallStartedAt ? Math.max(1, (Date.now() - modInstallStartedAt) / 1000) : 1;
-  const installRate = modInstallCurrent > 0 ? (modInstallCurrent / elapsedSeconds).toFixed(2) : "0.00";
+  const installProgress =
+    modInstallTotal > 0 ? Math.round((modInstallCurrent / modInstallTotal) * 100) : 0;
+  const selectedTotalSizeBytes = selectedCatalogMods.reduce(
+    (acc, current) => acc + (current.fileSizeBytes ?? 0),
+    0,
+  );
+  const elapsedSeconds = modInstallStartedAt
+    ? Math.max(1, (Date.now() - modInstallStartedAt) / 1000)
+    : 1;
+  const installRate =
+    modInstallCurrent > 0 ? (modInstallCurrent / elapsedSeconds).toFixed(2) : "0.00";
 
   const renderEditorBody = () => {
     if (activeEditorSection === "Registro de Minecraft" && selectedInstance) {
       const logs = runtimeLogByInstance[selectedInstance.id] ?? [];
-    
 
-  return (
+      return (
         <div className="instance-live-log">
           <div className="instance-live-log__toolbar">
             <strong>Registro en tiempo real</strong>
@@ -2163,9 +2165,7 @@ export const InstancePanel = ({
     }
 
     if (activeEditorSection === "Versión") {
-    
-
-  return (
+      return (
         <div className="instance-config__grid">
           <article className="instance-config__card">
             <h6>Versiones de la instancia</h6>
@@ -2256,9 +2256,7 @@ export const InstancePanel = ({
     }
 
     if (activeEditorSection === "Mods" && selectedInstance) {
-    
-
-  return (
+      return (
         <div className="instance-editor__table">
           <div className="instance-editor__table-header">
             <span>Estado · Mod · Versión</span>
@@ -2295,9 +2293,7 @@ export const InstancePanel = ({
     }
 
     if (activeEditorSection === "Configuración" && selectedInstance) {
-    
-
-  return (
+      return (
         <div className="instance-config">
           <div className="instance-config__intro">
             <h5>📦 Configuración de instancia</h5>
@@ -2718,9 +2714,7 @@ export const InstancePanel = ({
       );
     }
 
-  
-
-  return (
+    return (
       <div className="instance-editor__placeholder">
         <p>No hay datos disponibles para {activeEditorSection}.</p>
       </div>
@@ -2869,9 +2863,7 @@ export const InstancePanel = ({
 
   const renderCreatorBody = () => {
     if (activeCreatorSection === "Personalizado") {
-    
-
-  return (
+      return (
         <div className="instance-creator__panel">
           <div className="instance-creator__field">
             <label htmlFor="instance-name">Nombre de la instancia</label>
@@ -3062,8 +3054,8 @@ export const InstancePanel = ({
             <div>
               <h5>Centro modular de importación</h5>
               <p>
-                Flujo guiado: detección → validación → modo copia/enlace →
-                adaptación interna → verificación final.
+                Flujo guiado: detección → validación → modo copia/enlace → adaptación
+                interna → verificación final.
               </p>
             </div>
           </div>
@@ -3072,7 +3064,11 @@ export const InstancePanel = ({
               <button
                 key={tab}
                 type="button"
-                className={activeImportTab === tab ? "instance-import__tab instance-import__tab--active" : "instance-import__tab"}
+                className={
+                  activeImportTab === tab
+                    ? "instance-import__tab instance-import__tab--active"
+                    : "instance-import__tab"
+                }
                 onClick={() => setActiveImportTab(tab)}
               >
                 {tab}
@@ -3080,7 +3076,8 @@ export const InstancePanel = ({
             ))}
           </div>
           <div className="instance-import__supported">
-            <strong>Estado del módulo:</strong> {scanStatusText} · {importFlowStates.join(" / ")}
+            <strong>Estado del módulo:</strong> {scanStatusText} ·{" "}
+            {importFlowStates.join(" / ")}
             {scanStats ? <p>{scanStats}</p> : null}
           </div>
 
@@ -3089,18 +3086,39 @@ export const InstancePanel = ({
               <div className="instance-import__header">
                 <h6>Escaneo configurable</h6>
                 <div className="instance-import__actions">
-                  <button type="button" onClick={() => void handleExternalScan("quick")}>Búsqueda rápida</button>
-                  <button type="button" onClick={() => void handleExternalScan("advanced")}>Búsqueda avanzada</button>
-                  <button type="button" onClick={handleCancelScan}>Cancelar</button>
+                  <button type="button" onClick={() => void handleExternalScan("quick")}>
+                    Búsqueda rápida
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExternalScan("advanced")}
+                  >
+                    Búsqueda avanzada
+                  </button>
+                  <button type="button" onClick={handleCancelScan}>
+                    Cancelar
+                  </button>
                 </div>
               </div>
               <div className="instance-import__controls">
                 <label>
                   Profundidad
-                  <input type="number" min={1} max={10} value={scanDepthLimit} onChange={(event) => setScanDepthLimit(Number(event.target.value) || 4)} />
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={scanDepthLimit}
+                    onChange={(event) =>
+                      setScanDepthLimit(Number(event.target.value) || 4)
+                    }
+                  />
                 </label>
                 <label>
-                  <input type="checkbox" checked={scanAllVolumes} onChange={(event) => setScanAllVolumes(event.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={scanAllVolumes}
+                    onChange={(event) => setScanAllVolumes(event.target.checked)}
+                  />
                   Incluir volúmenes montados externos
                 </label>
               </div>
@@ -3111,32 +3129,62 @@ export const InstancePanel = ({
             <div className="instance-import__row">
               <label htmlFor="import-url">Importación por archivo o enlace</label>
               <div className="instance-import__controls">
-                <input id="import-url" type="url" placeholder="https://..." value={importUrl} onChange={(event) => setImportUrl(event.target.value)} />
+                <input
+                  id="import-url"
+                  type="url"
+                  placeholder="https://..."
+                  value={importUrl}
+                  onChange={(event) => setImportUrl(event.target.value)}
+                />
                 <label className="instance-import__file">
-                  <input type="file" accept=".zip,.mrpack" onChange={handleImportFileChange} />
+                  <input
+                    type="file"
+                    accept=".zip,.mrpack"
+                    onChange={handleImportFileChange}
+                  />
                   Navegar
                 </label>
-                <button type="button" onClick={() => void handleImportArchive()}>Importar archivo</button>
+                <button type="button" onClick={() => void handleImportArchive()}>
+                  Importar archivo
+                </button>
               </div>
-              {importFileName ? <span className="instance-import__filename">Archivo: {importFileName}</span> : null}
+              {importFileName ? (
+                <span className="instance-import__filename">
+                  Archivo: {importFileName}
+                </span>
+              ) : null}
             </div>
           ) : null}
 
-          {activeImportTab === "Importar desde launcher detectado" || activeImportTab === "Instancias enlazadas" || activeImportTab === "Escaneo automático" ? (
+          {activeImportTab === "Importar desde launcher detectado" ||
+          activeImportTab === "Instancias enlazadas" ||
+          activeImportTab === "Escaneo automático" ? (
             <div className="instance-import__external">
-              {externalStatus === "loading" ? <p>Escaneando launchers y estructuras válidas...</p> : null}
-              {externalError ? <p className="instance-import__error">{externalError}</p> : null}
+              {externalStatus === "loading" ? (
+                <p>Escaneando launchers y estructuras válidas...</p>
+              ) : null}
+              {externalError ? (
+                <p className="instance-import__error">{externalError}</p>
+              ) : null}
               {externalInstances.length ? (
                 <div className="instance-import__list">
                   {externalInstances.map((instance) => (
                     <div key={instance.signature} className="instance-import__item">
                       <div>
                         <strong>{instance.name}</strong>
-                        <span>{instance.launcher} · {instance.version} · {instance.loaderName} {instance.loaderVersion}</span>
+                        <span>
+                          {instance.launcher} · {instance.version} · {instance.loaderName}{" "}
+                          {instance.loaderVersion}
+                        </span>
                         <span>{instance.details ?? instance.path}</span>
                       </div>
-                      <button type="button" onClick={() => void handleImportDetectedInstance(instance)}>
-                        {activeImportTab === "Instancias enlazadas" ? "Vincular" : "Importar"}
+                      <button
+                        type="button"
+                        onClick={() => void handleImportDetectedInstance(instance)}
+                      >
+                        {activeImportTab === "Instancias enlazadas"
+                          ? "Vincular"
+                          : "Importar"}
                       </button>
                     </div>
                   ))}
@@ -3151,8 +3199,9 @@ export const InstancePanel = ({
             <div className="instance-import__supported">
               <h6>Carpetas personalizadas</h6>
               <p>
-                Añade rutas en Ajustes/raíces externas y vuelve a ejecutar el escaneo.
-                Se validarán estructuras .minecraft, versions, libraries, mods, config y saves.
+                Añade rutas en Ajustes/raíces externas y vuelve a ejecutar el escaneo. Se
+                validarán estructuras .minecraft, versions, libraries, mods, config y
+                saves.
               </p>
             </div>
           ) : null}
@@ -3165,9 +3214,7 @@ export const InstancePanel = ({
       activeCreatorSection === "CurseForge" ||
       activeCreatorSection === "ATLauncher"
     ) {
-    
-
-  return (
+      return (
         <div className="instance-creator__panel">
           <div className="instance-creator__hint">
             {creatorStatus === "loading" && "Cargando modpacks..."}
@@ -3297,9 +3344,6 @@ export const InstancePanel = ({
     setCreatorOpen(false);
   };
 
-
-
-
   const handleQuickLaunch = async (instance: Instance) => {
     if (startupProgressByInstance[instance.id]?.active || instance.isRunning) {
       onSelectInstance(instance.id);
@@ -3385,544 +3429,573 @@ export const InstancePanel = ({
           </button>
         </div>
       </div>
-{!creatorOpen ? (
-      <div
-        className={
-          selectedInstance
-            ? editorOpen
-              ? "instances-layout instances-layout--editor"
-              : "instances-layout"
-            : "instances-layout instances-layout--single"
-        }
-      >
+      {!creatorOpen ? (
         <div
-          className="instances-layout__grid"
-          onClick={onClearSelection}
-          onContextMenu={(event) => handleContextMenu(event, null)}
+          className={
+            selectedInstance
+              ? editorOpen
+                ? "instances-layout instances-layout--editor"
+                : "instances-layout"
+              : "instances-layout instances-layout--single"
+          }
         >
-          {groupedInstances.length === 0 && (
-            <div className="instances-layout__empty">
-              {instanceSearch.trim().length > 0 ? (
-                <>
-                  <p>No hay resultados para "{instanceSearch}".</p>
-                  <span>Prueba con nombre, grupo, versión o loader.</span>
-                </>
-              ) : (
-                <>
-                  <p>No hay instancias creadas todavía.</p>
-                  <span>Usa "Crear instancia" para comenzar.</span>
-                </>
-              )}
-            </div>
-          )}
-          {groupedInstances.map(([groupName, groupInstances]) => (
-            <section key={groupName} className="instance-group">
-              <header className="instance-group__header">
-                <h3>{groupName}</h3>
-                <span>{groupInstances.length} instancias</span>
-              </header>
-              <div className="instance-group__grid">
-                {groupInstances.map((instance) => (
-                  <article
-                    key={instance.id}
-                    className={
-                      selectedInstanceId === instance.id
-                        ? "instance-card instance-card--active"
-                        : "instance-card"
-                    }
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSelectInstance(instance.id);
-                    }}
-                    onContextMenu={(event) => handleContextMenu(event, instance)}
-                    onDoubleClick={() => {
-                      void handleQuickLaunch(instance);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onSelectInstance(instance.id);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <div className="instance-card__cover">
-                      <img
-                        className="instance-card__cover-logo"
-                        src="/tauri.svg"
-                        alt="Logo del launcher"
-                        loading="lazy"
-                      />
-                      <span>{groupName}</span>
-                    </div>
-                    <div className="instance-card__body">
-                      <div>
-                        <h3>{instance.name}</h3>
-                        <p>Minecraft {instance.version}</p>
-                        <p>
-                          {instance.loaderName} {instance.loaderVersion}
-                        </p>
-                        {instance.sourceLauncher ? (
-                          <p className="instance-card__source-tag">
-                            Importada de {instance.sourceLauncher}
-                            {instance.sourceInstanceName ? ` · ${instance.sourceInstanceName}` : ""}
-                          </p>
-                        ) : null}
-                      </div>
-                      <span className="instance-card__status">
-                        {startupProgressByInstance[instance.id]?.active
-                          ? "Inicializando"
-                          : (statusLabels[instance.status] ?? "Estado desconocido")}
-                      </span>
-                      {startupProgressByInstance[instance.id]?.active ? (
-                        <div className="instance-card__startup">
-                          <div className="instance-card__startup-head">
-                            <strong>
-                              {startupProgressByInstance[instance.id].stage}
-                            </strong>
-                            <span>
-                              {Math.max(
-                                0,
-                                Math.min(
-                                  100,
-                                  Math.round(
-                                    startupProgressByInstance[instance.id].progress,
-                                  ),
-                                ),
-                              )}
-                              %
-                            </span>
-                          </div>
-                          <div
-                            className="instance-card__startup-track"
-                            role="progressbar"
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                            aria-valuenow={Math.round(
-                              startupProgressByInstance[instance.id].progress,
-                            )}
-                          >
-                            <div
-                              className="instance-card__startup-fill"
-                              style={{
-                                width: `${Math.max(0, Math.min(100, startupProgressByInstance[instance.id].progress))}%`,
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="instance-card__meta">
-                        <span>{instance.mods} mods</span>
-                        <span>{formatRelativeTime(instance.lastPlayed)}</span>
-                        <span>{formatPlaytime(instance.playtime)}</span>
-                      </div>
-                    </div>
-                  </article>
-                ))}
+          <div
+            className="instances-layout__grid"
+            onClick={onClearSelection}
+            onContextMenu={(event) => handleContextMenu(event, null)}
+          >
+            {groupedInstances.length === 0 && (
+              <div className="instances-layout__empty">
+                {instanceSearch.trim().length > 0 ? (
+                  <>
+                    <p>No hay resultados para "{instanceSearch}".</p>
+                    <span>Prueba con nombre, grupo, versión o loader.</span>
+                  </>
+                ) : (
+                  <>
+                    <p>No hay instancias creadas todavía.</p>
+                    <span>Usa "Crear instancia" para comenzar.</span>
+                  </>
+                )}
               </div>
-            </section>
-          ))}
-        </div>
-        {selectedInstance && !editorOpen && (
-          <aside className="instance-menu" onClick={(event) => event.stopPropagation()}>
-            <>
-              <div className="instance-menu__header">
-                <div className="instance-menu__image" aria-hidden="true">
-                  <img src="/tauri.svg" alt="Logo del launcher" loading="lazy" />
-                </div>
-                <div>
-                  <span className="instance-menu__launcher">{selectedInstance.sourceLauncher ? `Importada · ${selectedInstance.sourceLauncher}` : "Interface"}</span>
-                  <h3>{selectedInstance.name}</h3>
-                  <p>Minecraft {selectedInstance.version}</p>
-                  <span className="instance-menu__playtime">
-                    Tiempo total: {formatPlaytime(selectedInstance.playtime)}
-                  </span>
-                </div>
-              </div>
-              <div className="instance-menu__scroll">
-                <div className="instance-menu__section">
-                  <p className="instance-menu__health">
-                    {instanceHealth.icon} {instanceHealth.label}
-                  </p>
-                  {selectedLaunchStatus ? (
-                    <p className="instance-menu__launch-status">{selectedLaunchStatus}</p>
-                  ) : null}
-
-                  <div className="instance-menu__repair-split">
-                    <button
-                      type="button"
-                      className="instance-menu__primary-action"
-                      onClick={() => void primaryAction.action()}
-                      disabled={primaryAction.disabled}
-                    >
-                      {primaryAction.label}
-                    </button>
-                    <button
-                      type="button"
-                      className="instance-menu__primary-action instance-menu__primary-action--mini"
-                      onClick={() => setRepairQuickOpen((prev) => !prev)}
-                      disabled={!selectedInstanceHasValidId}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                  {repairQuickOpen ? (
-                    <div className="instance-menu__repair-quick">
-                      <button type="button" onClick={() => void runRepairFlow("inteligente")}>Reparación rápida</button>
-                      <button type="button" onClick={() => void runRepairFlow("completa")}>Reparación profunda</button>
-                      <button type="button" onClick={() => void runRepairFlow("reinstalar_loader")}>Reinstalar loader</button>
-                      <button type="button" onClick={() => void runRepairFlow("reparar_y_optimizar")}>Limpiar caché + optimizar</button>
-                    </div>
-                  ) : null}
-
-                  <div className="instance-menu__section-title">Uso diario</div>
-                  <div className="instance-menu__actions instance-menu__actions--grid">
-                    {quickActions.frequent.map((action) => (
-                      <button
-                        key={action.id}
-                        type="button"
-                        onClick={() => void action.action()}
-                        className="instance-menu__action-btn"
-                      >
-                        <span>{action.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="instance-menu__section-title">Gestión</div>
-                  <div className="instance-menu__actions instance-menu__actions--grid">
-                    {quickActions.management.map((action) => (
-                      <button
-                        key={action.id}
-                        type="button"
-                        onClick={() => void action.action()}
-                        className="instance-menu__action-btn"
-                      >
-                        <span>{action.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <hr className="instance-menu__danger-separator" />
-                  <button
-                    type="button"
-                    className="instance-menu__danger"
-                    onClick={() => setDeleteConfirmId(selectedInstance.id)}
-                  >
-                    Eliminar instancia
-                  </button>
-                </div>
-              </div>
-            </>
-          </aside>
-        )}
-        {repairModalOpen && selectedInstance ? (
-          <section className="instance-workspace-page instance-workspace-page--repair">
-            <section className="instance-repair-modal">
-              <h3>Reparar Instancia</h3>
-              <p>Selecciona el modo de reparación:</p>
-              <div className="instance-repair-modal__modes">
-                {[
-                  ["inteligente", "Reparación Inteligente (Recomendado)"],
-                  ["completa", "Reparación Completa (Forzar todo)"],
-                  ["solo_verificar", "Solo verificar"],
-                  ["solo_mods", "Reparar solo Mods"],
-                  ["reinstalar_loader", "Reinstalar Loader"],
-                  ["reparar_y_optimizar", "🛡 Reparar y Optimizar"],
-                ].map(([value, label]) => (
-                  <label key={value}>
-                    <input
-                      type="radio"
-                      name="repairMode"
-                      checked={repairMode === value}
-                      onChange={() => setRepairMode(value as RepairMode)}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-              <div className="instance-repair-modal__actions">
-                <button type="button" onClick={() => setRepairModalOpen(false)}>
-                  Cancelar
-                </button>
-                <button type="button" onClick={() => void runRepairFlow(repairMode)}>
-                  Ejecutar reparación
-                </button>
-              </div>
-            </section>
-          </section>
-        ) : null}
-        {selectedInstance && editorOpen && (
-          <div className="instance-editor__backdrop" onClick={closeEditor}>
-            <section
-              className="instance-editor-panel"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header className="instance-editor__header">
-                <div>
-                  <h3>Editar {selectedInstance.name}</h3>
-                  <p>Minecraft {selectedInstance.version}</p>
-                </div>
-                <button
-                  type="button"
-                  className="instance-button instance-button--ghost"
-                  onClick={closeEditor}
-                >
-                  Volver
-                </button>
-              </header>
-              <div className="instance-editor__body">
-                <aside className="instance-editor__sidebar">
-                  {editorSections.map((section) => (
-                    <button
-                      key={section}
-                      type="button"
-                      onClick={() => setActiveEditorSection(section)}
+            )}
+            {groupedInstances.map(([groupName, groupInstances]) => (
+              <section key={groupName} className="instance-group">
+                <header className="instance-group__header">
+                  <h3>{groupName}</h3>
+                  <span>{groupInstances.length} instancias</span>
+                </header>
+                <div className="instance-group__grid">
+                  {groupInstances.map((instance) => (
+                    <article
+                      key={instance.id}
                       className={
-                        activeEditorSection === section
-                          ? "instance-editor__tab instance-editor__tab--active"
-                          : "instance-editor__tab"
+                        selectedInstanceId === instance.id
+                          ? "instance-card instance-card--active"
+                          : "instance-card"
                       }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelectInstance(instance.id);
+                      }}
+                      onContextMenu={(event) => handleContextMenu(event, instance)}
+                      onDoubleClick={() => {
+                        void handleQuickLaunch(instance);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onSelectInstance(instance.id);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                     >
-                      {section}
-                    </button>
-                  ))}
-                </aside>
-                <div className="instance-editor__content">
-                  <div className="instance-editor__heading">
-                    <div>
-                      <h4>{activeEditorSection}</h4>
-                      <p>Gestiona esta sección con herramientas avanzadas.</p>
-                    </div>
-                    <input type="search" placeholder="Buscar en la sección..." />
-                  </div>
-                  <div className="instance-editor__workspace">
-                    <div className="instance-editor__panel">{renderEditorBody()}</div>
-                    <aside className="instance-editor__rail">
-                      {activeEditorSection === "Mods" ? (
-                        <>
-                          <h5>Opciones de mods</h5>
-                          <div className="instance-editor__mods-menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setModDownloadTarget("Mods");
-                                setCatalogType("Mods");
-                                setModDownloadOpen(true);
-                              }}
+                      <div className="instance-card__cover">
+                        <img
+                          className="instance-card__cover-logo"
+                          src="/tauri.svg"
+                          alt="Logo del launcher"
+                          loading="lazy"
+                        />
+                        <span>{groupName}</span>
+                      </div>
+                      <div className="instance-card__body">
+                        <div>
+                          <h3>{instance.name}</h3>
+                          <p>Minecraft {instance.version}</p>
+                          <p>
+                            {instance.loaderName} {instance.loaderVersion}
+                          </p>
+                          {instance.sourceLauncher ? (
+                            <p className="instance-card__source-tag">
+                              Importada de {instance.sourceLauncher}
+                              {instance.sourceInstanceName
+                                ? ` · ${instance.sourceInstanceName}`
+                                : ""}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className="instance-card__status">
+                          {startupProgressByInstance[instance.id]?.active
+                            ? "Inicializando"
+                            : (statusLabels[instance.status] ?? "Estado desconocido")}
+                        </span>
+                        {startupProgressByInstance[instance.id]?.active ? (
+                          <div className="instance-card__startup">
+                            <div className="instance-card__startup-head">
+                              <strong>
+                                {startupProgressByInstance[instance.id].stage}
+                              </strong>
+                              <span>
+                                {Math.max(
+                                  0,
+                                  Math.min(
+                                    100,
+                                    Math.round(
+                                      startupProgressByInstance[instance.id].progress,
+                                    ),
+                                  ),
+                                )}
+                                %
+                              </span>
+                            </div>
+                            <div
+                              className="instance-card__startup-track"
+                              role="progressbar"
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={Math.round(
+                                startupProgressByInstance[instance.id].progress,
+                              )}
                             >
-                              Descargar mods
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                window.alert(
-                                  "Buscando actualizaciones para todos los mods instalados...",
-                                )
-                              }
-                            >
-                              Buscar actualizaciones
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!selectedInstalledMod}
-                              onClick={() =>
-                                window.alert(
-                                  "Selecciona versión del mod en su proveedor.",
-                                )
-                              }
-                            >
-                              Cambiar versión
-                            </button>
-                            <label className="instance-editor__import-btn">
-                              Añadir archivo
-                              <input
-                                type="file"
-                                accept=".jar"
-                                style={{ display: "none" }}
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0];
-                                  if (!file || !selectedInstance) return;
-                                  setInstalledModsByInstance((prev) => ({
-                                    ...prev,
-                                    [selectedInstance.id]: [
-                                      ...(prev[selectedInstance.id] ?? []),
-                                      {
-                                        id: `${selectedInstance.id}-${Date.now()}`,
-                                        name: file.name.replace(/\.jar$/i, ""),
-                                        version: "Archivo local",
-                                        enabled: true,
-                                        source: "local",
-                                      },
-                                    ],
-                                  }));
+                              <div
+                                className="instance-card__startup-fill"
+                                style={{
+                                  width: `${Math.max(0, Math.min(100, startupProgressByInstance[instance.id].progress))}%`,
                                 }}
                               />
-                            </label>
-                            <button
-                              type="button"
-                              disabled={!selectedInstalledMod}
-                              onClick={() => {
-                                if (!selectedInstance || !selectedInstalledMod) return;
-                                setInstalledModsByInstance((prev) => ({
-                                  ...prev,
-                                  [selectedInstance.id]: (
-                                    prev[selectedInstance.id] ?? []
-                                  ).filter((mod) => mod.id !== selectedInstalledMod.id),
-                                }));
-                                setSelectedModId(null);
-                              }}
-                            >
-                              Remover
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!selectedInstalledMod}
-                              onClick={() => {
-                                if (!selectedInstance || !selectedInstalledMod) return;
-                                setInstalledModsByInstance((prev) => ({
-                                  ...prev,
-                                  [selectedInstance.id]: (
-                                    prev[selectedInstance.id] ?? []
-                                  ).map((mod) =>
-                                    mod.id === selectedInstalledMod.id
-                                      ? { ...mod, enabled: !mod.enabled }
-                                      : mod,
-                                  ),
-                                }));
-                              }}
-                            >
-                              Activar / desactivar
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!selectedInstalledMod}
-                              onClick={() =>
-                                window.alert(
-                                  `Información de ${selectedInstalledMod?.name ?? "mod"}`,
-                                )
-                              }
-                            >
-                              Ver página de inicio
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void openInstanceSubPath(
-                                  "minecraft/mods",
-                                  "la carpeta de mods",
-                                );
-                              }}
-                            >
-                              Ver carpeta
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void openInstanceSubPath(
-                                  "minecraft/config",
-                                  "la carpeta de configuración",
-                                );
-                              }}
-                            >
-                              Ver configuraciones
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const rows = installedMods.map(
-                                  (mod) =>
-                                    `${mod.name},${mod.version},${mod.enabled ? "activo" : "desactivado"},${mod.source}`,
-                                );
-                                const csv = `nombre,version,estado,origen
-${rows.join("\n")}`;
-                                const blob = new Blob([csv], {
-                                  type: "text/csv;charset=utf-8;",
-                                });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement("a");
-                                a.href = url;
-                                a.download = `${selectedInstance?.name ?? "instancia"}-mods.csv`;
-                                a.click();
-                                URL.revokeObjectURL(url);
-                              }}
-                            >
-                              Exportar lista
-                            </button>
+                            </div>
                           </div>
-                        </>
-                      ) : activeEditorSection === "Shader Packs" ? (
-                        <>
-                          <h5>Opciones de shaders</h5>
-                          <div className="instance-editor__mods-menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setModDownloadTarget("Shaders");
-                                setCatalogType("Shaders");
-                                setModDownloadOpen(true);
-                              }}
-                            >
-                              Descargar shaders
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void openInstanceSubPath(
-                                  "minecraft/shaderpacks",
-                                  "la carpeta shaderpacks",
-                                );
-                              }}
-                            >
-                              Ver carpeta
-                            </button>
-                          </div>
-                        </>
-                      ) : activeEditorSection === "Resource Packs" ? (
-                        <>
-                          <h5>Opciones de resource packs</h5>
-                          <div className="instance-editor__mods-menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setModDownloadTarget("Resource Packs");
-                                setCatalogType("Resource Packs");
-                                setModDownloadOpen(true);
-                              }}
-                            >
-                              Descargar resource packs
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void openInstanceSubPath(
-                                  "minecraft/resourcepacks",
-                                  "la carpeta resourcepacks",
-                                );
-                              }}
-                            >
-                              Ver carpeta
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <h5>Información</h5>
-                          <p className="instance-editor__status-note">
-                            Selecciona la sección <strong>Mods</strong>,{" "}
-                            <strong>Shader Packs</strong> o{" "}
-                            <strong>Resource Packs</strong> para gestionar descargas.
-                          </p>
-                        </>
-                      )}
-                    </aside>
+                        ) : null}
+                        <div className="instance-card__meta">
+                          <span>{instance.mods} mods</span>
+                          <span>{formatRelativeTime(instance.lastPlayed)}</span>
+                          <span>{formatPlaytime(instance.playtime)}</span>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+          {selectedInstance && !editorOpen && (
+            <aside className="instance-menu" onClick={(event) => event.stopPropagation()}>
+              <>
+                <div className="instance-menu__header">
+                  <div className="instance-menu__image" aria-hidden="true">
+                    <img src="/tauri.svg" alt="Logo del launcher" loading="lazy" />
+                  </div>
+                  <div>
+                    <span className="instance-menu__launcher">
+                      {selectedInstance.sourceLauncher
+                        ? `Importada · ${selectedInstance.sourceLauncher}`
+                        : "Interface"}
+                    </span>
+                    <h3>{selectedInstance.name}</h3>
+                    <p>Minecraft {selectedInstance.version}</p>
+                    <span className="instance-menu__playtime">
+                      Tiempo total: {formatPlaytime(selectedInstance.playtime)}
+                    </span>
                   </div>
                 </div>
-              </div>
+                <div className="instance-menu__scroll">
+                  <div className="instance-menu__section">
+                    <p className="instance-menu__health">
+                      {instanceHealth.icon} {instanceHealth.label}
+                    </p>
+                    {selectedLaunchStatus ? (
+                      <p className="instance-menu__launch-status">
+                        {selectedLaunchStatus}
+                      </p>
+                    ) : null}
+
+                    <div className="instance-menu__repair-split">
+                      <button
+                        type="button"
+                        className="instance-menu__primary-action instance-menu__primary-action--match-edit"
+                        onClick={() => void primaryAction.action()}
+                        disabled={primaryAction.disabled}
+                      >
+                        {primaryAction.label}
+                      </button>
+                      <button
+                        type="button"
+                        className="instance-menu__primary-action instance-menu__primary-action--mini"
+                        onClick={() => setRepairQuickOpen((prev) => !prev)}
+                        disabled={!selectedInstanceHasValidId}
+                      >
+                        ▼
+                      </button>
+                    </div>
+                    {repairQuickOpen ? (
+                      <div className="instance-menu__repair-quick">
+                        <button
+                          type="button"
+                          onClick={() => void runRepairFlow("inteligente")}
+                        >
+                          Reparación rápida
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void runRepairFlow("completa")}
+                        >
+                          Reparación profunda
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void runRepairFlow("reinstalar_loader")}
+                        >
+                          Reinstalar loader
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void runRepairFlow("reparar_y_optimizar")}
+                        >
+                          Limpiar caché + optimizar
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div className="instance-menu__section-title">Uso diario</div>
+                    <div className="instance-menu__actions instance-menu__actions--grid">
+                      {quickActions.frequent.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          onClick={() => void action.action()}
+                          className="instance-menu__action-btn"
+                        >
+                          <span>{action.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="instance-menu__section-title">Gestión</div>
+                    <div className="instance-menu__actions instance-menu__actions--grid">
+                      {quickActions.management.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          onClick={() => void action.action()}
+                          className="instance-menu__action-btn"
+                        >
+                          <span>{action.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <hr className="instance-menu__danger-separator" />
+                    <button
+                      type="button"
+                      className="instance-menu__danger"
+                      onClick={() => setDeleteConfirmId(selectedInstance.id)}
+                    >
+                      Eliminar instancia
+                    </button>
+                  </div>
+                </div>
+              </>
+            </aside>
+          )}
+          {repairModalOpen && selectedInstance ? (
+            <section className="instance-workspace-page instance-workspace-page--repair">
+              <section className="instance-repair-modal">
+                <h3>Reparar Instancia</h3>
+                <p>Selecciona el modo de reparación:</p>
+                <div className="instance-repair-modal__modes">
+                  {[
+                    ["inteligente", "Reparación Inteligente (Recomendado)"],
+                    ["completa", "Reparación Completa (Forzar todo)"],
+                    ["solo_verificar", "Solo verificar"],
+                    ["solo_mods", "Reparar solo Mods"],
+                    ["reinstalar_loader", "Reinstalar Loader"],
+                    ["reparar_y_optimizar", "🛡 Reparar y Optimizar"],
+                  ].map(([value, label]) => (
+                    <label key={value}>
+                      <input
+                        type="radio"
+                        name="repairMode"
+                        checked={repairMode === value}
+                        onChange={() => setRepairMode(value as RepairMode)}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <div className="instance-repair-modal__actions">
+                  <button type="button" onClick={() => setRepairModalOpen(false)}>
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={() => void runRepairFlow(repairMode)}>
+                    Ejecutar reparación
+                  </button>
+                </div>
+              </section>
             </section>
-          </div>
-        )}      </div>
+          ) : null}
+          {selectedInstance && editorOpen && (
+            <div className="instance-editor__backdrop" onClick={closeEditor}>
+              <section
+                className="instance-editor-panel"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <header className="instance-editor__header">
+                  <div>
+                    <h3>Editar {selectedInstance.name}</h3>
+                    <p>Minecraft {selectedInstance.version}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="instance-button instance-button--ghost"
+                    onClick={closeEditor}
+                  >
+                    Volver
+                  </button>
+                </header>
+                <div className="instance-editor__body">
+                  <aside className="instance-editor__sidebar">
+                    {editorSections.map((section) => (
+                      <button
+                        key={section}
+                        type="button"
+                        onClick={() => setActiveEditorSection(section)}
+                        className={
+                          activeEditorSection === section
+                            ? "instance-editor__tab instance-editor__tab--active"
+                            : "instance-editor__tab"
+                        }
+                      >
+                        {section}
+                      </button>
+                    ))}
+                  </aside>
+                  <div className="instance-editor__content">
+                    <div className="instance-editor__heading">
+                      <div>
+                        <h4>{activeEditorSection}</h4>
+                        <p>Gestiona esta sección con herramientas avanzadas.</p>
+                      </div>
+                      <input type="search" placeholder="Buscar en la sección..." />
+                    </div>
+                    <div className="instance-editor__workspace">
+                      <div className="instance-editor__panel">{renderEditorBody()}</div>
+                      <aside className="instance-editor__rail">
+                        {activeEditorSection === "Mods" ? (
+                          <>
+                            <h5>Opciones de mods</h5>
+                            <div className="instance-editor__mods-menu">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModDownloadTarget("Mods");
+                                  setCatalogType("Mods");
+                                  setModDownloadOpen(true);
+                                }}
+                              >
+                                Descargar mods
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  window.alert(
+                                    "Buscando actualizaciones para todos los mods instalados...",
+                                  )
+                                }
+                              >
+                                Buscar actualizaciones
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!selectedInstalledMod}
+                                onClick={() =>
+                                  window.alert(
+                                    "Selecciona versión del mod en su proveedor.",
+                                  )
+                                }
+                              >
+                                Cambiar versión
+                              </button>
+                              <label className="instance-editor__import-btn">
+                                Añadir archivo
+                                <input
+                                  type="file"
+                                  accept=".jar"
+                                  style={{ display: "none" }}
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (!file || !selectedInstance) return;
+                                    setInstalledModsByInstance((prev) => ({
+                                      ...prev,
+                                      [selectedInstance.id]: [
+                                        ...(prev[selectedInstance.id] ?? []),
+                                        {
+                                          id: `${selectedInstance.id}-${Date.now()}`,
+                                          name: file.name.replace(/\.jar$/i, ""),
+                                          version: "Archivo local",
+                                          enabled: true,
+                                          source: "local",
+                                        },
+                                      ],
+                                    }));
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                disabled={!selectedInstalledMod}
+                                onClick={() => {
+                                  if (!selectedInstance || !selectedInstalledMod) return;
+                                  setInstalledModsByInstance((prev) => ({
+                                    ...prev,
+                                    [selectedInstance.id]: (
+                                      prev[selectedInstance.id] ?? []
+                                    ).filter((mod) => mod.id !== selectedInstalledMod.id),
+                                  }));
+                                  setSelectedModId(null);
+                                }}
+                              >
+                                Remover
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!selectedInstalledMod}
+                                onClick={() => {
+                                  if (!selectedInstance || !selectedInstalledMod) return;
+                                  setInstalledModsByInstance((prev) => ({
+                                    ...prev,
+                                    [selectedInstance.id]: (
+                                      prev[selectedInstance.id] ?? []
+                                    ).map((mod) =>
+                                      mod.id === selectedInstalledMod.id
+                                        ? { ...mod, enabled: !mod.enabled }
+                                        : mod,
+                                    ),
+                                  }));
+                                }}
+                              >
+                                Activar / desactivar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!selectedInstalledMod}
+                                onClick={() =>
+                                  window.alert(
+                                    `Información de ${selectedInstalledMod?.name ?? "mod"}`,
+                                  )
+                                }
+                              >
+                                Ver página de inicio
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void openInstanceSubPath(
+                                    "minecraft/mods",
+                                    "la carpeta de mods",
+                                  );
+                                }}
+                              >
+                                Ver carpeta
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void openInstanceSubPath(
+                                    "minecraft/config",
+                                    "la carpeta de configuración",
+                                  );
+                                }}
+                              >
+                                Ver configuraciones
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const rows = installedMods.map(
+                                    (mod) =>
+                                      `${mod.name},${mod.version},${mod.enabled ? "activo" : "desactivado"},${mod.source}`,
+                                  );
+                                  const csv = `nombre,version,estado,origen
+${rows.join("\n")}`;
+                                  const blob = new Blob([csv], {
+                                    type: "text/csv;charset=utf-8;",
+                                  });
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  a.download = `${selectedInstance?.name ?? "instancia"}-mods.csv`;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
+                                }}
+                              >
+                                Exportar lista
+                              </button>
+                            </div>
+                          </>
+                        ) : activeEditorSection === "Shader Packs" ? (
+                          <>
+                            <h5>Opciones de shaders</h5>
+                            <div className="instance-editor__mods-menu">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModDownloadTarget("Shaders");
+                                  setCatalogType("Shaders");
+                                  setModDownloadOpen(true);
+                                }}
+                              >
+                                Descargar shaders
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void openInstanceSubPath(
+                                    "minecraft/shaderpacks",
+                                    "la carpeta shaderpacks",
+                                  );
+                                }}
+                              >
+                                Ver carpeta
+                              </button>
+                            </div>
+                          </>
+                        ) : activeEditorSection === "Resource Packs" ? (
+                          <>
+                            <h5>Opciones de resource packs</h5>
+                            <div className="instance-editor__mods-menu">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModDownloadTarget("Resource Packs");
+                                  setCatalogType("Resource Packs");
+                                  setModDownloadOpen(true);
+                                }}
+                              >
+                                Descargar resource packs
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void openInstanceSubPath(
+                                    "minecraft/resourcepacks",
+                                    "la carpeta resourcepacks",
+                                  );
+                                }}
+                              >
+                                Ver carpeta
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <h5>Información</h5>
+                            <p className="instance-editor__status-note">
+                              Selecciona la sección <strong>Mods</strong>,{" "}
+                              <strong>Shader Packs</strong> o{" "}
+                              <strong>Resource Packs</strong> para gestionar descargas.
+                            </p>
+                          </>
+                        )}
+                      </aside>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}{" "}
+        </div>
       ) : null}
 
       {contextMenu && (
@@ -4036,7 +4109,7 @@ ${rows.join("\n")}`;
 
       {launchChecklistOpen ? (
         <section className="instance-workspace-page instance-workspace-page--checklist">
-          <article className="product-dialog product-dialog--install product-dialog--checklist">
+          <article className="product-dialog product-dialog--install product-dialog--checklist product-dialog--checklist-page">
             <header>
               <h3>Checklist de inicio de instancia</h3>
               <div className="product-dialog__checklist-actions">
@@ -4079,7 +4152,8 @@ ${rows.join("\n")}`;
               <div className="product-dialog__checklist-intro">
                 <p>
                   Verificando punto por punto antes de abrir Minecraft. La validación
-                  revisa runtime, assets, librerías y configuración de inicio. Si tarda más de lo esperado puedes seguir esperando o cancelar manualmente.
+                  revisa runtime, assets, librerías y configuración de inicio. Si tarda
+                  más de lo esperado puedes seguir esperando o cancelar manualmente.
                 </p>
                 <span
                   className={`product-dialog__checklist-badge ${
@@ -4143,9 +4217,14 @@ ${rows.join("\n")}`;
                       {startupProgressByInstance[activeChecklistInstanceId].details}
                     </small>
                   ) : null}
-                  {formatEta(startupProgressByInstance[activeChecklistInstanceId].etaSeconds) ? (
+                  {formatEta(
+                    startupProgressByInstance[activeChecklistInstanceId].etaSeconds,
+                  ) ? (
                     <small>
-                      Tiempo estimado restante: {formatEta(startupProgressByInstance[activeChecklistInstanceId].etaSeconds)}
+                      Tiempo estimado restante:{" "}
+                      {formatEta(
+                        startupProgressByInstance[activeChecklistInstanceId].etaSeconds,
+                      )}
                     </small>
                   ) : null}
                 </div>
@@ -4214,7 +4293,10 @@ ${rows.join("\n")}`;
 
                 <section className="product-dialog__checklist-panel">
                   <h4>Debug backend (tiempo real)</h4>
-                  <p className="product-dialog__checklist-empty">Incluye estado crudo, comando de Java y rutas de logs para soporte técnico.</p>
+                  <p className="product-dialog__checklist-empty">
+                    Incluye estado crudo, comando de Java y rutas de logs para soporte
+                    técnico.
+                  </p>
                   {launchChecklistDebugState ? (
                     <div className="instance-import__log" aria-live="polite">
                       <p>
@@ -4267,9 +4349,13 @@ ${rows.join("\n")}`;
             </header>
             <div className="product-dialog__install-body">
               <p>
-                Flujo compatible con {selectedInstance.loaderName} · Minecraft {selectedInstance.version}.
+                Flujo compatible con {selectedInstance.loaderName} · Minecraft{" "}
+                {selectedInstance.version}.
               </p>
-              <div className="instance-download__pipeline" aria-label="Pipeline de instalación">
+              <div
+                className="instance-download__pipeline"
+                aria-label="Pipeline de instalación"
+              >
                 {[
                   ["downloading", "Descargando"],
                   ["validating", "Validando"],
@@ -4278,17 +4364,34 @@ ${rows.join("\n")}`;
                 ].map(([stage, label]) => (
                   <span
                     key={stage}
-                    className={modInstallStage === stage ? "is-active" : modInstallStage === "completed" ? "is-done" : ""}
+                    className={
+                      modInstallStage === stage
+                        ? "is-active"
+                        : modInstallStage === "completed"
+                          ? "is-done"
+                          : ""
+                    }
                   >
                     {label}
                   </span>
                 ))}
               </div>
               <div className="instance-download__metrics">
-                <p><strong>Progreso global:</strong> {installProgress}% ({modInstallCurrent}/{modInstallTotal || selectedCatalogMods.length || 0})</p>
-                <p><strong>Velocidad:</strong> {installRate} mods/s</p>
-                <p><strong>Tamaño estimado:</strong> {(selectedTotalSizeBytes / (1024 * 1024)).toFixed(2)} MB</p>
-                <p><strong>Dependencias detectadas:</strong> {detectedDependencyCount}</p>
+                <p>
+                  <strong>Progreso global:</strong> {installProgress}% (
+                  {modInstallCurrent}/{modInstallTotal || selectedCatalogMods.length || 0}
+                  )
+                </p>
+                <p>
+                  <strong>Velocidad:</strong> {installRate} mods/s
+                </p>
+                <p>
+                  <strong>Tamaño estimado:</strong>{" "}
+                  {(selectedTotalSizeBytes / (1024 * 1024)).toFixed(2)} MB
+                </p>
+                <p>
+                  <strong>Dependencias detectadas:</strong> {detectedDependencyCount}
+                </p>
               </div>
               <div className="instance-catalog__filters">
                 <select
@@ -4329,9 +4432,8 @@ ${rows.join("\n")}`;
                   const alreadySelected = selectedCatalogMods.some(
                     (item) => item.id === mod.id && item.provider === mod.provider,
                   );
-                
 
-  return (
+                  return (
                     <div
                       key={`${mod.provider}-${mod.id}`}
                       className="instance-editor__table-row"
@@ -4421,7 +4523,9 @@ ${rows.join("\n")}`;
         <section className="instance-creator instance-creator--inline">
           <header className="instance-creator__header">
             <div>
-              <p className="instance-creator__breadcrumb">Mis modpacks / Crear instancia</p>
+              <p className="instance-creator__breadcrumb">
+                Mis modpacks / Crear instancia
+              </p>
               <h3>Nueva instancia</h3>
               <p>Elige el origen y configura tu perfil.</p>
             </div>
