@@ -8,19 +8,11 @@ pub(crate) struct LoaderCompatibilityRoute {
     pub(crate) jar_published: bool,
 }
 
-pub(crate) const MINECRAFT_MANIFEST_URLS: [&str; 2] = [
-    "https://launchermeta.mojang.com/mc/game/version_manifest.json",
-    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
-];
+pub(crate) const MINECRAFT_MANIFEST_URLS: [&str; 1] =
+    ["https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"];
 
 pub(crate) fn version_metadata_urls(primary_url: &str) -> Vec<String> {
-    let mut urls = vec![primary_url.to_string()];
-    if primary_url.contains("piston-meta.mojang.com") {
-        urls.push(primary_url.replace("piston-meta.mojang.com", "launchermeta.mojang.com"));
-    } else if primary_url.contains("launchermeta.mojang.com") {
-        urls.push(primary_url.replace("launchermeta.mojang.com", "piston-meta.mojang.com"));
-    }
-    dedupe(urls)
+    dedupe(vec![primary_url.to_string()])
 }
 
 pub(crate) fn asset_index_urls(primary_url: &str) -> Vec<String> {
@@ -65,9 +57,10 @@ pub(crate) fn forge_promotions_urls() -> Vec<String> {
 pub(crate) fn forge_like_metadata_urls(loader: &str) -> Vec<String> {
     if loader == "neoforge" {
         return vec![
+            "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge"
+                .to_string(),
             "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
                 .to_string(),
-            "https://maven.neoforged.net/net/neoforged/neoforge/maven-metadata.xml".to_string(),
         ];
     }
 
@@ -84,9 +77,6 @@ pub(crate) fn forge_like_installer_urls(loader: &str, resolved_version: &str) ->
     if loader == "neoforge" {
         urls.push(format!(
             "https://maven.neoforged.net/releases/net/neoforged/neoforge/{resolved_version}/neoforge-{resolved_version}-installer.jar"
-        ));
-        urls.push(format!(
-            "https://maven.neoforged.net/net/neoforged/neoforge/{resolved_version}/neoforge-{resolved_version}-installer.jar"
         ));
         return urls;
     }
@@ -113,7 +103,7 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
 
         if rest.contains("/org/apache/") {
             prioritized.insert(0, format!("https://repo1.maven.org/maven2{rest}"));
-        } else if rest.starts_with("/net/neoforged/") {
+        } else if rest.starts_with("/net/neoforged/") || rest.starts_with("/cpw/mods/") {
             prioritized.insert(0, format!("https://maven.neoforged.net/releases{rest}"));
         } else if rest.starts_with("/net/minecraftforge/") {
             prioritized.insert(0, format!("https://maven.minecraftforge.net{rest}"));
@@ -141,10 +131,6 @@ pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
         (
             "https://maven.quiltmc.org/repository/release",
             ["https://maven.quiltmc.org/repository/release", ""],
-        ),
-        (
-            "https://maven.neoforged.net/releases",
-            ["https://maven.neoforged.net/net", ""],
         ),
     ];
 
@@ -182,6 +168,20 @@ mod tests {
             value
                 == "https://libraries.minecraft.net/net/neoforged/neoforge/21.1.0/neoforge-21.1.0.jar"
         }));
+    }
+
+    #[test]
+    fn cpw_mods_library_url_prioritizes_neoforge_maven() {
+        let urls = mirror_candidates_for_url(
+            "https://libraries.minecraft.net/cpw/mods/bootstraplauncher/2.0.2/bootstraplauncher-2.0.2.jar",
+        );
+
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some(
+                "https://maven.neoforged.net/releases/cpw/mods/bootstraplauncher/2.0.2/bootstraplauncher-2.0.2.jar",
+            )
+        );
     }
 
     #[test]
@@ -238,7 +238,7 @@ pub(crate) fn loader_compatibility_routes() -> Vec<LoaderCompatibilityRoute> {
             loader: "neoforge",
             minecraft_prefix: "1.20",
             metadata_endpoint:
-                "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+                "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge",
             jar_published: true,
         },
     ]

@@ -96,8 +96,43 @@ fn normalize_extension(raw: &str) -> String {
     }
 }
 
+fn official_repository_for_group(group: &str) -> Option<&'static str> {
+    if group == "com.mojang" || group.starts_with("com.mojang.") {
+        return Some("https://libraries.minecraft.net");
+    }
+    if group == "net.fabricmc" || group.starts_with("net.fabricmc.") {
+        return Some("https://maven.fabricmc.net");
+    }
+    if group == "org.quiltmc" || group.starts_with("org.quiltmc.") {
+        return Some("https://maven.quiltmc.org/repository/release");
+    }
+    if group == "net.minecraftforge" || group.starts_with("net.minecraftforge.") {
+        return Some("https://maven.minecraftforge.net");
+    }
+    if group == "net.neoforged"
+        || group.starts_with("net.neoforged.")
+        || group == "cpw.mods"
+        || group.starts_with("cpw.mods.")
+    {
+        return Some("https://maven.neoforged.net/releases");
+    }
+
+    None
+}
+
 pub fn repositories_for_library(library: &Value, declared: &[String]) -> Vec<String> {
     let mut repos = declared.to_vec();
+
+    if let Some(name) = library.get("name").and_then(Value::as_str) {
+        if let Some(group) = name.split(':').next() {
+            if let Some(official) = official_repository_for_group(group) {
+                let official = official.to_string();
+                repos.retain(|repo| repo != &official);
+                repos.insert(0, official);
+            }
+        }
+    }
+
     if let Some(url) = library.get("url").and_then(Value::as_str) {
         let normalized = url.trim().trim_end_matches('/').to_string();
         if !normalized.is_empty() && !repos.contains(&normalized) {
