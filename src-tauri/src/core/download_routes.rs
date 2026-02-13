@@ -103,19 +103,31 @@ pub(crate) fn forge_like_installer_urls(loader: &str, resolved_version: &str) ->
 pub(crate) fn mirror_candidates_for_url(url: &str) -> Vec<String> {
     let mut urls = vec![url.to_string()];
     if let Some(rest) = url.strip_prefix("https://libraries.minecraft.net") {
-        if rest.starts_with("/net/neoforged/") {
-            urls.insert(
-                0,
-                format!("https://maven.neoforged.net/releases{rest}"),
-            );
+        let mut prioritized = vec![
+            format!("https://libraries.minecraft.net{rest}"),
+            format!("https://maven.neoforged.net/releases{rest}"),
+            format!("https://maven.minecraftforge.net{rest}"),
+            format!("https://repo1.maven.org/maven2{rest}"),
+            format!("https://bmclapi2.bangbang93.com/maven{rest}"),
+        ];
+
+        if rest.contains("/org/apache/") {
+            prioritized.insert(0, format!("https://repo1.maven.org/maven2{rest}"));
+        } else if rest.starts_with("/net/neoforged/") {
+            prioritized.insert(0, format!("https://maven.neoforged.net/releases{rest}"));
+        } else if rest.starts_with("/net/minecraftforge/") {
+            prioritized.insert(0, format!("https://maven.minecraftforge.net{rest}"));
         }
+
+        urls = prioritized;
     }
+
     let mirrors = [
         (
             "https://libraries.minecraft.net",
             [
                 "https://bmclapi2.bangbang93.com/maven",
-                "https://download.mcbbs.net/maven",
+                "https://repo1.maven.org/maven2",
             ],
         ),
         (
@@ -169,6 +181,24 @@ mod tests {
         assert!(urls.iter().any(|value| {
             value
                 == "https://libraries.minecraft.net/net/neoforged/neoforge/21.1.0/neoforge-21.1.0.jar"
+        }));
+    }
+
+    #[test]
+    fn apache_library_url_prioritizes_maven_central() {
+        let urls = mirror_candidates_for_url(
+            "https://libraries.minecraft.net/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar",
+        );
+
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some(
+                "https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar",
+            )
+        );
+        assert!(urls.iter().any(|value| {
+            value
+                == "https://libraries.minecraft.net/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar"
         }));
     }
 }

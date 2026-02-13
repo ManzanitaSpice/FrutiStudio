@@ -4619,6 +4619,39 @@ fn classpath_has_loader_runtime(loader: &str, entries: &[String]) -> bool {
     }
 }
 
+async fn send_request_with_retry(
+    request: reqwest::RequestBuilder,
+    max_retries: u8,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let retries = max_retries.max(1);
+    let mut last_error: Option<reqwest::Error> = None;
+
+    for attempt in 1..=retries {
+        let Some(clone) = request.try_clone() else {
+            return request.send().await;
+        };
+
+        match clone.send().await {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                let message = error.to_string().to_ascii_lowercase();
+                let is_send_error = message.contains("error sending request");
+                if !is_send_error || attempt == retries {
+                    return Err(error);
+                }
+                last_error = Some(error);
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+
+    if let Some(error) = last_error {
+        Err(error)
+    } else {
+        request.send().await
+    }
+}
+
 async fn download_with_retries(
     urls: &[String],
     path: &Path,
@@ -4698,13 +4731,13 @@ async fn download_with_retries(
                 .unwrap_or(0);
             let mut request = client.get(url).header(
                 reqwest::header::USER_AGENT,
-                "Interface/1.0 (+https://github.com/fruti-studio)",
+                "FrutiStudioLauncher/1.0 (Rust/Tauri; +https://github.com/fruti-studio)",
             );
             if resume_from > 0 {
                 request = request.header(reqwest::header::RANGE, format!("bytes={resume_from}-"));
             }
 
-            match request.send().await {
+            match send_request_with_retry(request, 3).await {
                 Ok(response) => {
                     let status = response.status();
                     if !status.is_success() {
