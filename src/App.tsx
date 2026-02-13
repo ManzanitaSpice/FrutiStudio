@@ -93,6 +93,7 @@ const AppShell = () => {
     isFocusMode,
     setScale,
     setSection,
+    setFocus,
     toggleFocus,
     setTheme,
     theme,
@@ -215,9 +216,7 @@ const AppShell = () => {
           );
         }
         if (typeof config.focusMode === "boolean") {
-          if (config.focusMode !== isFocusMode) {
-            toggleFocus();
-          }
+          setFocus(config.focusMode);
         }
         if (config.customTheme) {
           Object.entries(config.customTheme).forEach(([key, value]) => {
@@ -264,7 +263,7 @@ const AppShell = () => {
       }
     };
     void runBoot();
-  }, [setScale, setTheme, setSection, isFocusMode, toggleFocus]);
+  }, [setScale, setTheme, setSection, setFocus]);
 
   useUiZoom({
     scale: uiScale,
