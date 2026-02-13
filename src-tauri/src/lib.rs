@@ -2391,7 +2391,11 @@ fn default_library_base_url(name: Option<&str>) -> &'static str {
     let mut parts = name.split(':');
     let group = parts.next().unwrap_or_default();
 
-    if group == "net.neoforged" || group.starts_with("net.neoforged.") {
+    if group == "net.neoforged"
+        || group.starts_with("net.neoforged.")
+        || group == "cpw.mods"
+        || group.starts_with("cpw.mods.")
+    {
         return "https://maven.neoforged.net/releases/";
     }
     if group == "net.minecraftforge" || group.starts_with("net.minecraftforge.") {
@@ -3623,17 +3627,44 @@ async fn resolve_latest_loader_version(
         };
 
         metadata_reachable = true;
-        let Ok(xml) = resp.text().await else {
+        let Ok(payload) = resp.text().await else {
             continue;
         };
-        let mut matches = xml
-            .match_indices("<version>")
-            .filter_map(|(start, _)| {
-                let rest = &xml[start + 9..];
-                let end = rest.find("</version>")?;
-                Some(rest[..end].to_string())
-            })
-            .collect::<Vec<_>>();
+        let mut matches =
+            if payload.trim_start().starts_with('{') || payload.trim_start().starts_with('[') {
+                serde_json::from_str::<Value>(&payload)
+                    .ok()
+                    .and_then(|json| {
+                        json.get("versions")
+                            .and_then(Value::as_array)
+                            .map(|versions| {
+                                versions
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::to_string)
+                                    .collect::<Vec<_>>()
+                            })
+                            .or_else(|| {
+                                json.as_array().map(|versions| {
+                                    versions
+                                        .iter()
+                                        .filter_map(Value::as_str)
+                                        .map(str::to_string)
+                                        .collect::<Vec<_>>()
+                                })
+                            })
+                    })
+                    .unwrap_or_default()
+            } else {
+                payload
+                    .match_indices("<version>")
+                    .filter_map(|(start, _)| {
+                        let rest = &payload[start + 9..];
+                        let end = rest.find("</version>")?;
+                        Some(rest[..end].to_string())
+                    })
+                    .collect::<Vec<_>>()
+            };
         matches.retain(|value| {
             if loader == "neoforge" {
                 return value.starts_with(&neoforge_channel);
