@@ -472,7 +472,7 @@ fn http_client_with_tuning(tuning: &NetworkTuning) -> Result<reqwest::Client, St
         .timeout(Duration::from_secs(tuning.request_timeout_secs.max(1)))
         .pool_max_idle_per_host(32)
         .tcp_keepalive(Duration::from_secs(30))
-        .user_agent("FrutiLauncher/1.0")
+        .user_agent("Interface/1.0")
         .build()
         .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))
 }
@@ -489,7 +489,7 @@ static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         )))
         .pool_max_idle_per_host(32)
         .tcp_keepalive(std::time::Duration::from_secs(30))
-        .user_agent("FrutiLauncher/1.0")
+        .user_agent("Interface/1.0")
         .build()
         .expect("No se pudo preparar cliente HTTP global")
 });
@@ -765,8 +765,8 @@ struct BinaryDownloadTask {
     label: String,
     validate_zip: bool,
 }
-const DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOficial";
-const LEGACY_DEFAULT_LAUNCHER_DIR_NAME: &str = "FrutiLauncherOfficial";
+const DEFAULT_LAUNCHER_DIR_NAME: &str = "InterfaceOficial";
+const LEGACY_DEFAULT_LAUNCHER_DIR_NAME: &str = "InterfaceOfficial";
 const BACKUP_PREFIX: &str = "config.json.";
 const BACKUP_SUFFIX: &str = ".bak";
 const MAX_CONFIG_BACKUPS: usize = 12;
@@ -3334,7 +3334,7 @@ async fn resolve_latest_loader_version(
         )))
         .build()
         .map_err(|error| format!("No se pudo inicializar cliente HTTP: {error}"))?;
-    let user_agent = "FrutiLauncher/1.0 (+https://github.com/fruti-studio)";
+    let user_agent = "Interface/1.0 (+https://github.com/fruti-studio)";
 
     if loader == "forge" {
         for promotions_url in download_routes::forge_promotions_urls() {
@@ -3473,7 +3473,7 @@ async fn resolve_latest_fabric_like_loader_version(
         .get(&endpoint)
         .header(
             reqwest::header::USER_AGENT,
-            "FrutiLauncher/1.0 (+https://github.com/fruti-studio)",
+            "Interface/1.0 (+https://github.com/fruti-studio)",
         )
         .send()
         .await
@@ -3854,13 +3854,13 @@ fn ensure_forge_preflight_files(
     if !launcher_profiles.exists() {
         let default_profile = serde_json::json!({
             "profiles": {
-                "FrutiLauncher": {
-                    "name": "FrutiLauncher",
+                "Interface": {
+                    "name": "Interface",
                     "type": "custom",
                     "lastVersionId": minecraft_version
                 }
             },
-            "selectedProfile": "FrutiLauncher",
+            "selectedProfile": "Interface",
             "clientToken": "00000000000000000000000000000000",
             "authenticationDatabase": {}
         });
@@ -4146,7 +4146,7 @@ fn ensure_writable_dir(path: &Path) -> Result<(), String> {
         .open(&probe_path)
         .map_err(|error| {
             format!(
-                "No hay permisos de escritura en {}: {error}. Cierra procesos Java/Minecraft/antivirus que usen la carpeta, ejecuta FrutiLauncher como administrador y revisa antivirus/Acceso controlado a carpetas.",
+                "No hay permisos de escritura en {}: {error}. Cierra procesos Java/Minecraft/antivirus que usen la carpeta, ejecuta Interface como administrador y revisa antivirus/Acceso controlado a carpetas.",
                 normalized_display_path(path)
             )
         })?;
@@ -4188,7 +4188,7 @@ fn is_windows_access_denied(error: &std::io::Error) -> bool {
 fn access_denied_hint(path: &Path, action: &str, error: &std::io::Error) -> String {
     if is_windows_access_denied(error) {
         return format!(
-            "Windows bloqueó {action} en {}: {error}. Cierra Java/Minecraft, ejecuta FrutiLauncher como administrador y revisa antivirus/Acceso controlado a carpetas.",
+            "Windows bloqueó {action} en {}: {error}. Cierra Java/Minecraft, ejecuta Interface como administrador y revisa antivirus/Acceso controlado a carpetas.",
             normalized_display_path(path)
         );
     }
@@ -4241,7 +4241,7 @@ fn ensure_launcher_elevation() -> Result<(), String> {
 
     relaunch.spawn().map_err(|error| {
         format!(
-            "No se pudo solicitar permisos de administrador para reiniciar FrutiLauncher: {error}"
+            "No se pudo solicitar permisos de administrador para reiniciar Interface: {error}"
         )
     })?;
 
@@ -4388,7 +4388,7 @@ async fn download_with_retries(
                 .unwrap_or(0);
             let mut request = client.get(url).header(
                 reqwest::header::USER_AGENT,
-                "FrutiLauncher/1.0 (+https://github.com/fruti-studio)",
+                "Interface/1.0 (+https://github.com/fruti-studio)",
             );
             if resume_from > 0 {
                 request = request.header(reqwest::header::RANGE, format!("bytes={resume_from}-"));
@@ -5501,7 +5501,7 @@ async fn fetch_json_with_fallback(urls: &[String], context: &str) -> Result<Valu
             "FRUTI_ENDPOINT_REQUEST_TIMEOUT_SECS",
             30,
         )))
-        .user_agent("FrutiLauncher/1.0")
+        .user_agent("Interface/1.0")
         .build()
         .map_err(|error| format!("No se pudo preparar cliente HTTP: {error}"))?;
     let mut last_error = None;
@@ -5721,7 +5721,7 @@ fn normalize_critical_game_args(
         plan.auth.access_token.clone()
     };
     let mut version_type =
-        extract_or_fallback_arg(&plan.game_args, "--versionType", "FrutiLauncher");
+        extract_or_fallback_arg(&plan.game_args, "--versionType", "Interface");
     let normalized_loader = loader_name
         .map(|value| value.trim().to_lowercase())
         .unwrap_or_else(|| "vanilla".to_string());
@@ -6602,7 +6602,7 @@ async fn bootstrap_instance_runtime(
             "natives_directory",
             natives_dir.to_string_lossy().to_string(),
         ),
-        ("launcher_name", "FrutiLauncher".to_string()),
+        ("launcher_name", "Interface".to_string()),
         ("launcher_version", "1.0.0".to_string()),
         ("classpath", classpath_value.clone()),
         ("classpath_separator", cp_separator.to_string()),
@@ -6614,7 +6614,7 @@ async fn bootstrap_instance_runtime(
         ("auth_uuid", auth_uuid.clone()),
         ("auth_access_token", auth_access_token.clone()),
         ("user_type", "offline".to_string()),
-        ("version_type", "FrutiLauncher".to_string()),
+        ("version_type", "Interface".to_string()),
         ("library_directory", library_directory.clone()),
     ]);
 
@@ -6666,7 +6666,7 @@ async fn bootstrap_instance_runtime(
         ("--uuid", uuid.clone()),
         ("--accessToken", "0".to_string()),
         ("--userType", "offline".to_string()),
-        ("--versionType", "FrutiLauncher".to_string()),
+        ("--versionType", "Interface".to_string()),
     ];
 
     for (key, value) in required_game_args {
@@ -6722,7 +6722,7 @@ async fn bootstrap_instance_runtime(
         },
         env: HashMap::from([(
             "MINECRAFT_LAUNCHER_BRAND".to_string(),
-            "FrutiLauncher".to_string(),
+            "Interface".to_string(),
         )]),
     };
 
@@ -8430,6 +8430,22 @@ async fn prepare_instance_runtime(
     Ok((instance_root, instance))
 }
 
+fn explain_validation_errors(errors: &[String]) -> String {
+    let friendly = errors
+        .iter()
+        .map(|error| {
+            if error.contains("forge_bootstraplauncher_jar_presente") {
+                "Falta el runtime BootstrapLauncher de Forge/NeoForge (forge_bootstraplauncher_jar_presente). Reinstala el loader o ejecuta reparación completa.".to_string()
+            } else if error.contains("forge_bootstraplauncher_en_classpath") {
+                "BootstrapLauncher existe pero no está incluido en el classpath activo (forge_bootstraplauncher_en_classpath).".to_string()
+            } else {
+                error.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    friendly.join("; ")
+}
+
 fn parse_repair_mode(value: Option<String>) -> RepairMode {
     match value
         .unwrap_or_else(|| "inteligente".to_string())
@@ -8480,12 +8496,24 @@ async fn repair_instance(
     )
     .await?;
 
-    let launch_plan = read_launch_plan(&instance_root)?;
-    let validation = validate_launch_plan(&instance_root, &launch_plan);
+    let mut launch_plan = read_launch_plan(&instance_root)?;
+    let mut validation = validate_launch_plan(&instance_root, &launch_plan);
+    if !validation.ok
+        && validation
+            .errors
+            .iter()
+            .any(|error| error.contains("forge_bootstraplauncher_jar_presente"))
+    {
+        bootstrap_instance_runtime(&app, &instance_root, &instance).await?;
+        let _ = build_launch_command(&app, &instance_root, &instance)?;
+        launch_plan = read_launch_plan(&instance_root)?;
+        validation = validate_launch_plan(&instance_root, &launch_plan);
+    }
+
     if !validation.ok {
         return Err(format!(
             "La reparación terminó con validaciones fallidas: {}",
-            validation.errors.join("; ")
+            explain_validation_errors(&validation.errors)
         ));
     }
 
@@ -9447,7 +9475,7 @@ async fn create_instance_shortcut(
 
     #[cfg(target_os = "windows")]
     let (shortcut_path, content) = {
-        let path = desktop.join(format!("FrutiLauncher - {id}.bat"));
+        let path = desktop.join(format!("Interface - {id}.bat"));
         let data = format!(
             "@echo off\r\nstart \"\" \"{}\" --instanceId={}\r\n",
             exe.display(),
@@ -9458,16 +9486,16 @@ async fn create_instance_shortcut(
 
     #[cfg(target_os = "macos")]
     let (shortcut_path, content) = {
-        let path = desktop.join(format!("FrutiLauncher - {id}.command"));
+        let path = desktop.join(format!("Interface - {id}.command"));
         let data = format!("#!/bin/bash\n\"{}\" --instanceId={}\n", exe.display(), id);
         (path, data)
     };
 
     #[cfg(all(unix, not(target_os = "macos")))]
     let (shortcut_path, content) = {
-        let path = desktop.join(format!("FrutiLauncher - {id}.desktop"));
+        let path = desktop.join(format!("Interface - {id}.desktop"));
         let data = format!(
-            "[Desktop Entry]\nType=Application\nName=FrutiLauncher ({id})\nExec=\"{}\" --instanceId={}\nTerminal=false\n",
+            "[Desktop Entry]\nType=Application\nName=Interface ({id})\nExec=\"{}\" --instanceId={}\nTerminal=false\n",
             exe.display(),
             id
         );
@@ -9812,7 +9840,7 @@ mod tests {
             },
             env: HashMap::from([(
                 "MINECRAFT_LAUNCHER_BRAND".to_string(),
-                "FrutiLauncher".to_string(),
+                "Interface".to_string(),
             )]),
         };
 

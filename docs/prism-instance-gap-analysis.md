@@ -1,6 +1,6 @@
 # Análisis de brechas para instancias funcionales (referencia PrismLauncher)
 
-Este documento resume qué necesita un launcher para que una instancia de Minecraft sea **ejecutable de extremo a extremo** y cómo queda cubierto en FrutiLauncher.
+Este documento resume qué necesita un launcher para que una instancia de Minecraft sea **ejecutable de extremo a extremo** y cómo queda cubierto en Interface.
 
 ## Flujo mínimo para una instancia funcional
 
@@ -14,7 +14,7 @@ Este documento resume qué necesita un launcher para que una instancia de Minecr
 8. Validación preflight de artefactos críticos antes de ejecutar.
 9. Lanzamiento del proceso Java con logs stdout/stderr por instancia.
 
-## Estado en FrutiLauncher (implementado)
+## Estado en Interface (implementado)
 
 - **Bootstrap completo en backend Tauri** (`bootstrap_instance_runtime`): descarga versión, assets, librerías y nativos.
 - **Preflight obligatorio** en `launch_instance`: valida `launch-plan` y existencia de artefactos antes de arrancar.
@@ -35,4 +35,4 @@ En el ecosistema Java Edition, el requisito real para jugar online es obtener to
 1. Integrando autenticación MSA en el propio launcher (flujo recomendado).
 2. O usando sesiones obtenidas por el launcher oficial (menos robusto y más frágil).
 
-FrutiLauncher ya pasa `username/uuid/accessToken/userType` al plan de lanzamiento; el siguiente paso de producto es endurecer el flujo MSA para que siempre haya sesión válida cuando se quiera jugar online.
+Interface ya pasa `username/uuid/accessToken/userType` al plan de lanzamiento; el siguiente paso de producto es endurecer el flujo MSA para que siempre haya sesión válida cuando se quiera jugar online.

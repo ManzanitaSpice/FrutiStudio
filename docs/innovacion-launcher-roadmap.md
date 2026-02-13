@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Convertir Fruti Launcher en una plataforma **predictiva y auto-reparable** sin reescribir el core ni introducir regresiones en los flujos actuales de instancias/mods/loaders.
+Convertir Interface en una plataforma **predictiva y auto-reparable** sin reescribir el core ni introducir regresiones en los flujos actuales de instancias/mods/loaders.
 
 Principio guía: **extender por capas**, activando cada capacidad con feature flags y observabilidad antes de habilitarla por defecto.
 
@@ -211,7 +211,7 @@ Razonamiento: primero maximizar valor inmediato de soporte/estabilidad, luego in
 
 ## Resultado esperado
 
-Con este plan, Fruti Launcher pasa de “gestor de mods e instancias” a **sistema inteligente de operación Minecraft**, con foco en:
+Con este plan, Interface pasa de “gestor de mods e instancias” a **sistema inteligente de operación Minecraft**, con foco en:
 
 - Menos tiempo en depurar crashes.
 - Menos instalaciones rotas por incompatibilidad.

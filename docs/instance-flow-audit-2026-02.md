@@ -1,4 +1,4 @@
-# Auditoría integral del flujo de instancias (FrutiLauncher)
+# Auditoría integral del flujo de instancias (Interface)
 
 ## Resumen ejecutivo
 
