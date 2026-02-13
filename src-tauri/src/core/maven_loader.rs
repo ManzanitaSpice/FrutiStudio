@@ -341,7 +341,7 @@ pub async fn resolve_transitive_dependencies(
             {
                 continue;
             }
-            let Some(version) = dep.version.or_else(|| {
+            let Some(version) = dep.version.clone().or_else(|| {
                 parsed
                     .managed_versions
                     .get(&dep.key_without_version())
