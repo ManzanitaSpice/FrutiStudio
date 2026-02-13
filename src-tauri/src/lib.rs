@@ -55,8 +55,8 @@ use crate::core::launcher::{
     StartupFailureClassification, ValidationReport,
 };
 use crate::core::launcher_discovery::{
-    detect_loader_from_version_json, detect_minecraft_launcher_installations,
-    expected_main_class_for_loader,
+    accepted_main_classes_for_loader, detect_loader_from_version_json,
+    detect_minecraft_launcher_installations,
 };
 use crate::core::loader_normalizer::normalize_loader_profile as normalize_loader_profile_core;
 use crate::core::maven_loader::{
@@ -1590,7 +1590,7 @@ fn startup_crash_hint(runtime_lines: &[String]) -> Option<String> {
             natives + loader), 2) si persiste, borra versions/<mc_version> en esa instancia, 3) \
             reinstala Fabric/Quilt con la versión exacta de Minecraft, 4) prueba arranque sin mods \
             para aislar incompatibilidades. Verifica además que la main class sea \
-            net.fabricmc.loader.launch.knot.KnotClient y revisa señales de jar inválido (tamaño/hash \
+            net.fabricmc.loader.impl.launch.knot.KnotClient (o net.fabricmc.loader.launch.knot.KnotClient en loaders antiguos) y revisa señales de jar inválido (tamaño/hash \
             SHA1 o ausencia de clases cliente válidas)."
                 .to_string(),
         );
@@ -1685,10 +1685,11 @@ fn classify_loader_failure(
     }
 
     let joined = lines.join("\n").to_lowercase();
-    let expected_main = expected_main_class_for_loader(&launch_plan.loader);
-    let main_class_matches_loader = expected_main
-        .map(|expected| launch_plan.main_class.eq_ignore_ascii_case(expected))
-        .unwrap_or(true);
+    let accepted_main_classes = accepted_main_classes_for_loader(&launch_plan.loader);
+    let main_class_matches_loader = accepted_main_classes.is_empty()
+        || accepted_main_classes
+            .iter()
+            .any(|expected| launch_plan.main_class.eq_ignore_ascii_case(expected));
     if !main_class_matches_loader
         || (joined.contains("knotclient") && joined.contains("could not find or load main class"))
         || has_forge_bootstrap_classpath_failure(&joined)
@@ -3301,14 +3302,16 @@ fn instance_runtime_exists(instance_root: &Path, loader: &str) -> bool {
         }
     }
 
-    expected_main_class_for_loader(loader)
-        .map(|expected| {
-            runtime_json
-                .get("mainClass")
-                .and_then(Value::as_str)
-                .is_some_and(|main_class| main_class.trim() == expected)
-        })
-        .unwrap_or(true)
+    let runtime_main_class = runtime_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    let accepted_main_classes = accepted_main_classes_for_loader(loader);
+    accepted_main_classes.is_empty()
+        || accepted_main_classes
+            .iter()
+            .any(|expected| runtime_main_class.eq_ignore_ascii_case(expected))
 }
 
 fn library_target_path(minecraft_root: &Path, library: &Value) -> Option<PathBuf> {
@@ -7512,9 +7515,11 @@ fn validate_launch_plan(instance_root: &Path, plan: &LaunchPlan) -> ValidationRe
             .any(|entry| entry.replace('\\', "/").to_lowercase() == normalized_expected)
     });
 
-    let main_class_matches_loader = expected_main_class_for_loader(plan.loader.as_str())
-        .map(|expected| plan.main_class == expected)
-        .unwrap_or(true);
+    let accepted_main_classes = accepted_main_classes_for_loader(plan.loader.as_str());
+    let main_class_matches_loader = accepted_main_classes.is_empty()
+        || accepted_main_classes
+            .iter()
+            .any(|expected| plan.main_class.eq_ignore_ascii_case(expected));
 
     let launch_mc_version = extract_or_fallback_arg(&plan.game_args, "--version", "");
     let (mods_compatible_with_loader, mod_compatibility_issues) = evaluate_mod_loader_compatibility(
