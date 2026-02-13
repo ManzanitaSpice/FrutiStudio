@@ -12,7 +12,6 @@ import {
   onAccountsChanged,
   setActiveAccount,
 } from "../services/accountService";
-import { AccountManagerDialog } from "./AccountManagerDialog";
 
 export type SectionKey =
   | "inicio"
@@ -62,7 +61,6 @@ export const Toolbar = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
-  const [showAccountManager, setShowAccountManager] = useState(false);
   const [accounts, setAccounts] = useState(loadAccountStore().accounts);
   const [activeAccountId, setActiveAccountId] = useState(
     loadAccountStore().activeAccountId,
@@ -350,7 +348,7 @@ export const Toolbar = ({
                     className="topbar__account-item"
                     role="menuitem"
                     onClick={() => {
-                      setShowAccountManager(true);
+                      onSelect("configuracion");
                       setMenuOpen(false);
                     }}
                   >
@@ -361,7 +359,7 @@ export const Toolbar = ({
                     className="topbar__account-item"
                     role="menuitem"
                     onClick={() => {
-                      setShowAccountManager(true);
+                      onSelect("configuracion");
                       setMenuOpen(false);
                     }}
                   >
@@ -384,10 +382,6 @@ export const Toolbar = ({
           </div>
         </div>
       )}
-      <AccountManagerDialog
-        open={showAccountManager}
-        onClose={() => setShowAccountManager(false)}
-      />
     </header>
   );
 };
