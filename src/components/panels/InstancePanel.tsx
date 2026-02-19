@@ -57,6 +57,7 @@ interface InstancePanelProps {
   onDeleteInstance: (id: string) => void;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
+  onCreatorModeChange?: (isCreatorOpen: boolean) => void;
 }
 
 const editorSections = [
@@ -257,6 +258,7 @@ export const InstancePanel = ({
   onDeleteInstance,
   isFocusMode,
   onToggleFocusMode,
+  onCreatorModeChange,
 }: InstancePanelProps) => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
@@ -3345,6 +3347,11 @@ export const InstancePanel = ({
     setCreatorOpen(false);
   };
 
+  useEffect(() => {
+    onCreatorModeChange?.(creatorOpen);
+    return () => onCreatorModeChange?.(false);
+  }, [creatorOpen, onCreatorModeChange]);
+
   const isWorkspaceView =
     creatorOpen ||
     launchChecklistOpen ||
@@ -3571,9 +3578,16 @@ export const InstancePanel = ({
                           </div>
                         ) : null}
                         <div className="instance-card__meta">
-                          <span>{instance.mods} mods</span>
-                          <span>{formatRelativeTime(instance.lastPlayed)}</span>
-                          <span>{formatPlaytime(instance.playtime)}</span>
+                          <span>Versión: {instance.version}</span>
+                          <span>Loader: {instance.loaderName}</span>
+                        </div>
+                        <div className="instance-card__extra" aria-hidden="true">
+                          <span>Peso: {Math.max(220, instance.mods * 14)} MB</span>
+                          <span>Creada: {instance.sourceLauncher ? "Importada" : "Local"}</span>
+                          <span>Última ejecución: {formatRelativeTime(instance.lastPlayed)}</span>
+                          <span>Autor: {instance.sourceLauncher ?? "Usuario local"}</span>
+                          <span>Mods instalados: {instance.mods}</span>
+                          <span>Tiempo jugado: {formatPlaytime(instance.playtime)}</span>
                         </div>
                       </div>
                     </article>
