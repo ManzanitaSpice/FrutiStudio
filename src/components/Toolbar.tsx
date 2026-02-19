@@ -28,6 +28,7 @@ interface ToolbarProps {
   showGlobalSearch: boolean;
   flags: FeatureFlags;
   isFocusMode: boolean;
+  hideMainRow?: boolean;
   onBack: () => void;
   onForward: () => void;
   canGoBack: boolean;
@@ -51,6 +52,7 @@ export const Toolbar = ({
   showGlobalSearch,
   flags,
   isFocusMode,
+  hideMainRow = false,
   onBack,
   onForward,
   canGoBack,
@@ -191,7 +193,7 @@ export const Toolbar = ({
               onClick={onBack}
               disabled={!canGoBack}
             >
-              ←
+              <span aria-hidden="true">⟵</span>
             </button>
             <button
               type="button"
@@ -199,16 +201,16 @@ export const Toolbar = ({
               onClick={onForward}
               disabled={!canGoForward}
             >
-              →
+              <span aria-hidden="true">⟶</span>
             </button>
           </div>
         </div>
-        <div className="topbar__brand" aria-label="Marca Interface">
+        <div className="topbar__brand" aria-label="Marca INTERFACE">
           <span className="topbar__brand-logo" aria-hidden="true" />
-          <h1 className="topbar__title" aria-label="Interface">Interface</h1>
+          <h1 className="topbar__title" aria-label="INTERFACE">INTERFACE</h1>
         </div>
       </div>
-      {!isFocusMode && (
+      {!isFocusMode && !hideMainRow && (
         <div className="topbar__row topbar__row--main">
           <nav className="topbar__nav" aria-label="Navegación principal">
             {navItems

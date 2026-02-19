@@ -6669,3 +6669,108 @@ select:focus-visible {
     max-height: 220px;
   }
 }
+
+/* UI refresh: INTERFACE palette + static page scrolling behavior */
+:root,
+:root[data-theme="default"],
+:root[data-theme="dark"] {
+  --color-bg: #07090d;
+  --color-surface: #10151f;
+  --color-surface-strong: #171d29;
+  --color-border: #2b3446;
+  --color-text: #eaf0ff;
+  --color-muted: #9ca8bf;
+  --color-accent: #4da3ff;
+}
+
+.topbar {
+  border-radius: 18px;
+  background: linear-gradient(180deg, #141a26, #111722);
+  border: 1px solid #273246;
+}
+
+.topbar__brand-logo {
+  border-radius: 10px;
+  border: 1px solid #8a5b16;
+  background: linear-gradient(160deg, #ffbf3d, #ff9800);
+}
+
+.topbar__title {
+  letter-spacing: 0.14em;
+  transform: none;
+}
+
+.topbar__nav-controls button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 1rem;
+  display: inline-grid;
+  place-items: center;
+}
+
+.panel-view {
+  overflow: hidden;
+}
+
+.instances-layout__grid,
+.instance-menu__scroll,
+.sidebar__instances-scroll {
+  scrollbar-width: thin;
+}
+
+.instance-menu {
+  top: -6px;
+}
+
+.instance-card {
+  min-height: 300px;
+  display: grid;
+  grid-template-rows: 170px 1fr;
+  position: relative;
+}
+
+.instance-card__cover {
+  height: 170px;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.instance-card__cover-logo {
+  width: 88px;
+  height: 88px;
+  inset: 18px auto auto 18px;
+}
+
+.instance-card__body {
+  padding: 14px;
+  gap: 10px;
+}
+
+.instance-card__extra {
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  display: grid;
+  gap: 4px;
+  font-size: 0.74rem;
+  color: var(--color-muted);
+  transition: opacity 160ms ease;
+}
+
+.instance-card:hover .instance-card__extra,
+.instance-card:focus-visible .instance-card__extra {
+  animation: instance-extra-reveal 0.2s ease 2.2s forwards;
+}
+
+@keyframes instance-extra-reveal {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 180px;
+  }
+}

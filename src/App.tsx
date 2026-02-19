@@ -108,6 +108,7 @@ const AppShell = () => {
   const [showVerificationWindow, setShowVerificationWindow] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [globalSearchToken, setGlobalSearchToken] = useState(0);
+  const [hideToolbarMainRow, setHideToolbarMainRow] = useState(false);
   const [bootStep, setBootStep] = useState(0);
   const [bootStepProgress, setBootStepProgress] = useState<number[]>(() =>
     loadingSteps.map((_, index) => (index === 0 ? 15 : 0)),
@@ -439,6 +440,7 @@ const AppShell = () => {
           }
           flags={featureFlags}
           isFocusMode={isFocusMode}
+          hideMainRow={hideToolbarMainRow}
           onBack={goBack}
           onForward={goForward}
           canGoBack={canGoBack}
@@ -465,6 +467,7 @@ const AppShell = () => {
                   onDeleteInstance={handleDeleteInstance}
                   isFocusMode={isFocusMode}
                   onToggleFocusMode={toggleFocus}
+                  onCreatorModeChange={setHideToolbarMainRow}
                 />
               )}
               {activeSection === "features" && featureFlags.news && <FeaturesPanel />}
